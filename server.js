@@ -320,6 +320,12 @@ app.get("/api/interno/sessao", async (req, res, next) => {
     );
     if (!usuario) return res.status(401).json({ erro: "Sessão inválida" });
 
+    // Senha provisoria nao abre modulo. A Fachada trata 401 como "volte ao
+    // inicio", e la a tela obriga a definir uma senha antes de seguir.
+    if (usuario.senha_temp) {
+      return res.status(401).json({ erro: "Defina uma senha antes de acessar os módulos", senhaTemp: true });
+    }
+
     const moduloId = String(req.query.modulo || "");
     if (!moduloId) {
       return res.json({ id: usuario.id, nome: usuario.nome, email: usuario.email });

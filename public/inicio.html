@@ -31,6 +31,10 @@
   .modulo h3 { font-size: 16px; margin-bottom: 4px; color: var(--accent); }
   .modulo p { margin: 0 0 12px; font-size: 13.5px; color: var(--texto-fraco); }
   .vazio { padding: 34px; text-align: center; color: var(--texto-fraco); }
+  .trocaSenha { max-width: 420px; padding: 28px; }
+  .trocaSenha h3 { font-size: 18px; margin-bottom: 6px; }
+  .trocaSenha .dica { color: var(--texto-fraco); font-size: 14px; margin: 0 0 20px; }
+  .trocaSenha .btn { width: 100%; }
 </style>
 </head>
 <body>
@@ -62,6 +66,11 @@ async function carregar() {
   var grade = document.getElementById('grade');
   var sub = document.getElementById('sub');
 
+  // Quem entrou com senha provisoria nao passa daqui: os modulos so aparecem
+  // depois que a pessoa define uma senha propria. O Core tambem barra do lado
+  // do servidor, entao pular esta tela pela URL nao adianta.
+  if (d.usuario.senhaTemp) return exigirNovaSenha();
+
   if (!d.modulos.length) {
     sub.textContent = '';
     grade.innerHTML = '<div class="card vazio">Você ainda não tem nenhum módulo liberado.<br>' +
@@ -85,6 +94,54 @@ async function carregar() {
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+function exigirNovaSenha() {
+  document.querySelector('.titulo').textContent = 'Defina sua senha';
+  document.getElementById('sub').textContent =
+    'Você entrou com uma senha provisória. Escolha uma senha sua para continuar.';
+  document.getElementById('grade').innerHTML =
+    '<div class="card trocaSenha">' +
+      '<div id="avisoSenha"></div>' +
+      '<label class="campo"><span>Senha provisória</span>' +
+        '<input type="password" id="sAtual" autocomplete="current-password"></label>' +
+      '<label class="campo"><span>Nova senha</span>' +
+        '<input type="password" id="sNova" autocomplete="new-password" placeholder="mínimo 8 caracteres"></label>' +
+      '<label class="campo"><span>Repita a nova senha</span>' +
+        '<input type="password" id="sNova2" autocomplete="new-password"></label>' +
+      '<button class="btn" id="btnSenha">Salvar e continuar</button>' +
+    '</div>';
+
+  document.getElementById('btnSenha').addEventListener('click', async function () {
+    var btn = this;
+    var aviso = document.getElementById('avisoSenha');
+    var nova = document.getElementById('sNova').value;
+    aviso.innerHTML = '';
+
+    if (nova.length < 8) {
+      aviso.innerHTML = '<div class="aviso aviso-erro">A nova senha precisa ter ao menos 8 caracteres.</div>';
+      return;
+    }
+    if (nova !== document.getElementById('sNova2').value) {
+      aviso.innerHTML = '<div class="aviso aviso-erro">As duas senhas não conferem.</div>';
+      return;
+    }
+
+    btn.disabled = true;
+    try {
+      var r = await fetch('/api/senha', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ atual: document.getElementById('sAtual').value, nova: nova })
+      });
+      var dados = await r.json().catch(function () { return {}; });
+      if (!r.ok) throw new Error(dados.erro || 'Não foi possível salvar');
+      location.reload();
+    } catch (e) {
+      aviso.innerHTML = '<div class="aviso aviso-erro">' + esc(e.message) + '</div>';
+      btn.disabled = false;
+    }
   });
 }
 

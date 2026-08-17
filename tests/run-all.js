@@ -12,6 +12,7 @@ const path = require("path");
 const testes = [
   "permissao.test.js",
   "dois-fatores.test.js",
+  "senha-provisoria.test.js",
   "fachada.test.js",
   "modulo-operacional.test.js",
 ];
