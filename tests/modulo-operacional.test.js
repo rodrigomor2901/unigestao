@@ -127,6 +127,18 @@ async function portaLivre(porta) {
   const css = await fetch(F + "/operacional/styles.css", C(cco.token));
   ok(css.status === 200, "styles.css responde pela Fachada");
 
+  console.log("\n=== IMAGENS GERADAS EM TEMPO DE EXECUCAO ===");
+  // O app.js do modulo monta <img src="/assets/uniseter-logo.png"> no navegador.
+  // Esse trecho nunca passa pela reescrita do HTML, entao o shim conserta a
+  // falha de carregamento acrescentando o prefixo. Aqui garantimos as duas
+  // pontas: o caminho prefixado existe, e o shim ainda sabe corrigir.
+  const logo = await fetch(F + "/operacional/assets/uniseter-logo.png", C(cco.token));
+  ok(logo.status === 200, "imagem responde no caminho com prefixo");
+  ok((logo.headers.get("content-type") || "").includes("image"), "servida como imagem");
+  const shim = await (await fetch(F + "/operacional/__ug/shim.js", C(cco.token))).text();
+  ok(shim.includes("addEventListener('error'"), "shim mantem o conserto de imagem quebrada");
+  ok(shim.includes("data-ug-tentado"), "e tenta apenas uma vez por elemento");
+
   console.log("\n=== A IDENTIDADE CHEGA COM O PAPEL DO CORE ===");
   const me = await fetch(F + "/operacional/api/me", C(cco.token));
   const dados = await me.json();

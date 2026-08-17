@@ -141,6 +141,23 @@ document.addEventListener('click',function(ev){
     .catch(function(){})
     .then(function(){location.href='/'});
 });
+
+// Imagens que o modulo monta em tempo de execucao escapam da reescrita feita
+// no HTML: quando o proprio JS gera <img src="/assets/logo.png">, esse trecho
+// nunca passou pela Fachada, e o navegador vai buscar na raiz do dominio — no
+// Core — onde o arquivo nao existe. Resultado: logo quebrado.
+// Corrigido no momento da falha, uma tentativa por elemento.
+// A fase de captura e obrigatoria: erro de carregamento de recurso nao borbulha.
+document.addEventListener('error',function(ev){
+  var el=ev.target;
+  if(!el||el.tagName!=='IMG')return;
+  var bruto=el.getAttribute('src')||'';
+  if(bruto.charAt(0)!=='/'||bruto.indexOf('//')===0)return;
+  if(bruto.indexOf(BASE+'/')===0)return;
+  if(el.getAttribute('data-ug-tentado'))return;
+  el.setAttribute('data-ug-tentado','1');
+  el.setAttribute('src',BASE+bruto);
+},true);
 })();`;
 
 const BARRA_CSS = `#ug-barra{position:sticky;top:0;z-index:9999;display:flex;align-items:center;gap:14px;
