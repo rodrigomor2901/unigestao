@@ -142,6 +142,18 @@ function escapeHtml(s) {
   );
 }
 
+// Acrescenta o prefixo do modulo aos caminhos absolutos de src/href/action.
+//   <script src="/app.js">  ->  <script src="/operacional/app.js">
+// Deixa em paz o que ja esta prefixado e os enderecos externos ("//cdn...").
+function prefixarCaminhos(html, base) {
+  const jaPrefixado = new RegExp(`^${base}(/|$)`);
+  return html.replace(
+    /(\s(?:src|href|action)\s*=\s*)(["'])(\/(?!\/)[^"']*)\2/gi,
+    (inteiro, atributo, aspas, caminho) =>
+      jaPrefixado.test(caminho) ? inteiro : `${atributo}${aspas}${base}${caminho}${aspas}`
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Proxy
 // ---------------------------------------------------------------------------
@@ -182,11 +194,26 @@ function encaminhar(req, res, destino, caminho, extras, injetar) {
         return r.pipe(res);
       }
 
-      // HTML: acumula para injetar o shim e a barra superior
+      // HTML: acumula para reescrever os caminhos e injetar o shim e a barra
       const pedacos = [];
       r.on("data", (d) => pedacos.push(d));
       r.on("end", () => {
         let html = Buffer.concat(pedacos).toString("utf8");
+
+        // Os modulos referenciam os proprios arquivos pela raiz:
+        //   <script src="/app.js">   <link href="/styles.css">
+        // Servidos sob /operacional, o navegador buscaria isso na raiz do
+        // dominio — ou seja, no Core — e a pagina abriria em branco.
+        //
+        // O shim NAO resolve isto: ele intercepta fetch e XHR, mas src e href
+        // sao resolvidos pelo navegador ao ler o HTML, antes de qualquer JS.
+        // Por isso o caminho precisa ser reescrito aqui.
+        //
+        // Feito ANTES de injetar o bloco proprio, senao os links da barra
+        // ("Todos os modulos", "Sair") seriam prefixados tambem — e eles
+        // apontam para a raiz de proposito.
+        html = prefixarCaminhos(html, injetar.base);
+
         const bloco = shim(injetar.base, injetar.usuario);
         if (/<body[^>]*>/i.test(html)) {
           html = html.replace(/<body[^>]*>/i, (m) => m + bloco);

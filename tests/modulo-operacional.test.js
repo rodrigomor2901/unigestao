@@ -99,6 +99,21 @@ async function esperar(url, tentativas = 40) {
   ok(html.includes("window.UNIGESTAO"), "shim injetado na pagina do modulo");
   ok(html.includes('"/operacional"'), "shim com o prefixo certo");
 
+  // Sem isto a pagina abre em BRANCO: o navegador buscaria /app.js na raiz do
+  // dominio (o Core) em vez de no modulo. O shim nao cobre src/href — eles sao
+  // resolvidos na leitura do HTML, antes de qualquer JS rodar.
+  ok(/src=["']\/operacional\/app\.js/.test(html), "<script src> reescrito para dentro do modulo");
+  ok(/href=["']\/operacional\/styles\.css/.test(html), "<link href> reescrito para dentro do modulo");
+  ok(!/src=["']\/app\.js/.test(html), "nao sobrou caminho apontando para a raiz");
+
+  console.log("\n=== OS ARQUIVOS DO MODULO SAO SERVIDOS ===");
+  const js = await fetch(F + "/operacional/app.js", C(cco.token));
+  ok(js.status === 200, "app.js responde pela Fachada");
+  const corpoJs = await js.text();
+  ok(corpoJs.includes("window.UNIGESTAO"), "app.js e o do modulo, ja ciente do UniGestao");
+  const css = await fetch(F + "/operacional/styles.css", C(cco.token));
+  ok(css.status === 200, "styles.css responde pela Fachada");
+
   console.log("\n=== A IDENTIDADE CHEGA COM O PAPEL DO CORE ===");
   const me = await fetch(F + "/operacional/api/me", C(cco.token));
   const dados = await me.json();

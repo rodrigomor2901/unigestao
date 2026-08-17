@@ -31,7 +31,14 @@ const core = fork(path.join(__dirname, "server.js"), [], {
 });
 
 const fachada = fork(path.join(__dirname, "fachada", "server.js"), [], {
-  env: { ...env, PORT: "8080", URL_CORE: "http://localhost:3000" },
+  env: {
+    ...env,
+    PORT: "8080",
+    URL_CORE: "http://localhost:3000",
+    // Em desenvolvimento espera-se o Lancamento de Extra na 3200. Em producao
+    // quem manda e a variavel do Railway, definida no servico da Fachada.
+    URL_OPERACIONAL: process.env.URL_OPERACIONAL || "http://localhost:3200",
+  },
   stdio: "inherit",
 });
 
