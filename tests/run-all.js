@@ -7,7 +7,14 @@
 const { spawnSync } = require("child_process");
 const path = require("path");
 
-const testes = ["permissao.test.js", "dois-fatores.test.js", "fachada.test.js"];
+// modulo-operacional.test.js sobe o Lancamento de Extra de verdade e espera o
+// cache de sessao da Fachada expirar (30s), entao demora mais que os outros.
+const testes = [
+  "permissao.test.js",
+  "dois-fatores.test.js",
+  "fachada.test.js",
+  "modulo-operacional.test.js",
+];
 let falhou = false;
 
 for (const t of testes) {
