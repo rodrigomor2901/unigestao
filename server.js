@@ -267,7 +267,8 @@ async function modulosDoUsuario(usuario) {
   // Super admin enxerga todos os modulos ativos, sempre como 'admin'
   if (usuario.super_admin) {
     return disponiveis.map((m) => ({
-      id: m.id, nome: m.nome, descricao: m.descricao, base: m.base, icone: m.icone, papel: "admin",
+      id: m.id, nome: m.nome, descricao: m.descricao, base: m.base, icone: m.icone,
+      papel: modulos.papelDeAdmin(m.id),
     }));
   }
   const r = await db.query("SELECT modulo, papel FROM usuario_modulos WHERE usuario_id = $1", [
@@ -333,9 +334,12 @@ app.get("/api/interno/sessao", async (req, res, next) => {
     if (!modulos.existe(moduloId)) return res.status(404).json({ erro: "Módulo desconhecido" });
 
     if (usuario.super_admin) {
+      // Cada modulo batiza o proprio papel de administrador. Mandar "admin"
+      // para todos fazia o CRM — que chama de "administrador" — recusar o
+      // administrador geral na propria tela de usuarios.
       return res.json({
         id: usuario.id, nome: usuario.nome, email: usuario.email,
-        papel: "admin", superAdmin: true,
+        papel: modulos.papelDeAdmin(moduloId), superAdmin: true,
       });
     }
 

@@ -13,6 +13,7 @@ const testes = [
   "permissao.test.js",
   "dois-fatores.test.js",
   "senha-provisoria.test.js",
+  "papel-admin.test.js",
   "fachada.test.js",
   "modulo-operacional.test.js",
 ];

@@ -12,9 +12,14 @@
 // Para adicionar um papel novo a um modulo, basta acrescentar a palavra na
 // lista `papeis`: ela passa a aparecer no Admin Geral. Nada mais muda.
 //
-// `base`     — caminho publico pelo qual a Fachada expoe o modulo
-// `interno`  — endereco na rede privada do Railway (so a Fachada usa)
-// `ativo`    — false = ainda nao plugado; some do menu e do Admin Geral
+// `base`       — caminho publico pelo qual a Fachada expoe o modulo
+// `interno`    — endereco na rede privada do Railway (so a Fachada usa)
+// `ativo`      — false = ainda nao plugado; some do menu e do Admin Geral
+// `papelAdmin` — como ESTE modulo chama o papel de administrador. O Core usa
+//                isso para o administrador geral, que enxerga todos os modulos
+//                com poder total. Nao da para supor "admin": o CRM chama de
+//                "administrador", e mandar o nome errado faz o modulo recusar
+//                o proprio administrador geral.
 // ============================================================================
 
 const MODULOS = {
@@ -27,6 +32,7 @@ const MODULOS = {
     // Confere com ROLE_ACCESS em server.js do Lancamento de Extra (linha ~105).
     // `gestor` tem o mesmo alcance de `cco` e `admin`: enxerga todas as filas.
     papeis: ["admin", "gestor", "cco", "supervisor", "comercial"],
+    papelAdmin: "admin",
     ativo: true,
   },
   documentos: {
@@ -36,6 +42,7 @@ const MODULOS = {
     interno: process.env.URL_DOCUMENTOS || "",
     icone: "folder",
     papeis: ["admin", "consulta"],
+    papelAdmin: "admin",
     ativo: false,
   },
   eventos: {
@@ -45,6 +52,7 @@ const MODULOS = {
     interno: process.env.URL_EVENTOS || "",
     icone: "calendar",
     papeis: ["admin", "gestao", "proposta"],
+    papelAdmin: "admin",
     ativo: false,
   },
   tarefas: {
@@ -57,6 +65,7 @@ const MODULOS = {
       "admin", "supervisor", "coordenador", "gerente", "diretoria",
       "executor", "visualizador", "recepcao", "recepcao_tao", "solicitante",
     ],
+    papelAdmin: "admin",
     ativo: false,
   },
   crm: {
@@ -71,6 +80,7 @@ const MODULOS = {
       "administrador", "diretoria", "gestor", "gestor_bonus", "financeiro",
       "juridico", "propostas", "comercial_interno", "vendedor",
     ],
+    papelAdmin: "administrador",
     ativo: true,
   },
   precificacao: {
@@ -80,6 +90,7 @@ const MODULOS = {
     interno: process.env.URL_PRECIFICACAO || "",
     icone: "calculator",
     papeis: ["admin", "editor", "consulta"],
+    papelAdmin: "admin",
     ativo: false,
   },
 };
@@ -98,8 +109,21 @@ function papelValido(id, papel) {
   return Boolean(MODULOS[id] && MODULOS[id].papeis.includes(papel));
 }
 
+// Como ESTE modulo chama o papel de administrador. Usado para o administrador
+// geral, que entra em todos os modulos com poder total. Cada sistema batiza o
+// seu: no CRM e "administrador", nos demais e "admin".
+function papelDeAdmin(id) {
+  const m = MODULOS[id];
+  if (!m) return "admin";
+  if (m.papelAdmin && m.papeis.includes(m.papelAdmin)) return m.papelAdmin;
+  // Rede de seguranca: se o registro estiver incoerente, usa o primeiro papel
+  // declarado — por convencao o de maior alcance — em vez de um nome inventado
+  // que o modulo recusaria.
+  return m.papeis[0] || "admin";
+}
+
 function get(id) {
   return MODULOS[id] || null;
 }
 
-module.exports = { MODULOS, listar, existe, papelValido, get };
+module.exports = { MODULOS, listar, existe, papelValido, papelDeAdmin, get };
