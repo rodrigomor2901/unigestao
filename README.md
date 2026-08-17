@@ -89,7 +89,17 @@ passa a aparecer no Admin Geral e nada mais muda.
    ```
    `req.usuario.nivel` continua existindo com o mesmo significado, então o código atual
    do sistema não precisa ser reescrito.
-3. Remover a tela de login e a tela de gestão de usuários do sistema.
+3. Remover a tela de login. Da tela de usuários, remover **só** o que passou para o Admin
+   Geral (criar pessoa, definir senha, escolher o papel) — e **manter** os ajustes que são
+   específicos daquele sistema.
+
+   > O Core guarda **um papel por módulo**, e nada além disso. Vários sistemas têm
+   > refinamentos por pessoa que não cabem nesse modelo — no Lançamento de Extra, por
+   > exemplo, cada usuário pode ter um `queueAccess` próprio que sobrepõe as filas padrão
+   > do papel. Esses ajustes continuam no módulo, numa linha local ligada ao id do Core.
+   >
+   > A divisão é: **o Core diz quem é a pessoa e qual o papel dela ali; o módulo diz o que
+   > aquele papel significa e guarda os detalhes.**
 4. No Railway: **remover o domínio público** do serviço e anotar o endereço interno.
 5. No Core e na Fachada: preencher `URL_<MODULO>` e marcar `ativo: true` em
    `core/modulos.js`.

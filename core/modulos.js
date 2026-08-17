@@ -24,7 +24,9 @@ const MODULOS = {
     base: "/operacional",
     interno: process.env.URL_OPERACIONAL || "",
     icone: "truck",
-    papeis: ["admin", "supervisor", "cco", "comercial"],
+    // Confere com ROLE_ACCESS em server.js do Lancamento de Extra (linha ~105).
+    // `gestor` tem o mesmo alcance de `cco` e `admin`: enxerga todas as filas.
+    papeis: ["admin", "gestor", "cco", "supervisor", "comercial"],
     ativo: true,
   },
   documentos: {
