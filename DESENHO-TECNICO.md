@@ -326,6 +326,7 @@ duas pessoas diferentes ou duplicar a mesma.
 
 | Risco | Gravidade | Tratamento |
 |---|---|---|
+| **Rede privada é isolada por projeto no Railway** — e os 5 sistemas estão hoje em projetos separados | **Alta** | Ao plugar cada módulo, escolher: mover o serviço para o projeto `unigestao` (ganha a rede privada) ou deixá-lo onde está e depender só da chave compartilhada. Decisão por módulo, a partir da Fase 1. Ver seção 13. |
 | Core fora do ar derruba o login de todos | **Alta** | O Core é pequeno e estável (só auth). Sessão validada com cache curto: uma queda breve não expulsa quem já está logado. |
 | Deduplicação de pessoas com e-mails divergentes | **Média** | Lista de conflitos revisada manualmente na Fase 0. |
 | Visual diferente entre módulos | **Média** | Cada sistema tem seu CSS. O menu lateral comum dá unidade; uniformizar o resto é melhoria posterior, não requisito. |
@@ -351,6 +352,37 @@ duas pessoas diferentes ou duplicar a mesma.
 
 A troca é clara: você abre mão da uniformidade visual automática e de um deploy único, e
 ganha risco baixo, nenhuma reescrita e a Precificação incluída sem drama.
+
+---
+
+## 12-A. A restrição de rede do Railway (descoberta em 16/08/2026)
+
+A documentação do Railway é explícita: *"cada ambiente tem sua própria rede isolada"* — a
+rede privada funciona **dentro de um projeto e ambiente**, nunca entre projetos.
+
+Hoje cada sistema do grupo é um projeto separado no Railway:
+
+```
+Gestão Comercial - Unister      SGC - Unister
+Gestão Operacional - Unister    SGC - RLM
+Gestão de Tarefas Unseter       Gestão de Eventos Uniseter
+```
+
+Isso **não bloqueia a Fase 0** — Core, Fachada e o banco do Core nascem juntos num projeto
+novo e conversam entre si normalmente. Mas a partir da Fase 1, cada módulo exige uma
+escolha:
+
+| Caminho | Ganho | Custo |
+|---|---|---|
+| **Mover o serviço para o projeto `unigestao`** | Rede privada de verdade: o módulo some da internet e os cabeçalhos de identidade ficam realmente confiáveis | Recriar o serviço a partir do mesmo repositório, remigrar variáveis e decidir o destino do banco dele |
+| **Deixar no projeto atual** | Nada muda no que já funciona | O módulo continua público; a chave compartilhada vira a única tranca. Se ela vazar, dá para forjar identidade em qualquer módulo |
+
+**Recomendação:** mover. O segundo caminho serve como transição durante a validação de
+cada fase, não como estado final.
+
+O banco de cada módulo pode continuar no projeto antigo durante a transição, acessado pela
+URL pública do PostgreSQL — mais lento e menos privado, porém funcional enquanto se decide
+mover os dados.
 
 ---
 

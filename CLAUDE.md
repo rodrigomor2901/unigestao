@@ -40,6 +40,19 @@ UniGestao/
    Essa é a premissa que torna os cabeçalhos `x-ug-*` confiáveis. Se um módulo ganhar
    domínio público, a premissa cai e a identidade pode ser forjada.
 
+   **Restrição do Railway (confirmada na doc):** a rede privada é isolada **por projeto e
+   ambiente** — serviços em projetos diferentes não se enxergam por ela. Hoje cada sistema
+   do grupo está em um projeto separado. Então, ao plugar cada módulo, existem dois
+   caminhos, e a escolha é por módulo:
+   - **Mover o serviço para o projeto `unigestao`** — ganha a rede privada e a premissa
+     acima vale integralmente. Exige recriar o serviço apontando para o mesmo repositório
+     e decidir o que fazer com o banco dele.
+   - **Deixar onde está** — a Fachada fala com o módulo pelo domínio público dele, e a
+     chave compartilhada (`x-ug-key`) passa a ser a única tranca. Funciona, mas o segredo
+     trafega em toda requisição: se vazar, dá para forjar identidade em qualquer módulo.
+
+   Preferir o primeiro caminho. O segundo só como transição.
+
 4. **Um domínio público só.** Cookies não são compartilhados entre subdomínios
    `*.up.railway.app` (sufixo público). É por isso que existe a Fachada.
 
