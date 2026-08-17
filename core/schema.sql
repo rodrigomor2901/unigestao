@@ -42,6 +42,20 @@ CREATE TABLE IF NOT EXISTS sessoes (
 CREATE INDEX IF NOT EXISTS idx_sessoes_usuario ON sessoes (usuario_id);
 CREATE INDEX IF NOT EXISTS idx_sessoes_expira  ON sessoes (expira_em);
 
+-- Etapa intermediaria do login: a senha ja conferiu, falta o codigo do 2FA.
+-- Fica no banco (e nao em memoria) por dois motivos:
+--   1. sobrevive a reinicios e a deploys do Core
+--   2. funciona com mais de uma instancia do servico rodando ao mesmo tempo
+-- `tentativas` permite errar o codigo algumas vezes sem ter que refazer o login.
+CREATE TABLE IF NOT EXISTS login_2fa_pendente (
+  token       TEXT PRIMARY KEY,
+  usuario_id  TEXT        NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  criada_em   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expira_em   TIMESTAMPTZ NOT NULL,
+  tentativas  INT         NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_2fa_pendente_expira ON login_2fa_pendente (expira_em);
+
 -- Bloqueio de forca bruta, persistido para sobreviver a reinicios do servico
 CREATE TABLE IF NOT EXISTS login_attempts (
   ip             TEXT PRIMARY KEY,

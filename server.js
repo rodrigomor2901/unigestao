@@ -119,13 +119,11 @@ app.post("/api/login", async (req, res, next) => {
 
     // 2FA: obrigatorio para super admin, opcional para os demais
     if (u.totp_ativo && u.totp_secret) {
-      const tempToken = auth.criarPendencia2FA(u.id);
-      return res.json({ requer2FA: true, tempToken });
+      return res.json({ requer2FA: true, tempToken: await auth.criarPendencia2FA(u.id) });
     }
     if (u.super_admin && !u.totp_ativo) {
       // Admin sem 2FA configurado: obriga a cadastrar antes de entrar
-      const tempToken = auth.criarPendencia2FA(u.id);
-      return res.json({ configurar2FA: true, tempToken });
+      return res.json({ configurar2FA: true, tempToken: await auth.criarPendencia2FA(u.id) });
     }
 
     await concluirLogin(req, res, u);
@@ -136,29 +134,41 @@ app.post("/api/login", async (req, res, next) => {
 
 app.post("/api/login/2fa", async (req, res, next) => {
   try {
-    const usuarioId = auth.consumirPendencia2FA(String(req.body.tempToken || ""));
-    if (!usuarioId) return res.status(401).json({ erro: "Sessão de login expirada. Entre novamente." });
+    const tempToken = String(req.body.tempToken || "");
+    // Le SEM destruir: errar o codigo nao pode obrigar a refazer o login todo.
+    const pend = await auth.lerPendencia2FA(tempToken);
+    if (!pend) return res.status(401).json({ erro: "Sessão de login expirada. Entre novamente.", recomecar: true });
 
-    const r = await db.query("SELECT * FROM usuarios WHERE id = $1 AND ativo = TRUE", [usuarioId]);
+    const r = await db.query("SELECT * FROM usuarios WHERE id = $1 AND ativo = TRUE", [pend.usuarioId]);
     const u = r.rows[0];
-    if (!u) return res.status(401).json({ erro: "Usuário indisponível" });
+    if (!u) return res.status(401).json({ erro: "Usuário indisponível", recomecar: true });
 
     if (!auth.verificarTOTP(u.totp_secret, req.body.codigo)) {
+      const restam = await auth.registrarTentativa2FA(tempToken);
       await auth.registrarFalha(auth.ipDe(req));
       await auth.auditar(req, "login_2fa_falhou", { usuarioId: u.id, email: u.email });
-      return res.status(401).json({ erro: "Código inválido" });
+      return res.status(401).json({ erro: mensagemCodigoInvalido(restam), recomecar: restam === 0 });
     }
+
+    // So agora a pendencia e destruida.
+    await auth.consumirPendencia2FA(tempToken);
     await concluirLogin(req, res, u);
   } catch (e) {
     next(e);
   }
 });
 
+function mensagemCodigoInvalido(restam) {
+  if (restam === 0) return "Código inválido. Entre novamente com e-mail e senha.";
+  if (restam === 1) return "Código inválido. Resta 1 tentativa. Confira o horário do celular.";
+  return `Código inválido. Restam ${restam} tentativas.`;
+}
+
 // Cadastro do 2FA — usado no primeiro acesso de um super admin
 app.post("/api/login/2fa/iniciar", async (req, res, next) => {
   try {
-    const usuarioId = auth.consumirPendencia2FA(String(req.body.tempToken || ""));
-    if (!usuarioId) return res.status(401).json({ erro: "Sessão de login expirada" });
+    const usuarioId = await auth.consumirPendencia2FA(String(req.body.tempToken || ""));
+    if (!usuarioId) return res.status(401).json({ erro: "Sessão de login expirada", recomecar: true });
 
     const r = await db.query("SELECT id, email FROM usuarios WHERE id = $1", [usuarioId]);
     const u = r.rows[0];
@@ -173,7 +183,7 @@ app.post("/api/login/2fa/iniciar", async (req, res, next) => {
     res.json({
       segredo,
       qr: await QRCode.toDataURL(otpauth, { margin: 1, width: 220 }),
-      tempToken: auth.criarPendencia2FA(u.id),
+      tempToken: await auth.criarPendencia2FA(u.id),
     });
   } catch (e) {
     next(e);
@@ -182,16 +192,27 @@ app.post("/api/login/2fa/iniciar", async (req, res, next) => {
 
 app.post("/api/login/2fa/confirmar", async (req, res, next) => {
   try {
-    const usuarioId = auth.consumirPendencia2FA(String(req.body.tempToken || ""));
-    if (!usuarioId) return res.status(401).json({ erro: "Sessão de login expirada" });
+    const tempToken = String(req.body.tempToken || "");
+    const pend = await auth.lerPendencia2FA(tempToken);
+    if (!pend) return res.status(401).json({ erro: "Sessão de login expirada", recomecar: true });
 
-    const r = await db.query("SELECT * FROM usuarios WHERE id = $1", [usuarioId]);
+    const r = await db.query("SELECT * FROM usuarios WHERE id = $1", [pend.usuarioId]);
     const u = r.rows[0];
-    if (!u || !u.totp_secret) return res.status(400).json({ erro: "2FA não iniciado" });
+    if (!u || !u.totp_secret) return res.status(400).json({ erro: "2FA não iniciado", recomecar: true });
 
+    // Aqui tambem: errar o codigo nao descarta o cadastro em andamento, senao
+    // a pessoa teria que ler o QR Code de novo a cada digito errado.
     if (!auth.verificarTOTP(u.totp_secret, req.body.codigo)) {
-      return res.status(401).json({ erro: "Código inválido. Confira o horário do celular." });
+      const restam = await auth.registrarTentativa2FA(tempToken);
+      return res.status(401).json({
+        erro: restam === 0
+          ? "Código inválido. Entre novamente com e-mail e senha."
+          : `Código inválido. Confira o horário do celular. ${restam === 1 ? "Resta 1 tentativa." : "Restam " + restam + " tentativas."}`,
+        recomecar: restam === 0,
+      });
     }
+
+    await auth.consumirPendencia2FA(tempToken);
     await db.query("UPDATE usuarios SET totp_ativo = TRUE WHERE id = $1", [u.id]);
     await auth.auditar(req, "2fa_ativado", { usuarioId: u.id, email: u.email });
     await concluirLogin(req, res, u);

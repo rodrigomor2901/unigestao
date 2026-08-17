@@ -78,6 +78,16 @@ Ordem acordada: Operacional → Documentos → Eventos → Tarefas → CRM → P
   primeiro login. Os ~1.230 usuários da Gestão de Tarefas (bcrypt) migram sozinhos. O
   `sha256:` da Gestão de Eventos é recusado de propósito — sem sal, é fraco demais.
 
+- **Pendência do 2FA nunca se destrói num código errado.** A primeira versão consumia o
+  token temporário *antes* de conferir o código: um erro de digitação derrubava o login e
+  a tela dizia "Sessão de login expirada", escondendo o motivo real. Agora a pendência é
+  lida sem destruir, conta tentativas (`MAX_TENTATIVAS_2FA`) e só é apagada quando o
+  código acerta. Coberto por `tests/dois-fatores.test.js`.
+
+- **A pendência do 2FA mora no banco, não em memória.** Em memória ela sumiria a cada
+  deploy do Core e quebraria de vez com mais de uma instância: a senha entraria numa e o
+  código cairia na outra. Não voltar a usar `Map` para isso.
+
 ---
 
 ## Comandos

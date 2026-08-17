@@ -131,24 +131,68 @@ function urlQRCode(email, segredo) {
   return `otpauth://totp/${label}?secret=${segredo}&issuer=UniGestao&digits=6&period=30`;
 }
 
-// Guarda o passo intermediario do login (credencial ok, falta o codigo 2FA)
-const pendentes2FA = new Map();
-setInterval(() => {
-  const agora = Date.now();
-  for (const [k, v] of pendentes2FA) if (v.expiraEm < agora) pendentes2FA.delete(k);
-}, 60_000).unref();
+// ---------------------------------------------------------------------------
+// Passo intermediario do login: a senha ja conferiu, falta o codigo do 2FA.
+//
+// Fica no BANCO, nao em memoria. Em memoria o token sumiria a cada deploy ou
+// reinicio do Core, e quebraria de vez se houvesse mais de uma instancia — a
+// pessoa entraria a senha numa instancia e o codigo cairia na outra.
+//
+// A pendencia so e destruida quando o codigo ACERTA (ou quando as tentativas
+// acabam). Errar o codigo nao deve obrigar a refazer o login inteiro.
+// ---------------------------------------------------------------------------
 
-function criarPendencia2FA(usuarioId) {
+const MAX_TENTATIVAS_2FA = 5;
+
+setInterval(() => {
+  db.query("DELETE FROM login_2fa_pendente WHERE expira_em < NOW()").catch(() => {});
+}, 5 * 60 * 1000).unref();
+
+async function criarPendencia2FA(usuarioId) {
   const tempToken = crypto.randomBytes(24).toString("hex");
-  pendentes2FA.set(tempToken, { usuarioId, expiraEm: Date.now() + 5 * 60 * 1000 });
+  await db.query(
+    `INSERT INTO login_2fa_pendente (token, usuario_id, expira_em)
+     VALUES ($1, $2, NOW() + INTERVAL '5 minutes')`,
+    [tempToken, usuarioId]
+  );
   return tempToken;
 }
 
-function consumirPendencia2FA(tempToken) {
-  const p = pendentes2FA.get(tempToken);
-  if (!p || p.expiraEm < Date.now()) return null;
-  pendentes2FA.delete(tempToken);
-  return p.usuarioId;
+// Le sem destruir. Devolve { usuarioId, tentativas } ou null.
+async function lerPendencia2FA(tempToken) {
+  if (!tempToken) return null;
+  const r = await db.query(
+    "SELECT usuario_id, tentativas FROM login_2fa_pendente WHERE token = $1 AND expira_em > NOW()",
+    [tempToken]
+  );
+  if (!r.rows[0]) return null;
+  return { usuarioId: r.rows[0].usuario_id, tentativas: r.rows[0].tentativas };
+}
+
+// Conta um codigo errado. Devolve quantas tentativas ainda restam.
+// Zero significa que a pendencia foi descartada e o login recomeca.
+async function registrarTentativa2FA(tempToken) {
+  const r = await db.query(
+    "UPDATE login_2fa_pendente SET tentativas = tentativas + 1 WHERE token = $1 RETURNING tentativas",
+    [tempToken]
+  );
+  if (!r.rows[0]) return 0;
+  const restam = MAX_TENTATIVAS_2FA - r.rows[0].tentativas;
+  if (restam <= 0) {
+    await db.query("DELETE FROM login_2fa_pendente WHERE token = $1", [tempToken]);
+    return 0;
+  }
+  return restam;
+}
+
+// So e chamada depois que o codigo confere.
+async function consumirPendencia2FA(tempToken) {
+  if (!tempToken) return null;
+  const r = await db.query(
+    "DELETE FROM login_2fa_pendente WHERE token = $1 AND expira_em > NOW() RETURNING usuario_id",
+    [tempToken]
+  );
+  return r.rows[0] ? r.rows[0].usuario_id : null;
 }
 
 // ============================================================================
@@ -279,7 +323,8 @@ function ipDe(req) {
 module.exports = {
   gerarHash, verificarSenha,
   gerarSegredoTOTP, verificarTOTP, urlQRCode,
-  criarPendencia2FA, consumirPendencia2FA,
+  criarPendencia2FA, lerPendencia2FA, registrarTentativa2FA, consumirPendencia2FA,
+  MAX_TENTATIVAS_2FA,
   criarSessao, lerSessao, encerrarSessao, encerrarSessoesDoUsuario,
   definirCookie, limparCookie, lerToken, COOKIE,
   ipBloqueado, registrarFalha, limparFalhas,
