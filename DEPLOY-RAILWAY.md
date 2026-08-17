@@ -100,6 +100,15 @@ e não convém deixar senha em variável de ambiente.
 
 ---
 
+> **O código do 2FA vem de um cadastro novo.** Ao ler o QR Code, o Google Authenticator
+> cria uma entrada chamada **`UniGestao: seu@email`**. É só o código dessa entrada que
+> funciona aqui. Códigos de outras entradas da lista (inclusive de outros sistemas do
+> grupo) nunca vão servir — cada uma tem um segredo próprio.
+
+Se travar nessa etapa, veja **Perdeu o 2FA** no [README.md](README.md#perdeu-o-2fa-celular-novo-aplicativo-apagado).
+
+---
+
 ## Conferência final
 
 - [ ] O serviço `core` **não** tem domínio público

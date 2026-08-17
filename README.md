@@ -99,6 +99,24 @@ O shim injetado pela Fachada corrige sozinho os caminhos das chamadas de API do 
 
 ---
 
+## Perdeu o 2FA (celular novo, aplicativo apagado)
+
+Se a pessoa **não é** o único administrador geral, outro admin reseta pela tela:
+Admin Geral → Editar → **Resetar 2FA**.
+
+Se ficou travado de vez — perdeu o aplicativo e é o único super admin — não há como
+destravar pela web, de propósito. A saída é pelo servidor:
+
+```bash
+node scripts/resetar-2fa.js                       # lista quem tem 2FA ativo
+node scripts/resetar-2fa.js pessoa@uniseter.com   # reseta essa pessoa
+```
+
+No Railway: serviço `core` → menu → **Run a command**. No próximo login o QR Code
+aparece de novo. O script também derruba as sessões abertas e limpa o bloqueio por IP.
+
+---
+
 ## Variáveis de ambiente
 
 Ver [.env.exemplo](.env.exemplo). As essenciais:
