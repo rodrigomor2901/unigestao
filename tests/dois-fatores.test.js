@@ -38,6 +38,10 @@ async function post(rota, corpo) {
 
 (async () => {
   const pool = new Pool({ connectionString: CONEXAO });
+  // O bloqueio por IP e estado global e vale para todos os testes. Este arquivo
+  // gera muitos codigos errados de proposito, entao zera antes E depois — senao
+  // o arquivo seguinte esbarra no limite de 10 tentativas e falha sem motivo.
+  await pool.query("DELETE FROM login_attempts");
   await pool.query("DELETE FROM usuarios WHERE email = 'dois.fatores@uniseter.com'");
 
   const segredo = auth.gerarSegredoTOTP();

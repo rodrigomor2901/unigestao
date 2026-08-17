@@ -35,6 +35,8 @@ const moduloFalso = http.createServer((req, res) => {
   await new Promise((r) => setTimeout(r, 900));
 
   const pool = new Pool({ connectionString: "postgres://postgres:teste@localhost:55987/unigestao" });
+  // Bloqueio por IP e estado global entre os arquivos de teste — ver permissao.test.js
+  await pool.query("DELETE FROM login_attempts");
   await pool.query("DELETE FROM usuarios WHERE email LIKE 'fach.%@uniseter.com'");
 
   async function criar(email, modulos) {

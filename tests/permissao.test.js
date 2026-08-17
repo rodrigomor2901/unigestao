@@ -22,7 +22,10 @@ async function j(url, opc) {
   const { Pool } = require("pg");
   const pool = new Pool({ connectionString: "postgres://postgres:teste@localhost:55987/unigestao" });
 
-  // limpa execucoes anteriores
+  // limpa execucoes anteriores. O bloqueio por IP e estado global compartilhado
+  // entre os arquivos de teste: sem zerar aqui, sobras de uma rodada anterior
+  // fazem os logins deste arquivo voltarem 429 e o teste falha sem motivo.
+  await pool.query("DELETE FROM login_attempts");
   await pool.query("DELETE FROM usuarios WHERE email LIKE 'teste.%@uniseter.com'");
 
   const crypto = require("crypto");
