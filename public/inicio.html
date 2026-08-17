@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UniGestão</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/core.css">
+<style>
+  .topo {
+    background: var(--accent); color: #fff; padding: 14px 24px;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  }
+  .topo h1 { font-size: 19px; }
+  .topo h1 span { color: var(--laranja); }
+  .topo .quem { display: flex; align-items: center; gap: 14px; font-size: 14px; }
+  .topo a, .topo button {
+    color: #fff; background: none; border: 0; font: inherit; font-size: 14px;
+    cursor: pointer; text-decoration: underline; padding: 0;
+  }
+  main { max-width: 980px; margin: 0 auto; padding: 34px 24px 60px; }
+  .titulo { margin-bottom: 6px; font-size: 22px; }
+  .sub { color: var(--texto-fraco); margin: 0 0 28px; }
+  .grade { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); }
+  .modulo {
+    display: block; padding: 20px; text-decoration: none; color: inherit;
+    transition: transform .12s, box-shadow .12s;
+  }
+  .modulo:hover { transform: translateY(-2px); box-shadow: 0 4px 14px rgba(16,24,40,.1); }
+  .modulo h3 { font-size: 16px; margin-bottom: 4px; color: var(--accent); }
+  .modulo p { margin: 0 0 12px; font-size: 13.5px; color: var(--texto-fraco); }
+  .vazio { padding: 34px; text-align: center; color: var(--texto-fraco); }
+</style>
+</head>
+<body>
+
+<header class="topo">
+  <h1>Uni<span>Gestão</span></h1>
+  <div class="quem">
+    <span id="nome"></span>
+    <a href="/admin" id="linkAdmin" style="display:none">Admin Geral</a>
+    <button onclick="sair()">Sair</button>
+  </div>
+</header>
+
+<main>
+  <h2 class="titulo">Seus módulos</h2>
+  <p class="sub" id="sub">Carregando…</p>
+  <div class="grade" id="grade"></div>
+</main>
+
+<script>
+async function carregar() {
+  var r = await fetch('/api/eu');
+  if (!r.ok) { location.href = '/'; return; }
+  var d = await r.json();
+
+  document.getElementById('nome').textContent = d.usuario.nome;
+  if (d.usuario.superAdmin) document.getElementById('linkAdmin').style.display = '';
+
+  var grade = document.getElementById('grade');
+  var sub = document.getElementById('sub');
+
+  if (!d.modulos.length) {
+    sub.textContent = '';
+    grade.innerHTML = '<div class="card vazio">Você ainda não tem nenhum módulo liberado.<br>' +
+                      'Fale com o administrador do sistema.</div>';
+    return;
+  }
+
+  sub.textContent = d.modulos.length === 1
+    ? 'Você tem acesso a 1 módulo.'
+    : 'Você tem acesso a ' + d.modulos.length + ' módulos.';
+
+  grade.innerHTML = d.modulos.map(function (m) {
+    return '<a class="card modulo" href="' + esc(m.base) + '/">' +
+             '<h3>' + esc(m.nome) + '</h3>' +
+             '<p>' + esc(m.descricao || '') + '</p>' +
+             '<span class="selo selo-off">' + esc(m.papel) + '</span>' +
+           '</a>';
+  }).join('');
+}
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+async function sair() {
+  await fetch('/api/logout', { method: 'POST' });
+  location.href = '/';
+}
+
+carregar();
+</script>
+</body>
+</html>

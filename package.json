@@ -1,0 +1,21 @@
+{
+  "name": "unigestao-core",
+  "version": "1.0.0",
+  "private": true,
+  "description": "UniGestao — Core de identidade e acesso: login unico, 2FA e Admin Geral de modulos",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node dev-local.js",
+    "test": "node tests/run-all.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "express": "^4.19.2",
+    "pg": "^8.13.1",
+    "qrcode": "^1.5.4"
+  }
+}

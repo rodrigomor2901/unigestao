@@ -1,0 +1,533 @@
+"use strict";
+
+// ============================================================================
+// UniGestao — Core de identidade e acesso
+// ----------------------------------------------------------------------------
+// Este servico NAO tem regra de negocio. Ele faz tres coisas:
+//   1. autentica a pessoa (login unico, com 2FA)
+//   2. diz a cada modulo quem esta logado e com que papel naquele modulo
+//   3. serve o Admin Geral, onde se define quem acessa o que
+//
+// Os sistemas (modulos) continuam independentes, cada um com seu banco e suas
+// regras. Eles nunca leem este banco: perguntam pela API /api/interno/sessao.
+// ============================================================================
+
+const express = require("express");
+const path = require("path");
+const crypto = require("crypto");
+const QRCode = require("qrcode");
+
+const db = require("./core/db");
+const auth = require("./core/auth");
+const modulos = require("./core/modulos");
+
+const app = express();
+app.set("trust proxy", 1);
+app.use(express.json({ limit: "1mb" }));
+
+const PORT = process.env.PORT || 3000;
+
+// ---------------------------------------------------------------------------
+// Middlewares de sessao
+// ---------------------------------------------------------------------------
+
+async function comSessao(req, res, next) {
+  try {
+    req.usuario = await auth.lerSessao(auth.lerToken(req));
+    next();
+  } catch (e) {
+    next(e);
+  }
+}
+
+function exigeLogin(req, res, next) {
+  if (!req.usuario) return res.status(401).json({ erro: "Sessão expirada" });
+  next();
+}
+
+function exigeSuperAdmin(req, res, next) {
+  if (!req.usuario) return res.status(401).json({ erro: "Sessão expirada" });
+  if (!req.usuario.super_admin) return res.status(403).json({ erro: "Sem permissão" });
+  next();
+}
+
+app.use(comSessao);
+
+// ---------------------------------------------------------------------------
+// Paginas
+// ---------------------------------------------------------------------------
+
+const PUBLIC = path.join(__dirname, "public");
+
+app.get("/", (req, res) => {
+  res.sendFile(path.join(PUBLIC, req.usuario ? "inicio.html" : "login.html"));
+});
+
+app.get("/admin", (req, res) => {
+  if (!req.usuario) return res.redirect("/");
+  res.sendFile(path.join(PUBLIC, "admin.html"));
+});
+
+app.use(express.static(PUBLIC, { index: false }));
+
+// ---------------------------------------------------------------------------
+// Login
+// ---------------------------------------------------------------------------
+
+app.post("/api/login", async (req, res, next) => {
+  try {
+    const ip = auth.ipDe(req);
+    const bloqueado = await auth.ipBloqueado(ip);
+    if (bloqueado) {
+      return res.status(429).json({
+        erro: "Muitas tentativas. Tente novamente em alguns minutos.",
+      });
+    }
+
+    const email = String(req.body.email || "").toLowerCase().trim();
+    const senha = String(req.body.senha || "");
+    if (!email || !senha) return res.status(400).json({ erro: "Informe e-mail e senha" });
+
+    const r = await db.query(
+      "SELECT * FROM usuarios WHERE LOWER(email) = $1 AND ativo = TRUE",
+      [email]
+    );
+    const u = r.rows[0];
+
+    const conferiu = u ? await auth.verificarSenha(senha, u.senha) : { ok: false };
+
+    if (!u || !conferiu.ok) {
+      await auth.registrarFalha(ip);
+      await auth.auditar(req, "login_falhou", { email, detalhe: { motivo: u ? "senha" : "email" } });
+      // Senha em formato legado inseguro (Gestao de Eventos): orienta a redefinir
+      if (conferiu.legadoInseguro) {
+        return res.status(401).json({
+          erro: "Sua senha precisa ser redefinida. Procure o administrador.",
+          precisaRedefinir: true,
+        });
+      }
+      return res.status(401).json({ erro: "E-mail ou senha inválidos" });
+    }
+
+    await auth.limparFalhas(ip);
+
+    // Regrava a senha no formato novo quando veio de um sistema antigo
+    if (conferiu.precisaRegravar) {
+      await db.query("UPDATE usuarios SET senha = $1 WHERE id = $2", [auth.gerarHash(senha), u.id]);
+      await auth.auditar(req, "senha_migrada", { usuarioId: u.id, email: u.email });
+    }
+
+    // 2FA: obrigatorio para super admin, opcional para os demais
+    if (u.totp_ativo && u.totp_secret) {
+      const tempToken = auth.criarPendencia2FA(u.id);
+      return res.json({ requer2FA: true, tempToken });
+    }
+    if (u.super_admin && !u.totp_ativo) {
+      // Admin sem 2FA configurado: obriga a cadastrar antes de entrar
+      const tempToken = auth.criarPendencia2FA(u.id);
+      return res.json({ configurar2FA: true, tempToken });
+    }
+
+    await concluirLogin(req, res, u);
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.post("/api/login/2fa", async (req, res, next) => {
+  try {
+    const usuarioId = auth.consumirPendencia2FA(String(req.body.tempToken || ""));
+    if (!usuarioId) return res.status(401).json({ erro: "Sessão de login expirada. Entre novamente." });
+
+    const r = await db.query("SELECT * FROM usuarios WHERE id = $1 AND ativo = TRUE", [usuarioId]);
+    const u = r.rows[0];
+    if (!u) return res.status(401).json({ erro: "Usuário indisponível" });
+
+    if (!auth.verificarTOTP(u.totp_secret, req.body.codigo)) {
+      await auth.registrarFalha(auth.ipDe(req));
+      await auth.auditar(req, "login_2fa_falhou", { usuarioId: u.id, email: u.email });
+      return res.status(401).json({ erro: "Código inválido" });
+    }
+    await concluirLogin(req, res, u);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Cadastro do 2FA — usado no primeiro acesso de um super admin
+app.post("/api/login/2fa/iniciar", async (req, res, next) => {
+  try {
+    const usuarioId = auth.consumirPendencia2FA(String(req.body.tempToken || ""));
+    if (!usuarioId) return res.status(401).json({ erro: "Sessão de login expirada" });
+
+    const r = await db.query("SELECT id, email FROM usuarios WHERE id = $1", [usuarioId]);
+    const u = r.rows[0];
+    if (!u) return res.status(401).json({ erro: "Usuário indisponível" });
+
+    const segredo = auth.gerarSegredoTOTP();
+    await db.query("UPDATE usuarios SET totp_secret = $1, totp_ativo = FALSE WHERE id = $2", [
+      segredo, u.id,
+    ]);
+    const otpauth = auth.urlQRCode(u.email, segredo);
+    // Devolve um novo tempToken para a etapa de confirmacao
+    res.json({
+      segredo,
+      qr: await QRCode.toDataURL(otpauth, { margin: 1, width: 220 }),
+      tempToken: auth.criarPendencia2FA(u.id),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.post("/api/login/2fa/confirmar", async (req, res, next) => {
+  try {
+    const usuarioId = auth.consumirPendencia2FA(String(req.body.tempToken || ""));
+    if (!usuarioId) return res.status(401).json({ erro: "Sessão de login expirada" });
+
+    const r = await db.query("SELECT * FROM usuarios WHERE id = $1", [usuarioId]);
+    const u = r.rows[0];
+    if (!u || !u.totp_secret) return res.status(400).json({ erro: "2FA não iniciado" });
+
+    if (!auth.verificarTOTP(u.totp_secret, req.body.codigo)) {
+      return res.status(401).json({ erro: "Código inválido. Confira o horário do celular." });
+    }
+    await db.query("UPDATE usuarios SET totp_ativo = TRUE WHERE id = $1", [u.id]);
+    await auth.auditar(req, "2fa_ativado", { usuarioId: u.id, email: u.email });
+    await concluirLogin(req, res, u);
+  } catch (e) {
+    next(e);
+  }
+});
+
+async function concluirLogin(req, res, u) {
+  const token = await auth.criarSessao(u.id, auth.ipDe(req));
+  await db.query("UPDATE usuarios SET ultimo_login = NOW() WHERE id = $1", [u.id]);
+  auth.definirCookie(res, token);
+  await auth.auditar(req, "login", { usuarioId: u.id, email: u.email });
+  res.json({ ok: true, senhaTemp: u.senha_temp });
+}
+
+app.post("/api/logout", async (req, res, next) => {
+  try {
+    const token = auth.lerToken(req);
+    if (req.usuario) await auth.auditar(req, "logout");
+    await auth.encerrarSessao(token);
+    auth.limparCookie(res);
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Sessao atual + modulos liberados (usado pela casca e pelo menu lateral)
+// ---------------------------------------------------------------------------
+
+app.get("/api/eu", exigeLogin, async (req, res, next) => {
+  try {
+    res.json({
+      usuario: {
+        id: req.usuario.id,
+        nome: req.usuario.nome,
+        email: req.usuario.email,
+        superAdmin: req.usuario.super_admin,
+        senhaTemp: req.usuario.senha_temp,
+      },
+      modulos: await modulosDoUsuario(req.usuario),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+async function modulosDoUsuario(usuario) {
+  const disponiveis = modulos.listar();
+  // Super admin enxerga todos os modulos ativos, sempre como 'admin'
+  if (usuario.super_admin) {
+    return disponiveis.map((m) => ({
+      id: m.id, nome: m.nome, descricao: m.descricao, base: m.base, icone: m.icone, papel: "admin",
+    }));
+  }
+  const r = await db.query("SELECT modulo, papel FROM usuario_modulos WHERE usuario_id = $1", [
+    usuario.id,
+  ]);
+  const papeis = new Map(r.rows.map((x) => [x.modulo, x.papel]));
+  return disponiveis
+    .filter((m) => papeis.has(m.id))
+    .map((m) => ({
+      id: m.id, nome: m.nome, descricao: m.descricao, base: m.base, icone: m.icone,
+      papel: papeis.get(m.id),
+    }));
+}
+
+// Troca da propria senha
+app.post("/api/senha", exigeLogin, async (req, res, next) => {
+  try {
+    const atual = String(req.body.atual || "");
+    const nova = String(req.body.nova || "");
+    if (nova.length < 8) return res.status(400).json({ erro: "A nova senha precisa ter ao menos 8 caracteres" });
+
+    const r = await db.query("SELECT senha FROM usuarios WHERE id = $1", [req.usuario.id]);
+    const conferiu = await auth.verificarSenha(atual, r.rows[0].senha);
+    if (!conferiu.ok) return res.status(401).json({ erro: "Senha atual incorreta" });
+
+    await db.query("UPDATE usuarios SET senha = $1, senha_temp = FALSE WHERE id = $2", [
+      auth.gerarHash(nova), req.usuario.id,
+    ]);
+    await auth.auditar(req, "senha_alterada");
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// API INTERNA — e por aqui que cada modulo pergunta "quem e essa pessoa aqui?"
+// So a Fachada e os modulos chamam, pela rede privada do Railway.
+// ---------------------------------------------------------------------------
+
+app.get("/api/interno/sessao", async (req, res, next) => {
+  try {
+    const chave = process.env.CORE_INTERNAL_KEY;
+    if (chave && req.headers["x-core-key"] !== chave) {
+      return res.status(401).json({ erro: "Chave interna inválida" });
+    }
+
+    const usuario = await auth.lerSessao(
+      String(req.headers["x-unigestao-token"] || req.query.token || "")
+    );
+    if (!usuario) return res.status(401).json({ erro: "Sessão inválida" });
+
+    const moduloId = String(req.query.modulo || "");
+    if (!moduloId) {
+      return res.json({ id: usuario.id, nome: usuario.nome, email: usuario.email });
+    }
+    if (!modulos.existe(moduloId)) return res.status(404).json({ erro: "Módulo desconhecido" });
+
+    if (usuario.super_admin) {
+      return res.json({
+        id: usuario.id, nome: usuario.nome, email: usuario.email,
+        papel: "admin", superAdmin: true,
+      });
+    }
+
+    const r = await db.query(
+      "SELECT papel FROM usuario_modulos WHERE usuario_id = $1 AND modulo = $2",
+      [usuario.id, moduloId]
+    );
+    if (!r.rows[0]) return res.status(403).json({ erro: "Sem acesso a este módulo" });
+
+    res.json({
+      id: usuario.id, nome: usuario.nome, email: usuario.email,
+      papel: r.rows[0].papel, superAdmin: false,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// ADMIN GERAL — pessoas x modulos x papel
+// ---------------------------------------------------------------------------
+
+app.get("/api/admin/modulos", exigeSuperAdmin, (req, res) => {
+  res.json(
+    modulos.listar().map((m) => ({
+      id: m.id, nome: m.nome, descricao: m.descricao, papeis: m.papeis, icone: m.icone,
+    }))
+  );
+});
+
+app.get("/api/admin/usuarios", exigeSuperAdmin, async (req, res, next) => {
+  try {
+    const busca = String(req.query.busca || "").trim().toLowerCase();
+    const params = [];
+    let filtro = "";
+    if (busca) {
+      params.push(`%${busca}%`);
+      filtro = "WHERE LOWER(u.nome) LIKE $1 OR LOWER(u.email) LIKE $1";
+    }
+    const r = await db.query(
+      `SELECT u.id, u.nome, u.email, u.ativo, u.super_admin, u.totp_ativo,
+              u.senha_temp, u.ultimo_login,
+              COALESCE(json_agg(json_build_object('modulo', m.modulo, 'papel', m.papel))
+                       FILTER (WHERE m.modulo IS NOT NULL), '[]') AS modulos
+         FROM usuarios u
+         LEFT JOIN usuario_modulos m ON m.usuario_id = u.id
+         ${filtro}
+        GROUP BY u.id
+        ORDER BY u.nome
+        LIMIT 500`,
+      params
+    );
+    res.json(r.rows);
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.post("/api/admin/usuarios", exigeSuperAdmin, async (req, res, next) => {
+  try {
+    const nome = String(req.body.nome || "").trim();
+    const email = String(req.body.email || "").toLowerCase().trim();
+    const senha = String(req.body.senha || "");
+    if (!nome || !email) return res.status(400).json({ erro: "Informe nome e e-mail" });
+    if (senha.length < 8) return res.status(400).json({ erro: "A senha precisa ter ao menos 8 caracteres" });
+
+    const id = "u" + crypto.randomBytes(9).toString("hex");
+    await db.query(
+      `INSERT INTO usuarios (id, nome, email, senha, senha_temp, super_admin)
+       VALUES ($1,$2,$3,$4,TRUE,$5)`,
+      [id, nome, email, auth.gerarHash(senha), Boolean(req.body.superAdmin)]
+    );
+    await salvarModulos(id, req.body.modulos);
+    await auth.auditar(req, "usuario_criado", { alvo: id, detalhe: { email, nome } });
+    res.json({ ok: true, id });
+  } catch (e) {
+    if (e.code === "23505") return res.status(409).json({ erro: "Já existe usuário com esse e-mail" });
+    next(e);
+  }
+});
+
+app.patch("/api/admin/usuarios/:id", exigeSuperAdmin, async (req, res, next) => {
+  try {
+    const id = req.params.id;
+    const campos = [];
+    const params = [];
+    const set = (col, val) => {
+      params.push(val);
+      campos.push(`${col} = $${params.length}`);
+    };
+
+    if (req.body.nome !== undefined) set("nome", String(req.body.nome).trim());
+    if (req.body.email !== undefined) set("email", String(req.body.email).toLowerCase().trim());
+    if (req.body.ativo !== undefined) set("ativo", Boolean(req.body.ativo));
+    if (req.body.superAdmin !== undefined) set("super_admin", Boolean(req.body.superAdmin));
+    if (req.body.senha) {
+      if (String(req.body.senha).length < 8)
+        return res.status(400).json({ erro: "A senha precisa ter ao menos 8 caracteres" });
+      set("senha", auth.gerarHash(String(req.body.senha)));
+      set("senha_temp", true);
+    }
+
+    // Nao permitir que o admin se desative ou perca o proprio super admin
+    if (id === req.usuario.id) {
+      if (req.body.ativo === false) return res.status(400).json({ erro: "Você não pode desativar a si mesmo" });
+      if (req.body.superAdmin === false)
+        return res.status(400).json({ erro: "Você não pode remover seu próprio acesso de administrador" });
+    }
+
+    if (campos.length) {
+      params.push(id);
+      await db.query(`UPDATE usuarios SET ${campos.join(", ")} WHERE id = $${params.length}`, params);
+    }
+    if (req.body.modulos !== undefined) await salvarModulos(id, req.body.modulos);
+
+    // Mudou senha ou desativou: derruba as sessoes abertas dessa pessoa
+    if (req.body.senha || req.body.ativo === false) await auth.encerrarSessoesDoUsuario(id);
+
+    await auth.auditar(req, "usuario_alterado", { alvo: id, detalhe: camposAlterados(req.body) });
+    res.json({ ok: true });
+  } catch (e) {
+    if (e.code === "23505") return res.status(409).json({ erro: "Já existe usuário com esse e-mail" });
+    next(e);
+  }
+});
+
+app.post("/api/admin/usuarios/:id/2fa/resetar", exigeSuperAdmin, async (req, res, next) => {
+  try {
+    await db.query(
+      "UPDATE usuarios SET totp_secret = NULL, totp_ativo = FALSE WHERE id = $1",
+      [req.params.id]
+    );
+    await auth.encerrarSessoesDoUsuario(req.params.id);
+    await auth.auditar(req, "2fa_resetado", { alvo: req.params.id });
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.get("/api/admin/auditoria", exigeSuperAdmin, async (req, res, next) => {
+  try {
+    const r = await db.query(
+      "SELECT at, email, acao, alvo, detalhe, ip FROM auditoria ORDER BY at DESC LIMIT 200"
+    );
+    res.json(r.rows);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Grava a lista de modulos de uma pessoa: [{modulo, papel}, ...]
+async function salvarModulos(usuarioId, lista) {
+  const itens = Array.isArray(lista) ? lista : [];
+  const validos = itens.filter(
+    (i) => i && modulos.existe(i.modulo) && modulos.papelValido(i.modulo, i.papel)
+  );
+  await db.transaction(async (c) => {
+    await c.query("DELETE FROM usuario_modulos WHERE usuario_id = $1", [usuarioId]);
+    for (const i of validos) {
+      await c.query(
+        "INSERT INTO usuario_modulos (usuario_id, modulo, papel) VALUES ($1,$2,$3)",
+        [usuarioId, i.modulo, i.papel]
+      );
+    }
+  });
+}
+
+function camposAlterados(body) {
+  const out = {};
+  for (const k of ["nome", "email", "ativo", "superAdmin", "modulos"]) {
+    if (body[k] !== undefined) out[k] = k === "senha" ? "***" : body[k];
+  }
+  if (body.senha) out.senha = "alterada";
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Erros
+// ---------------------------------------------------------------------------
+
+app.use((err, req, res, _next) => {
+  console.error("[erro]", err);
+  res.status(500).json({ erro: "Erro interno" });
+});
+
+// ---------------------------------------------------------------------------
+// Bootstrap: cria o primeiro super admin se o banco estiver vazio
+// ---------------------------------------------------------------------------
+
+async function bootstrap() {
+  const r = await db.query("SELECT COUNT(*)::int AS n FROM usuarios");
+  if (r.rows[0].n > 0) return;
+
+  const email = (process.env.BOOTSTRAP_EMAIL || "rodrigo.moraes@uniseter.com").toLowerCase();
+  const senha = process.env.BOOTSTRAP_SENHA || crypto.randomBytes(9).toString("base64url");
+  const id = "u" + crypto.randomBytes(9).toString("hex");
+
+  await db.query(
+    `INSERT INTO usuarios (id, nome, email, senha, senha_temp, super_admin)
+     VALUES ($1,$2,$3,$4,TRUE,TRUE)`,
+    [id, process.env.BOOTSTRAP_NOME || "Rodrigo Moraes", email, auth.gerarHash(senha)]
+  );
+
+  console.log("========================================================");
+  console.log(" PRIMEIRO ACESSO CRIADO");
+  console.log(" e-mail: " + email);
+  if (!process.env.BOOTSTRAP_SENHA) console.log(" senha .: " + senha + "   (anote — nao sera exibida de novo)");
+  console.log(" O 2FA sera exigido no primeiro login (super admin).");
+  console.log("========================================================");
+}
+
+(async () => {
+  try {
+    await db.init();
+    await bootstrap();
+    app.listen(PORT, () => console.log(`[core] UniGestao ouvindo na porta ${PORT}`));
+  } catch (e) {
+    console.error("[core] falha ao iniciar:", e);
+    process.exit(1);
+  }
+})();

@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UniGestão — Admin Geral</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/core.css">
+<style>
+  .topo {
+    background: var(--accent); color: #fff; padding: 14px 24px;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  }
+  .topo h1 { font-size: 19px; }
+  .topo h1 span { color: var(--laranja); }
+  .topo a, .topo button {
+    color: #fff; background: none; border: 0; font: inherit; font-size: 14px;
+    cursor: pointer; text-decoration: underline; padding: 0;
+  }
+  .topo .quem { display: flex; align-items: center; gap: 14px; font-size: 14px; }
+  main { max-width: 1040px; margin: 0 auto; padding: 30px 24px 70px; }
+  .cabeca { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+  .cabeca h2 { font-size: 21px; }
+  .cabeca p { margin: 3px 0 0; color: var(--texto-fraco); font-size: 14px; }
+  .barra { display: flex; gap: 10px; margin-bottom: 18px; }
+  .barra input { flex: 1; }
+
+  table { width: 100%; border-collapse: collapse; background: var(--surface); }
+  th, td { padding: 12px 14px; text-align: left; border-bottom: 1px solid var(--borda); }
+  th { font-size: 12.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--texto-fraco); font-weight: 600; }
+  tbody tr:last-child td { border-bottom: 0; }
+  .pessoa strong { display: block; }
+  .pessoa small { color: var(--texto-fraco); }
+  .mods { display: flex; flex-wrap: wrap; gap: 5px; }
+  .mods .selo { background: var(--accent-soft); color: var(--accent-dark); }
+  .mods .nenhum { color: var(--texto-fraco); font-size: 13px; }
+
+  /* modal */
+  .fundo {
+    position: fixed; inset: 0; background: rgba(20, 28, 44, .5);
+    display: none; place-items: center; padding: 20px; z-index: 50; overflow: auto;
+  }
+  .fundo.on { display: grid; }
+  .modal { width: 100%; max-width: 560px; padding: 26px; max-height: 92vh; overflow: auto; }
+  .modal h3 { font-size: 18px; margin-bottom: 4px; }
+  .modal .dica { color: var(--texto-fraco); font-size: 13.5px; margin: 0 0 20px; }
+  .linha { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+
+  fieldset { border: 1px solid var(--borda); border-radius: var(--radius-sm); padding: 14px 16px; margin: 4px 0 18px; }
+  legend { font-size: 13px; font-weight: 600; color: var(--texto-fraco); padding: 0 6px; }
+  .modItem {
+    display: grid; grid-template-columns: 22px 1fr 160px;
+    align-items: center; gap: 10px; padding: 8px 0;
+    border-bottom: 1px solid #f1efeb;
+  }
+  .modItem:last-child { border-bottom: 0; }
+  .modItem label { font-size: 14px; cursor: pointer; }
+  .modItem small { display: block; color: var(--texto-fraco); font-size: 12.5px; }
+  .modItem select { padding: 7px 9px; font-size: 13.5px; }
+  input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--accent); cursor: pointer; }
+
+  .acoes { display: flex; gap: 10px; justify-content: flex-end; margin-top: 22px; }
+  .acoes .esq { margin-right: auto; }
+</style>
+</head>
+<body>
+
+<header class="topo">
+  <h1>Uni<span>Gestão</span> · Admin Geral</h1>
+  <div class="quem">
+    <a href="/">Início</a>
+    <button onclick="sair()">Sair</button>
+  </div>
+</header>
+
+<main>
+  <div class="cabeca">
+    <div>
+      <h2>Pessoas e acessos</h2>
+      <p>Um cadastro por colaborador. Marque os módulos que cada pessoa acessa e o papel dela dentro de cada um.</p>
+    </div>
+    <button class="btn" onclick="abrir(null)">Nova pessoa</button>
+  </div>
+
+  <div id="alerta"></div>
+
+  <div class="barra">
+    <input type="text" id="busca" placeholder="Buscar por nome ou e-mail…">
+  </div>
+
+  <div class="card" style="overflow:auto">
+    <table>
+      <thead>
+        <tr><th>Pessoa</th><th>Módulos liberados</th><th>Situação</th><th></th></tr>
+      </thead>
+      <tbody id="corpo">
+        <tr><td colspan="4" style="color:var(--texto-fraco)">Carregando…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</main>
+
+<!-- Modal de edicao -->
+<div class="fundo" id="fundo">
+  <div class="modal card">
+    <h3 id="modalTitulo">Nova pessoa</h3>
+    <p class="dica" id="modalDica">O acesso é criado uma vez e vale para todos os módulos marcados.</p>
+    <div id="modalAlerta"></div>
+
+    <div class="linha">
+      <label class="campo"><span>Nome</span><input type="text" id="fNome"></label>
+      <label class="campo"><span>E-mail</span><input type="email" id="fEmail"></label>
+    </div>
+
+    <label class="campo">
+      <span id="lblSenha">Senha inicial</span>
+      <input type="text" id="fSenha" placeholder="mínimo 8 caracteres">
+    </label>
+
+    <fieldset>
+      <legend>Módulos</legend>
+      <div id="listaModulos"></div>
+    </fieldset>
+
+    <label class="modItem" style="grid-template-columns:22px 1fr;padding-left:2px">
+      <input type="checkbox" id="fSuper">
+      <span>
+        <label for="fSuper">Administrador geral</label>
+        <small>Enxerga todos os módulos e gerencia pessoas. Exige verificação em duas etapas.</small>
+      </span>
+    </label>
+
+    <label class="modItem" style="grid-template-columns:22px 1fr;padding-left:2px">
+      <input type="checkbox" id="fAtivo" checked>
+      <span>
+        <label for="fAtivo">Acesso ativo</label>
+        <small>Desmarque para bloquear a entrada sem excluir o cadastro.</small>
+      </span>
+    </label>
+
+    <div class="acoes">
+      <button class="btn btn-sec esq" id="btnReset2FA" style="display:none" onclick="resetar2FA()">Resetar 2FA</button>
+      <button class="btn btn-sec" onclick="fechar()">Cancelar</button>
+      <button class="btn" id="btnSalvar" onclick="salvar()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var MODULOS = [];
+var USUARIOS = [];
+var editando = null;
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+function alerta(msg, tipo, onde) {
+  var el = document.getElementById(onde || 'alerta');
+  el.innerHTML = msg ? '<div class="aviso aviso-' + (tipo || 'erro') + '">' + esc(msg) + '</div>' : '';
+}
+
+async function api(url, metodo, corpo) {
+  var opc = { method: metodo || 'GET', headers: { 'Content-Type': 'application/json' } };
+  if (corpo) opc.body = JSON.stringify(corpo);
+  var r = await fetch(url, opc);
+  if (r.status === 401) { location.href = '/'; throw new Error('Sessão expirada'); }
+  var d = await r.json().catch(function () { return {}; });
+  if (!r.ok) throw new Error(d.erro || 'Falha na comunicação com o servidor');
+  return d;
+}
+
+async function carregar() {
+  MODULOS = await api('/api/admin/modulos');
+  await listar();
+}
+
+async function listar() {
+  var busca = document.getElementById('busca').value.trim();
+  USUARIOS = await api('/api/admin/usuarios?busca=' + encodeURIComponent(busca));
+  var corpo = document.getElementById('corpo');
+
+  if (!USUARIOS.length) {
+    corpo.innerHTML = '<tr><td colspan="4" style="color:var(--texto-fraco)">Nenhuma pessoa encontrada.</td></tr>';
+    return;
+  }
+
+  corpo.innerHTML = USUARIOS.map(function (u) {
+    var mods = u.super_admin
+      ? '<span class="selo selo-admin">todos os módulos</span>'
+      : (u.modulos.length
+          ? u.modulos.map(function (m) {
+              return '<span class="selo">' + esc(nomeModulo(m.modulo)) + ' · ' + esc(m.papel) + '</span>';
+            }).join('')
+          : '<span class="nenhum">nenhum</span>');
+
+    return '<tr>' +
+      '<td class="pessoa"><strong>' + esc(u.nome) + '</strong><small>' + esc(u.email) + '</small></td>' +
+      '<td><div class="mods">' + mods + '</div></td>' +
+      '<td>' + (u.ativo ? '<span class="selo selo-ok">ativo</span>' : '<span class="selo selo-off">inativo</span>') +
+        (u.totp_ativo ? ' <span class="selo selo-off">2FA</span>' : '') + '</td>' +
+      '<td style="text-align:right"><button class="btn btn-sec btn-sm" data-id="' + esc(u.id) + '">Editar</button></td>' +
+    '</tr>';
+  }).join('');
+
+  corpo.querySelectorAll('button[data-id]').forEach(function (b) {
+    b.addEventListener('click', function () { abrir(b.getAttribute('data-id')); });
+  });
+}
+
+function nomeModulo(id) {
+  var m = MODULOS.find(function (x) { return x.id === id; });
+  return m ? m.nome : id;
+}
+
+// ---- modal ----------------------------------------------------------------
+
+function abrir(id) {
+  editando = id ? USUARIOS.find(function (u) { return u.id === id; }) : null;
+  alerta('', '', 'modalAlerta');
+
+  document.getElementById('modalTitulo').textContent = editando ? 'Editar pessoa' : 'Nova pessoa';
+  document.getElementById('modalDica').textContent = editando
+    ? 'Alterações de senha e bloqueio derrubam as sessões abertas dessa pessoa.'
+    : 'O acesso é criado uma vez e vale para todos os módulos marcados.';
+  document.getElementById('fNome').value = editando ? editando.nome : '';
+  document.getElementById('fEmail').value = editando ? editando.email : '';
+  document.getElementById('fSenha').value = '';
+  document.getElementById('fSenha').placeholder = editando
+    ? 'deixe em branco para não alterar'
+    : 'mínimo 8 caracteres';
+  document.getElementById('lblSenha').textContent = editando ? 'Nova senha (opcional)' : 'Senha inicial';
+  document.getElementById('fSuper').checked = editando ? editando.super_admin : false;
+  document.getElementById('fAtivo').checked = editando ? editando.ativo : true;
+  document.getElementById('btnReset2FA').style.display =
+    editando && editando.totp_ativo ? '' : 'none';
+
+  var atuais = {};
+  if (editando) editando.modulos.forEach(function (m) { atuais[m.modulo] = m.papel; });
+
+  // Cada modulo oferece SOMENTE os papeis que aquele sistema ja usa.
+  // E aqui que a particularidade de cada sistema fica preservada.
+  document.getElementById('listaModulos').innerHTML = MODULOS.map(function (m) {
+    var marcado = Object.prototype.hasOwnProperty.call(atuais, m.id);
+    var opcoes = m.papeis.map(function (p) {
+      return '<option value="' + esc(p) + '"' + (atuais[m.id] === p ? ' selected' : '') + '>' + esc(p) + '</option>';
+    }).join('');
+    return '<div class="modItem">' +
+      '<input type="checkbox" id="mod_' + esc(m.id) + '" data-mod="' + esc(m.id) + '"' + (marcado ? ' checked' : '') + '>' +
+      '<span><label for="mod_' + esc(m.id) + '">' + esc(m.nome) + '</label>' +
+        '<small>' + esc(m.descricao || '') + '</small></span>' +
+      '<select data-papel="' + esc(m.id) + '"' + (marcado ? '' : ' disabled') + '>' + opcoes + '</select>' +
+    '</div>';
+  }).join('');
+
+  document.querySelectorAll('input[data-mod]').forEach(function (cb) {
+    cb.addEventListener('change', function () {
+      document.querySelector('select[data-papel="' + cb.getAttribute('data-mod') + '"]').disabled = !cb.checked;
+    });
+  });
+
+  aplicarSuper();
+  document.getElementById('fundo').classList.add('on');
+  document.getElementById('fNome').focus();
+}
+
+// Administrador geral enxerga tudo — as caixinhas por modulo perdem o sentido
+function aplicarSuper() {
+  var sup = document.getElementById('fSuper').checked;
+  document.querySelectorAll('input[data-mod]').forEach(function (cb) { cb.disabled = sup; });
+  document.querySelectorAll('select[data-papel]').forEach(function (s) {
+    var cb = document.querySelector('input[data-mod="' + s.getAttribute('data-papel') + '"]');
+    s.disabled = sup || !cb.checked;
+  });
+  document.querySelector('#listaModulos').style.opacity = sup ? '.5' : '1';
+}
+document.getElementById('fSuper').addEventListener('change', aplicarSuper);
+
+function fechar() { document.getElementById('fundo').classList.remove('on'); }
+document.getElementById('fundo').addEventListener('click', function (e) {
+  if (e.target === this) fechar();
+});
+
+function modulosSelecionados() {
+  var out = [];
+  document.querySelectorAll('input[data-mod]').forEach(function (cb) {
+    if (!cb.checked) return;
+    var id = cb.getAttribute('data-mod');
+    out.push({ modulo: id, papel: document.querySelector('select[data-papel="' + id + '"]').value });
+  });
+  return out;
+}
+
+async function salvar() {
+  var btn = document.getElementById('btnSalvar');
+  btn.disabled = true;
+  alerta('', '', 'modalAlerta');
+  try {
+    var corpo = {
+      nome: document.getElementById('fNome').value,
+      email: document.getElementById('fEmail').value,
+      superAdmin: document.getElementById('fSuper').checked,
+      ativo: document.getElementById('fAtivo').checked,
+      modulos: modulosSelecionados()
+    };
+    var senha = document.getElementById('fSenha').value;
+
+    if (editando) {
+      if (senha) corpo.senha = senha;
+      await api('/api/admin/usuarios/' + editando.id, 'PATCH', corpo);
+    } else {
+      corpo.senha = senha;
+      await api('/api/admin/usuarios', 'POST', corpo);
+    }
+    fechar();
+    await listar();
+    alerta('Cadastro salvo.', 'ok');
+  } catch (e) {
+    alerta(e.message, 'erro', 'modalAlerta');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function resetar2FA() {
+  if (!editando) return;
+  if (!confirm('Resetar a verificação em duas etapas de ' + editando.nome +
+               '?\n\nEssa pessoa terá que cadastrar o aplicativo autenticador de novo no próximo login.')) return;
+  try {
+    await api('/api/admin/usuarios/' + editando.id + '/2fa/resetar', 'POST');
+    fechar();
+    await listar();
+    alerta('2FA resetado.', 'ok');
+  } catch (e) {
+    alerta(e.message, 'erro', 'modalAlerta');
+  }
+}
+
+async function sair() {
+  await fetch('/api/logout', { method: 'POST' });
+  location.href = '/';
+}
+
+var timer;
+document.getElementById('busca').addEventListener('input', function () {
+  clearTimeout(timer);
+  timer = setTimeout(listar, 250);
+});
+
+carregar().catch(function (e) { alerta(e.message); });
+</script>
+</body>
+</html>

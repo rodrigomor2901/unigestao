@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UniGestão — Entrar</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/core.css">
+<style>
+  body { display: grid; place-items: center; min-height: 100vh; padding: 24px; }
+  .caixa { width: 100%; max-width: 400px; padding: 36px 32px; }
+  .marca { text-align: center; margin-bottom: 28px; }
+  .marca h1 { font-size: 27px; color: var(--accent); }
+  .marca h1 span { color: var(--laranja); }
+  .marca p { margin: 6px 0 0; color: var(--texto-fraco); font-size: 14px; }
+  .btn { width: 100%; margin-top: 4px; }
+  .etapa { display: none; }
+  .etapa.on { display: block; }
+  .codigo {
+    text-align: center; font-family: 'DM Mono', ui-monospace, monospace;
+    font-size: 26px; letter-spacing: .38em; padding: 12px;
+  }
+  .qr { text-align: center; margin: 4px 0 18px; }
+  .qr img { border-radius: var(--radius-sm); border: 1px solid var(--borda); }
+  .segredo {
+    font-family: 'DM Mono', ui-monospace, monospace; font-size: 13px;
+    background: var(--bg); border: 1px solid var(--borda); border-radius: var(--radius-sm);
+    padding: 9px 12px; word-break: break-all; text-align: center; margin-bottom: 16px;
+  }
+  .voltar {
+    display: block; width: 100%; text-align: center; margin-top: 14px;
+    background: none; border: 0; color: var(--texto-fraco); font: inherit;
+    font-size: 13px; cursor: pointer; text-decoration: underline;
+  }
+</style>
+</head>
+<body>
+
+<div class="caixa card">
+  <div class="marca">
+    <h1>Uni<span>Gestão</span></h1>
+    <p>Grupo Uniseter</p>
+  </div>
+
+  <div id="alerta"></div>
+
+  <!-- Etapa 1: credenciais -->
+  <form class="etapa on" id="etapaSenha">
+    <label class="campo">
+      <span>E-mail</span>
+      <input type="email" id="email" autocomplete="username" required autofocus>
+    </label>
+    <label class="campo">
+      <span>Senha</span>
+      <input type="password" id="senha" autocomplete="current-password" required>
+    </label>
+    <button class="btn" type="submit" id="btnEntrar">Entrar</button>
+  </form>
+
+  <!-- Etapa 2: codigo do app autenticador -->
+  <form class="etapa" id="etapaCodigo">
+    <p style="margin:0 0 18px;color:var(--texto-fraco);font-size:14px">
+      Digite o código de 6 dígitos do seu aplicativo autenticador.
+    </p>
+    <label class="campo">
+      <span class="sr">Código</span>
+      <input type="text" id="codigo" class="codigo" inputmode="numeric"
+             maxlength="6" autocomplete="one-time-code" placeholder="000000">
+    </label>
+    <button class="btn" type="submit">Confirmar</button>
+    <button type="button" class="voltar" onclick="location.reload()">Voltar</button>
+  </form>
+
+  <!-- Etapa 3: cadastro do 2FA (primeiro acesso de administrador) -->
+  <form class="etapa" id="etapaCadastro">
+    <div class="aviso aviso-info">
+      Como administrador, você precisa ativar a verificação em duas etapas antes de entrar.
+    </div>
+    <p style="margin:0 0 14px;color:var(--texto-fraco);font-size:14px">
+      Leia o QR Code no <strong>Google Authenticator</strong> (ou similar) e digite o código gerado.
+    </p>
+    <div class="qr"><img id="qrImg" alt="QR Code para o aplicativo autenticador" width="220" height="220"></div>
+    <p style="margin:0 0 6px;color:var(--texto-fraco);font-size:13px">Ou cadastre manualmente esta chave:</p>
+    <div class="segredo" id="segredoTxt"></div>
+    <label class="campo">
+      <span>Código gerado pelo aplicativo</span>
+      <input type="text" id="codigoCad" class="codigo" inputmode="numeric"
+             maxlength="6" autocomplete="one-time-code" placeholder="000000">
+    </label>
+    <button class="btn" type="submit">Ativar e entrar</button>
+    <button type="button" class="voltar" onclick="location.reload()">Voltar</button>
+  </form>
+</div>
+
+<script>
+var tempToken = null;
+
+function mostrar(id) {
+  document.querySelectorAll('.etapa').forEach(function (e) { e.classList.remove('on'); });
+  document.getElementById(id).classList.add('on');
+}
+
+function alerta(msg, tipo) {
+  document.getElementById('alerta').innerHTML = msg
+    ? '<div class="aviso aviso-' + (tipo || 'erro') + '">' + msg + '</div>'
+    : '';
+}
+
+async function api(url, corpo) {
+  var r = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(corpo)
+  });
+  var dados = await r.json().catch(function () { return {}; });
+  if (!r.ok) throw new Error(dados.erro || 'Falha na comunicação com o servidor');
+  return dados;
+}
+
+document.getElementById('etapaSenha').addEventListener('submit', async function (ev) {
+  ev.preventDefault();
+  var btn = document.getElementById('btnEntrar');
+  btn.disabled = true;
+  alerta('');
+  try {
+    var d = await api('/api/login', {
+      email: document.getElementById('email').value,
+      senha: document.getElementById('senha').value
+    });
+
+    if (d.requer2FA) {
+      tempToken = d.tempToken;
+      mostrar('etapaCodigo');
+      document.getElementById('codigo').focus();
+      return;
+    }
+    if (d.configurar2FA) {
+      var c = await api('/api/login/2fa/iniciar', { tempToken: d.tempToken });
+      tempToken = c.tempToken;
+      document.getElementById('qrImg').src = c.qr;
+      document.getElementById('segredoTxt').textContent = c.segredo;
+      mostrar('etapaCadastro');
+      document.getElementById('codigoCad').focus();
+      return;
+    }
+    location.href = '/';
+  } catch (e) {
+    alerta(e.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+document.getElementById('etapaCodigo').addEventListener('submit', async function (ev) {
+  ev.preventDefault();
+  alerta('');
+  try {
+    await api('/api/login/2fa', {
+      tempToken: tempToken,
+      codigo: document.getElementById('codigo').value
+    });
+    location.href = '/';
+  } catch (e) {
+    alerta(e.message);
+  }
+});
+
+document.getElementById('etapaCadastro').addEventListener('submit', async function (ev) {
+  ev.preventDefault();
+  alerta('');
+  try {
+    await api('/api/login/2fa/confirmar', {
+      tempToken: tempToken,
+      codigo: document.getElementById('codigoCad').value
+    });
+    location.href = '/';
+  } catch (e) {
+    alerta(e.message);
+  }
+});
+</script>
+</body>
+</html>
