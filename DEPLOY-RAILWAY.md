@@ -1,4 +1,44 @@
-# Deploy no Railway — passo a passo
+# Deploy no Railway
+
+## Estado atual — Fase 0 no ar (17/08/2026)
+
+**Endereço: https://unigestao.up.railway.app**
+
+| Recurso | Nome | Situação |
+|---|---|---|
+| Projeto | `unigestao` (`260968c6-d960-45f8-b3d4-5b085c091ca9`) | criado |
+| Banco | `Postgres` | online |
+| Core | `core` — `core.railway.internal:3000` | online, **sem domínio público** |
+| Fachada | `fachada` — `unigestao.up.railway.app` | online, **único serviço público** |
+
+O primeiro super admin foi criado no boot (`rodrigo.moraes@uniseter.com`) com senha
+aleatória impressa nos logs. `BOOTSTRAP_SENHA` **não** foi definida como variável — a
+senha nunca ficou guardada na configuração do Railway.
+
+### Armadilha encontrada: como definir o Root Directory
+
+`railway environment edit --service-config <svc> source.rootDirectory /fachada` responde
+`{"committed":false,"message":"No changes to apply"}` e **não faz nada**. Esse comando
+pertence ao sistema de configuração declarativa, que exige o Railway TypeScript SDK
+instalado no repositório.
+
+Sem o SDK, o caminho que funciona é a API GraphQL:
+
+```bash
+railway api 'mutation($serviceId: String!, $environmentId: String, $input: ServiceInstanceUpdateInput!) {
+  serviceInstanceUpdate(serviceId: $serviceId, environmentId: $environmentId, input: $input)
+}' --variables @vars.json
+```
+
+com `vars.json` contendo `serviceId`, `environmentId` e `{"input":{"rootDirectory":"/fachada"}}`.
+Depois é preciso **redeployar** — a mudança não afeta um build já em andamento.
+
+Sintoma de que não pegou: a Fachada sobe `unigestao-core@1.0.0` em vez de
+`unigestao-fachada@1.0.0` e quebra procurando PostgreSQL em `127.0.0.1:5432`.
+
+---
+
+## Passo a passo (para refazer do zero)
 
 Este guia sobe o UniGestão pela primeira vez: um banco, o Core e a Fachada.
 Nenhum sistema atual é tocado — eles continuam rodando exatamente como estão.
