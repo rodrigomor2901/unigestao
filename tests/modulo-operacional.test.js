@@ -29,7 +29,20 @@ async function esperar(url, tentativas = 40) {
   return false;
 }
 
+// Se ja houver algo escutando na porta do modulo, o fork morre com EADDRINUSE
+// e o teste passa conversando com o processo alheio — verde por acidente.
+// Melhor parar aqui e dizer o porque.
+async function portaLivre(porta) {
+  try { await fetch(`http://localhost:${porta}/`); return false; } catch (e) { return true; }
+}
+
 (async () => {
+  if (!(await portaLivre(PORTA_MODULO))) {
+    console.error(`\nJa existe algo escutando em localhost:${PORTA_MODULO}.`);
+    console.error("Encerre esse processo — senao o teste conversaria com ele em vez do que ele mesmo sobe.\n");
+    process.exit(1);
+  }
+
   const poolCore = new Pool({ connectionString: BANCO_CORE });
   await poolCore.query("DELETE FROM login_attempts");
   await poolCore.query("DELETE FROM usuarios WHERE email LIKE 'oper.%@uniseter.com'");

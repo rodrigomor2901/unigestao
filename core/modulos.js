@@ -65,7 +65,12 @@ const MODULOS = {
     base: "/crm",
     interno: process.env.URL_CRM || "",
     icone: "briefcase",
-    papeis: ["admin", "diretoria", "gestor", "vendedor", "sdr", "consulta"],
+    // Confere com ROLE_PERMISSIONS em src/security/access.js do CRM.
+    // Atencao: la o papel de administrador se chama "administrador", nao "admin".
+    papeis: [
+      "administrador", "diretoria", "gestor", "gestor_bonus", "financeiro",
+      "juridico", "propostas", "comercial_interno", "vendedor",
+    ],
     ativo: false,
   },
   precificacao: {
