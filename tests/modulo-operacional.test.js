@@ -109,8 +109,8 @@ async function portaLivre(porta) {
   const home = await fetch(F + "/operacional/", C(cco.token));
   const html = await home.text();
   ok(home.status === 200, "abre o modulo com 200");
-  ok(html.includes("window.UNIGESTAO"), "shim injetado na pagina do modulo");
-  ok(html.includes('"/operacional"'), "shim com o prefixo certo");
+  ok(html.includes('src="/operacional/__ug/shim.js"'), "shim referenciado na pagina do modulo");
+  ok(html.includes('data-base="/operacional"'), "shim com o prefixo certo");
 
   // Sem isto a pagina abre em BRANCO: o navegador buscaria /app.js na raiz do
   // dominio (o Core) em vez de no modulo. O shim nao cobre src/href — eles sao

@@ -71,7 +71,7 @@ const MODULOS = {
       "administrador", "diretoria", "gestor", "gestor_bonus", "financeiro",
       "juridico", "propostas", "comercial_interno", "vendedor",
     ],
-    ativo: false,
+    ativo: true,
   },
   precificacao: {
     nome: "Precificação",

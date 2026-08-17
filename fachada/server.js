@@ -97,10 +97,23 @@ function lerCookie(req) {
 // E a peca que permite plugar um sistema quase sem tocar no codigo dele.
 // ---------------------------------------------------------------------------
 
-function shim(base, usuario) {
-  return `<script>(function(){
-var BASE=${JSON.stringify(base)};
-window.UNIGESTAO={base:BASE,usuario:${JSON.stringify(usuario)}};
+// ---------------------------------------------------------------------------
+// O shim e a barra vao como ARQUIVOS, nunca embutidos no HTML.
+//
+// Modulos com politica de seguranca estrita (o CRM manda
+// `script-src 'self'; style-src 'self'`) bloqueiam script e style inline — o
+// shim simplesmente nao rodava e a pagina abria na tela de login.
+//
+// Servindo os dois de /<modulo>/__ug/*, eles viram same-origin e passam pela
+// politica do proprio modulo sem que precisemos afrouxar nada. Pelo mesmo
+// motivo nao existe `onclick` inline aqui: eventos vao pelo shim.
+// ---------------------------------------------------------------------------
+
+const SHIM_JS = `(function(){
+var el=document.currentScript;
+var BASE=el.getAttribute('data-base')||'';
+window.UNIGESTAO={base:BASE,usuario:JSON.parse(el.getAttribute('data-usuario')||'{}')};
+
 function pfx(u){
   if(typeof u!=='string')return u;
   if(u.charAt(0)!=='/'||u.indexOf('//')===0)return u;
@@ -118,21 +131,35 @@ XMLHttpRequest.prototype.open=function(m,u){
   arguments[1]=pfx(u);
   return _o.apply(this,arguments);
 };
-})();</script>
-<style>
-#ug-barra{position:sticky;top:0;z-index:9999;display:flex;align-items:center;gap:14px;
+
+document.addEventListener('click',function(ev){
+  var alvo=ev.target.closest&&ev.target.closest('#ug-sair');
+  if(!alvo)return;
+  ev.preventDefault();
+  // Caminho absoluto de proposito: o logout e do Core, nao do modulo.
+  fetch(location.origin+'/api/logout',{method:'POST',credentials:'include'})
+    .catch(function(){})
+    .then(function(){location.href='/'});
+});
+})();`;
+
+const BARRA_CSS = `#ug-barra{position:sticky;top:0;z-index:9999;display:flex;align-items:center;gap:14px;
 padding:7px 16px;background:#1B3A6B;color:#fff;font:14px/1.4 'DM Sans',system-ui,sans-serif}
-#ug-barra a{color:#fff;text-decoration:none;opacity:.9}
+#ug-barra a{color:#fff;text-decoration:none;opacity:.9;cursor:pointer}
 #ug-barra a:hover{opacity:1;text-decoration:underline}
 #ug-barra .ug-marca{font-weight:600}
 #ug-barra .ug-marca span{color:#F5820A}
-#ug-barra .ug-dir{margin-left:auto;display:flex;gap:14px;align-items:center;font-size:13px}
-</style>
+#ug-barra .ug-dir{margin-left:auto;display:flex;gap:14px;align-items:center;font-size:13px}`;
+
+function shim(base, usuario) {
+  const dados = escapeHtml(JSON.stringify(usuario));
+  return `<link rel="stylesheet" href="${base}/__ug/barra.css">
+<script src="${base}/__ug/shim.js" data-base="${escapeHtml(base)}" data-usuario="${dados}"></script>
 <div id="ug-barra">
   <a class="ug-marca" href="/">Uni<span>Gestão</span></a>
   <a href="/">◂ Todos os módulos</a>
   <div class="ug-dir"><span>${escapeHtml(usuario.nome || "")}</span>
-  <a href="/api/logout" onclick="event.preventDefault();fetch('/api/logout',{method:'POST'}).then(function(){location.href='/'})">Sair</a></div>
+  <a id="ug-sair" href="/">Sair</a></div>
 </div>`;
 }
 
@@ -268,6 +295,23 @@ const servidor = http.createServer(async (req, res) => {
   }
 
   const modulo = primeiro;
+
+  // Arquivos da propria Fachada: nunca vao para o modulo.
+  if (caminho === `/${modulo}/__ug/shim.js`) {
+    res.writeHead(200, {
+      "content-type": "application/javascript; charset=utf-8",
+      "cache-control": "no-cache",
+    });
+    return res.end(SHIM_JS);
+  }
+  if (caminho === `/${modulo}/__ug/barra.css`) {
+    res.writeHead(200, {
+      "content-type": "text/css; charset=utf-8",
+      "cache-control": "no-cache",
+    });
+    return res.end(BARRA_CSS);
+  }
+
   const destino = MODULOS[modulo].destino;
   if (!destino) {
     return responder(res, 503, "Este módulo ainda não foi conectado ao UniGestão.");

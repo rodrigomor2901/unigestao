@@ -81,9 +81,23 @@ const moduloFalso = http.createServer((req, res) => {
 
   console.log("\n=== INJECAO NO HTML ===");
   ok(corpo.includes("Sistema antigo"), "conteudo original do modulo preservado");
-  ok(corpo.includes('window.UNIGESTAO'), "shim injetado");
-  ok(corpo.includes('"/operacional"'), "shim recebeu o prefixo correto");
+  ok(corpo.includes('src="/operacional/__ug/shim.js"'), "shim referenciado como arquivo");
+  ok(!/<script>[^<]*window\.UNIGESTAO/.test(corpo), "shim NAO vai embutido no HTML");
+  ok(corpo.includes('data-base="/operacional"'), "shim recebeu o prefixo correto");
   ok(corpo.includes('id="ug-barra"'), "barra superior comum injetada");
+  ok(!/onclick=/.test(corpo), "sem manipulador inline — bloqueado por script-src 'self'");
+
+  console.log("\n=== O SHIM E SERVIDO PELA FACHADA ===");
+  // Modulos com politica estrita (script-src 'self') bloqueiam script inline.
+  // Por isso shim e barra saem como arquivos do proprio dominio.
+  const shimJs = await fetch("http://localhost:8099/operacional/__ug/shim.js", C(comAcesso));
+  const shimCorpo = await shimJs.text();
+  ok(shimJs.status === 200, "shim.js responde");
+  ok((shimJs.headers.get("content-type") || "").includes("javascript"), "servido como javascript");
+  ok(shimCorpo.includes("window.UNIGESTAO"), "shim.js traz a logica");
+  const barraCss = await fetch("http://localhost:8099/operacional/__ug/barra.css", C(comAcesso));
+  ok(barraCss.status === 200, "barra.css responde");
+  ok(recebido.url !== "/__ug/shim.js", "esses arquivos nao sao repassados ao modulo");
   ok(corpo.indexOf("ug-barra") < corpo.indexOf("Sistema antigo"),
      "barra entra logo apos <body>, antes do conteudo");
 
