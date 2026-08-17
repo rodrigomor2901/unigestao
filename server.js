@@ -525,7 +525,9 @@ async function bootstrap() {
   try {
     await db.init();
     await bootstrap();
-    app.listen(PORT, () => console.log(`[core] UniGestao ouvindo na porta ${PORT}`));
+    // Escuta em "::" (IPv6, com IPv4 mapeado): e o que a rede privada do
+    // Railway exige para um servico sem dominio publico ser alcancavel.
+    app.listen(PORT, "::", () => console.log(`[core] UniGestao ouvindo na porta ${PORT}`));
   } catch (e) {
     console.error("[core] falha ao iniciar:", e);
     process.exit(1);

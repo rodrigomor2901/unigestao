@@ -285,7 +285,8 @@ const servidor = http.createServer(async (req, res) => {
   });
 });
 
-servidor.listen(PORT, () => {
+// "::" cobre IPv6 e IPv4 mapeado — exigido pela rede privada do Railway.
+servidor.listen(PORT, "::", () => {
   console.log(`[fachada] ouvindo na porta ${PORT}`);
   console.log(`[fachada] Core em ${CORE}`);
   for (const [id, m] of Object.entries(MODULOS)) {
