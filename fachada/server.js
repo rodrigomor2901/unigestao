@@ -132,6 +132,32 @@ XMLHttpRequest.prototype.open=function(m,u){
   return _o.apply(this,arguments);
 };
 
+// EventSource (sincronizacao em tempo real). Sem isto o modulo abre a conexao
+// na raiz do dominio, recebe 404 e o navegador fica retentando em loop — falha
+// silenciosa, porque a tela carrega normalmente e so o tempo real para de valer.
+if(window.EventSource){
+  var _E=window.EventSource;
+  var EventSourceUG=function(u,c){ return new _E(pfx(u),c); };
+  EventSourceUG.prototype=_E.prototype;
+  EventSourceUG.CONNECTING=_E.CONNECTING;
+  EventSourceUG.OPEN=_E.OPEN;
+  EventSourceUG.CLOSED=_E.CLOSED;
+  window.EventSource=EventSourceUG;
+}
+
+// WebSocket, pelo mesmo motivo. Nenhum modulo usa hoje, mas o custo e uma linha.
+if(window.WebSocket){
+  var _W=window.WebSocket;
+  var WebSocketUG=function(u,p){
+    var alvo=(typeof u==="string"&&u.charAt(0)==="/")? (location.origin.replace(/^http/,"ws")+pfx(u)) : u;
+    return p===undefined? new _W(alvo) : new _W(alvo,p);
+  };
+  WebSocketUG.prototype=_W.prototype;
+  WebSocketUG.CONNECTING=_W.CONNECTING; WebSocketUG.OPEN=_W.OPEN;
+  WebSocketUG.CLOSING=_W.CLOSING; WebSocketUG.CLOSED=_W.CLOSED;
+  window.WebSocket=WebSocketUG;
+}
+
 document.addEventListener('click',function(ev){
   var alvo=ev.target.closest&&ev.target.closest('#ug-sair');
   if(!alvo)return;
