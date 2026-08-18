@@ -69,10 +69,17 @@ async function j(url, opc) {
   ok(liberado.d && liberado.d.papel === "supervisor", "papel devolvido e 'supervisor' (nao 'admin')");
   ok(liberado.d && liberado.d.superAdmin === false, "nao e super admin");
 
-  // A pessoa NAO tem documentos. O modulo esta inativo no registro,
-  // entao a resposta correta e 404 (modulo desconhecido).
-  const inexistente = await j(CORE + "/api/interno/sessao?modulo=documentos", { headers: h });
-  ok(inexistente.status === 404, "modulo ainda nao conectado -> 404");
+  // Modulo que ainda nao foi plugado: a resposta correta e 404 (desconhecido),
+  // e nao 403. Escolhido a partir do registro, nunca fixo no teste — antes isto
+  // apontava para "documentos", e o teste quebrou no dia em que ele foi ativado.
+  const modulos = require("../core/modulos.js");
+  const inativo = Object.keys(modulos.MODULOS).find((id) => !modulos.MODULOS[id].ativo);
+  if (inativo) {
+    const inexistente = await j(CORE + "/api/interno/sessao?modulo=" + inativo, { headers: h });
+    ok(inexistente.status === 404, `modulo ainda nao conectado (${inativo}) -> 404`);
+  } else {
+    ok(true, "todos os modulos ja estao conectados — nada a verificar aqui");
+  }
 
   console.log("\n=== BLOQUEIOS ===");
   const semChave = await j(CORE + "/api/interno/sessao?modulo=operacional", {

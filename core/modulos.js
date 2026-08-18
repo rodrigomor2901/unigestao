@@ -41,9 +41,12 @@ const MODULOS = {
     base: "/documentos",
     interno: process.env.URL_DOCUMENTOS || "",
     icone: "folder",
-    papeis: ["admin", "consulta"],
+    // Confere com NIVEIS em index.html e com exigirNivel() em server.js.
+    // `gestao` faltava na lista anterior — sem ele nao daria para atribuir o
+    // acesso que as tres contas de setor usam hoje.
+    papeis: ["admin", "gestao", "consulta"],
     papelAdmin: "admin",
-    ativo: false,
+    ativo: true,
   },
   eventos: {
     nome: "Gestão de Eventos",
