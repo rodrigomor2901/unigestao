@@ -24,7 +24,20 @@ const moduloFalso = http.createServer((req, res) => {
           '<script>fetch("/api/dados")</script></body></html>');
 });
 
+// Mesma guarda do teste do modulo: se a porta ja estiver ocupada por um
+// processo esquecido, o listen falha e a suite quebra sem relacao com o que
+// esta sendo testado. Melhor parar e dizer o porque.
+async function portaLivre(porta) {
+  try { await fetch("http://localhost:" + porta + "/"); return false; } catch (e) { return true; }
+}
+
 (async () => {
+  for (const porta of [3100, 8099]) {
+    if (!(await portaLivre(porta))) {
+      console.error("Ja existe algo escutando em localhost:" + porta + ". Encerre esse processo.");
+      process.exit(1);
+    }
+  }
   await new Promise((r) => moduloFalso.listen(3100, r));
 
   const fachada = fork(path.join(__dirname, "..", "fachada", "server.js"), [], {
