@@ -24,25 +24,27 @@ const moduloFalso = http.createServer((req, res) => {
           '<script>fetch("/api/dados")</script></body></html>');
 });
 
-// Mesma guarda do teste do modulo: se a porta ja estiver ocupada por um
-// processo esquecido, o listen falha e a suite quebra sem relacao com o que
-// esta sendo testado. Melhor parar e dizer o porque.
-async function portaLivre(porta) {
-  try { await fetch("http://localhost:" + porta + "/"); return false; } catch (e) { return true; }
+// Portas escolhidas pelo sistema operacional, nunca fixas.
+//
+// Com porta fixa a suite quebrava de forma intermitente: depois que um teste
+// encerra, o socket fica um tempo em espera no sistema, e a execucao seguinte
+// batia em EADDRINUSE. Verificar "esta livre?" antes nao resolve — livre e
+// utilizavel nao sao a mesma coisa nesse intervalo.
+function portaLivre() {
+  return new Promise((resolve) => {
+    const s = require("net").createServer();
+    s.listen(0, () => { const p = s.address().port; s.close(() => resolve(p)); });
+  });
 }
 
 (async () => {
-  for (const porta of [3100, 8099]) {
-    if (!(await portaLivre(porta))) {
-      console.error("Ja existe algo escutando em localhost:" + porta + ". Encerre esse processo.");
-      process.exit(1);
-    }
-  }
-  await new Promise((r) => moduloFalso.listen(3100, r));
+  await new Promise((r) => moduloFalso.listen(0, r));
+  const PORTA_MODULO = moduloFalso.address().port;
+  const PORTA_FACHADA = await portaLivre();
 
   const fachada = fork(path.join(__dirname, "..", "fachada", "server.js"), [], {
-    env: { ...process.env, PORT: "8099", URL_CORE: "http://localhost:3000",
-           CORE_INTERNAL_KEY: CHAVE, URL_OPERACIONAL: "http://localhost:3100" },
+    env: { ...process.env, PORT: String(PORTA_FACHADA), URL_CORE: "http://localhost:3000",
+           CORE_INTERNAL_KEY: CHAVE, URL_OPERACIONAL: "http://localhost:" + PORTA_MODULO },
     stdio: "ignore",
   });
   await new Promise((r) => setTimeout(r, 900));
@@ -69,21 +71,22 @@ async function portaLivre(porta) {
   const comAcesso = await criar("fach.cco@uniseter.com", [{ modulo: "operacional", papel: "cco" }]);
   const semAcesso = await criar("fach.sem@uniseter.com", []);
 
+  const F = "http://localhost:" + PORTA_FACHADA;
   const C = (t) => ({ headers: { cookie: "unigestao_sessao=" + t } });
 
   console.log("\n=== ROTEAMENTO ===");
-  const raiz = await fetch("http://localhost:8099/", { redirect: "manual" });
+  const raiz = await fetch(`${F}/`, { redirect: "manual" });
   ok(raiz.status === 200, "/ vai para o Core");
 
-  const semLogin = await fetch("http://localhost:8099/operacional/", { redirect: "manual" });
+  const semLogin = await fetch(`${F}/operacional/`, { redirect: "manual" });
   ok(semLogin.status === 302, "modulo sem login -> redireciona para o login");
 
-  const negado = await fetch("http://localhost:8099/operacional/", { ...C(semAcesso), redirect: "manual" });
+  const negado = await fetch(`${F}/operacional/`, { ...C(semAcesso), redirect: "manual" });
   ok(negado.status === 403, "sem o modulo liberado -> 403");
   ok((await negado.text()).includes("Fale com o administrador"), "mensagem de bloqueio e clara");
 
   console.log("\n=== PROXY E IDENTIDADE ===");
-  const html = await fetch("http://localhost:8099/operacional/", C(comAcesso));
+  const html = await fetch(`${F}/operacional/`, C(comAcesso));
   const corpo = await html.text();
   ok(html.status === 200, "modulo liberado responde 200");
   ok(recebido.url === "/", "prefixo /operacional removido antes de chegar ao modulo");
@@ -103,19 +106,19 @@ async function portaLivre(porta) {
   console.log("\n=== O SHIM E SERVIDO PELA FACHADA ===");
   // Modulos com politica estrita (script-src 'self') bloqueiam script inline.
   // Por isso shim e barra saem como arquivos do proprio dominio.
-  const shimJs = await fetch("http://localhost:8099/operacional/__ug/shim.js", C(comAcesso));
+  const shimJs = await fetch(`${F}/operacional/__ug/shim.js`, C(comAcesso));
   const shimCorpo = await shimJs.text();
   ok(shimJs.status === 200, "shim.js responde");
   ok((shimJs.headers.get("content-type") || "").includes("javascript"), "servido como javascript");
   ok(shimCorpo.includes("window.UNIGESTAO"), "shim.js traz a logica");
-  const barraCss = await fetch("http://localhost:8099/operacional/__ug/barra.css", C(comAcesso));
+  const barraCss = await fetch(`${F}/operacional/__ug/barra.css`, C(comAcesso));
   ok(barraCss.status === 200, "barra.css responde");
   ok(recebido.url !== "/__ug/shim.js", "esses arquivos nao sao repassados ao modulo");
   ok(corpo.indexOf("ug-barra") < corpo.indexOf("Sistema antigo"),
      "barra entra logo apos <body>, antes do conteudo");
 
   console.log("\n=== CHAMADA DE API ATRAVES DA FACHADA ===");
-  const api = await fetch("http://localhost:8099/operacional/api/dados", C(comAcesso));
+  const api = await fetch(`${F}/operacional/api/dados`, C(comAcesso));
   const dados = await api.json();
   ok(api.status === 200, "chamada de API atravessa a Fachada");
   ok(dados.rota === "/api/dados", "modulo recebe /api/dados (sem o prefixo)");

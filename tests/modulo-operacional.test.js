@@ -13,8 +13,15 @@ const auth = require("../core/auth.js");
 
 const CHAVE = "chave-de-desenvolvimento";
 const CORE = "http://localhost:3000";
-const PORTA_MODULO = 3200;
-const PORTA_FACHADA = 8097;
+// Portas escolhidas pelo sistema operacional — ver a explicacao em fachada.test.js
+function portaLivre() {
+  return new Promise((resolve) => {
+    const s = require("net").createServer();
+    s.listen(0, () => { const p = s.address().port; s.close(() => resolve(p)); });
+  });
+}
+let PORTA_MODULO = 0;
+let PORTA_FACHADA = 0;
 const MODULO_DIR = "C:/Users/USER/Documents/Sistema de Lançamento de Extra";
 const BANCO_CORE = process.env.DATABASE_URL || "postgres://postgres:teste@localhost:55987/unigestao";
 const BANCO_MODULO = "postgres://postgres:teste@localhost:55987/operacional";
@@ -29,19 +36,9 @@ async function esperar(url, tentativas = 40) {
   return false;
 }
 
-// Se ja houver algo escutando na porta do modulo, o fork morre com EADDRINUSE
-// e o teste passa conversando com o processo alheio — verde por acidente.
-// Melhor parar aqui e dizer o porque.
-async function portaLivre(porta) {
-  try { await fetch(`http://localhost:${porta}/`); return false; } catch (e) { return true; }
-}
-
 (async () => {
-  if (!(await portaLivre(PORTA_MODULO))) {
-    console.error(`\nJa existe algo escutando em localhost:${PORTA_MODULO}.`);
-    console.error("Encerre esse processo — senao o teste conversaria com ele em vez do que ele mesmo sobe.\n");
-    process.exit(1);
-  }
+  PORTA_MODULO = await portaLivre();
+  PORTA_FACHADA = await portaLivre();
 
   const poolCore = new Pool({ connectionString: BANCO_CORE });
   await poolCore.query("DELETE FROM login_attempts");
