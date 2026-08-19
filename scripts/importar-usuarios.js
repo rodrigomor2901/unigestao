@@ -24,26 +24,73 @@
 //     o modulo (ou corrige o papel) e mantem a senha atual
 //   - NAO cria linha para super admin: ele ja enxerga todos os modulos
 //
-// A saida traz a lista de e-mails e senhas geradas, para repassar as pessoas.
-// Ela aparece UMA VEZ — as senhas nao ficam guardadas em lugar nenhum.
+// OPCOES
+//   --previa=<email>   nao importa nada: manda so um exemplo de cada mensagem
+//                      para esse endereco, para conferir como chega na caixa
+//                      de entrada antes de disparar para todo mundo
+//   --enviar           alem de importar, manda o e-mail de acesso a cada
+//                      pessoa. Sem isso, as senhas so aparecem na tela — que
+//                      era o unico jeito antes deste sistema saber enviar.
+//
+// Sem --enviar a saida traz a lista de e-mails e senhas geradas, para repassar
+// a mao. Ela aparece UMA VEZ: as senhas nao ficam guardadas em lugar nenhum.
 // ============================================================================
 
 const crypto = require("crypto");
 const db = require("../core/db");
 const auth = require("../core/auth");
 const modulos = require("../core/modulos");
+const correio = require("../core/email");
 
 function senhaAleatoria() {
   // 12 caracteres, sem simbolos ambiguos para quem vai digitar
   return crypto.randomBytes(9).toString("base64url");
 }
 
+const ARGS = process.argv.slice(2);
+const opcao = (nome) => {
+  const a = ARGS.find((x) => x.startsWith("--" + nome + "="));
+  return a ? a.slice(nome.length + 3).trim() : "";
+};
+const ENVIAR = ARGS.includes("--enviar");
+const PREVIA = opcao("previa");
+const soArgs = ARGS.filter((x) => !x.startsWith("--"));
+
 (async () => {
-  const moduloId = String(process.argv[2] || "").trim();
-  const b64 = String(process.argv[3] || "").trim();
+  const moduloId = String(soArgs[0] || "").trim();
+  const b64 = String(soArgs[1] || "").trim();
+
+  // Previa: nao toca no banco e nao importa ninguem. Serve para ver as duas
+  // mensagens chegando de verdade antes de disparar para uma lista inteira —
+  // e-mail enviado nao volta atras.
+  if (PREVIA) {
+    if (correio.modo() !== "envio") {
+      console.error("O envio nao esta ligado neste servico (modo: " + correio.modo() + ").");
+      console.error("Falta SENDGRID_API_KEY.");
+      process.exit(1);
+    }
+    const nomeModulo = modulos.get(moduloId) ? modulos.get(moduloId).nome : "Módulo de Exemplo";
+    const exemplo = [{ nome: nomeModulo, papelRotulo: "Exemplo" }];
+    const r1 = await correio.avisarContaNova({
+      nome: "Exemplo", email: PREVIA, senha: "EstaSenhaEUmExemplo", modulos: exemplo,
+    });
+    const r2 = await correio.avisarModuloNovo({ nome: "Exemplo", email: PREVIA, modulos: exemplo });
+    console.log("previa para " + PREVIA + ":");
+    console.log("  conta nova ..: " + (r1.ok ? "enviado" : "FALHOU — " + r1.erro));
+    console.log("  modulo novo .: " + (r2.ok ? "enviado" : "FALHOU — " + r2.erro));
+    console.log("\nNada foi importado. Confira a caixa de entrada antes de rodar de verdade.");
+    process.exit(r1.ok && r2.ok ? 0 : 1);
+  }
 
   if (!moduloId || !b64) {
-    console.error("uso: node scripts/importar-usuarios.js <modulo> <json-em-base64>");
+    console.error("uso: node scripts/importar-usuarios.js <modulo> <json-em-base64> [--enviar]");
+    console.error("     node scripts/importar-usuarios.js <modulo> --previa=<email>");
+    process.exit(1);
+  }
+  if (ENVIAR && correio.modo() !== "envio") {
+    console.error("--enviar pedido, mas o envio nao esta ligado (modo: " + correio.modo() + ").");
+    console.error("Nada foi importado — corrija a configuracao antes, para nao criar");
+    console.error("dezenas de contas cuja senha ninguem vai receber.");
     process.exit(1);
   }
   if (!modulos.existe(moduloId)) {
@@ -86,14 +133,22 @@ function senhaAleatoria() {
 
     if (achado.rows[0]) {
       const u = achado.rows[0];
+      // Saber se o modulo e NOVO para essa pessoa decide se ela recebe aviso:
+      // quem ja tinha o modulo nao ganhou nada e nao pode ser avisada de nada.
+      let moduloNovo = false;
       if (!u.super_admin) {
+        const tinha = await db.query(
+          "SELECT 1 FROM usuario_modulos WHERE usuario_id = $1 AND modulo = $2",
+          [u.id, moduloId]
+        );
+        moduloNovo = tinha.rowCount === 0;
         await db.query(
           `INSERT INTO usuario_modulos (usuario_id, modulo, papel) VALUES ($1,$2,$3)
            ON CONFLICT (usuario_id, modulo) DO UPDATE SET papel = EXCLUDED.papel`,
           [u.id, moduloId, papel]
         );
       }
-      jaExistiam.push({ email, nome: u.nome, papel, superAdmin: u.super_admin });
+      jaExistiam.push({ email, nome: u.nome, papel, superAdmin: u.super_admin, moduloNovo });
       continue;
     }
 
@@ -139,6 +194,45 @@ function senhaAleatoria() {
     console.log(`RECUSADOS (${recusados.length}):\n`);
     for (const r of recusados) console.log(`  ${r.email || "(sem e-mail)"}  ->  ${r.motivo}`);
     console.log("");
+  }
+
+  if (ENVIAR) {
+    const rotulo = modulos.rotuloDoPapel.bind(null, moduloId);
+    const nomeDoModulo = modulos.get(moduloId).nome;
+    const falhas = [];
+    let enviados = 0;
+
+    console.log("=== ENVIANDO OS AVISOS ===\n");
+
+    // Quem acabou de ganhar conta: recebe a senha provisoria.
+    for (const c of criados) {
+      const r = await correio.avisarContaNova({
+        nome: c.nome, email: c.email, senha: c.senha,
+        modulos: [{ nome: nomeDoModulo, papelRotulo: rotulo(c.papel) }],
+      });
+      if (r.ok) enviados++;
+      else falhas.push({ email: c.email, erro: r.erro, tipo: "conta nova" });
+    }
+
+    // Quem ja entrava no UniGestao: so o aviso do modulo, sem senha nenhuma.
+    // Super admin fica de fora: ele ja enxergava este modulo antes da importacao.
+    for (const j of jaExistiam.filter((x) => x.moduloNovo)) {
+      const r = await correio.avisarModuloNovo({
+        nome: j.nome, email: j.email,
+        modulos: [{ nome: nomeDoModulo, papelRotulo: rotulo(j.papel) }],
+      });
+      if (r.ok) enviados++;
+      else falhas.push({ email: j.email, erro: r.erro, tipo: "modulo novo" });
+    }
+
+    console.log(`  enviados: ${enviados}`);
+    if (falhas.length) {
+      console.log(`  FALHARAM: ${falhas.length} — estas pessoas precisam ser avisadas a mao:\n`);
+      for (const f of falhas) console.log(`    ${f.email}  (${f.tipo})  ->  ${f.erro}`);
+    }
+    console.log("");
+  } else if (criados.length) {
+    console.log("Nenhum e-mail foi enviado (rode com --enviar para isso).\n");
   }
 
   await db.pool.end();
