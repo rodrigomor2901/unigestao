@@ -39,14 +39,35 @@ const CHAVE = process.env.CORE_INTERNAL_KEY || "";
 const COOKIE = "unigestao_sessao";
 
 // Mesmo registro do Core, so com o que a Fachada precisa saber.
+//
+// `sub` existe para modulos partidos em mais de um servico. A Precificacao e
+// assim: a tela e um servico e a API e outro. Sem isso o navegador chamaria a
+// API em outro dominio, fora da Fachada — e os cabecalhos de identidade nunca
+// chegariam la. As sub-rotas sao testadas na ordem em que aparecem.
 const MODULOS = {
   operacional:  { destino: process.env.URL_OPERACIONAL  || "" },
   documentos:   { destino: process.env.URL_DOCUMENTOS   || "" },
   eventos:      { destino: process.env.URL_EVENTOS      || "" },
   tarefas:      { destino: process.env.URL_TAREFAS      || "" },
   crm:          { destino: process.env.URL_CRM          || "" },
-  precificacao: { destino: process.env.URL_PRECIFICACAO || "" },
+  precificacao: {
+    destino: process.env.URL_PRECIFICACAO || "",
+    sub: [{ prefixo: "/api", destino: process.env.URL_PRECIFICACAO_API || "" }],
+  },
 };
+
+// Escolhe o destino conforme o caminho DENTRO do modulo. Sem `sub`, e sempre
+// o destino principal — que e o caso de todos os modulos menos a Precificacao.
+function destinoDe(modulo, restoDoCaminho) {
+  const m = MODULOS[modulo];
+  if (!m) return "";
+  for (const s of m.sub || []) {
+    if (restoDoCaminho === s.prefixo || restoDoCaminho.startsWith(s.prefixo + "/")) {
+      return s.destino || m.destino;
+    }
+  }
+  return m.destino;
+}
 
 // ---------------------------------------------------------------------------
 // Cache curto de sessao — evita uma ida ao Core a cada arquivo carregado
@@ -355,7 +376,10 @@ const servidor = http.createServer(async (req, res) => {
     return res.end(BARRA_CSS);
   }
 
-  const destino = MODULOS[modulo].destino;
+  // Remove o prefixo do modulo antes de decidir o destino: /precificacao/api/x
+  // vira /api/x, e e esse trecho que diz se vai para a API ou para a tela.
+  const restoBruto = (req.url.slice(("/" + modulo).length) || "/").split("?")[0];
+  const destino = destinoDe(modulo, restoBruto);
   if (!destino) {
     return responder(res, 503, "Este módulo ainda não foi conectado ao UniGestão.");
   }

@@ -11,6 +11,16 @@ const CHAVE = "chave-de-desenvolvimento";
 let falhas = 0;
 function ok(c, m) { console.log((c ? "  OK   " : "  FALHA") + "  " + m); if (!c) falhas++; }
 
+// -- servico falso de API, imitando a API separada da Precificacao ----------
+// A Precificacao e partida em dois servicos: a tela e um, a API e outro. A
+// Fachada precisa mandar /precificacao/api/* para a API e o resto para a tela.
+let recebidoApi = null;
+const apiFalsa = http.createServer((req, res) => {
+  recebidoApi = { url: req.url, headers: req.headers };
+  res.writeHead(200, { "content-type": "application/json" });
+  res.end(JSON.stringify({ servico: "api", rota: req.url, papel: req.headers["x-ug-papel"] }));
+});
+
 // -- modulo falso, imitando um sistema atual --------------------------------
 let recebido = null;
 const moduloFalso = http.createServer((req, res) => {
@@ -39,12 +49,18 @@ function portaLivre() {
 
 (async () => {
   await new Promise((r) => moduloFalso.listen(0, r));
+  await new Promise((r) => apiFalsa.listen(0, r));
   const PORTA_MODULO = moduloFalso.address().port;
+  const PORTA_API = apiFalsa.address().port;
   const PORTA_FACHADA = await portaLivre();
 
   const fachada = fork(path.join(__dirname, "..", "fachada", "server.js"), [], {
     env: { ...process.env, PORT: String(PORTA_FACHADA), URL_CORE: "http://localhost:3000",
-           CORE_INTERNAL_KEY: CHAVE, URL_OPERACIONAL: "http://localhost:" + PORTA_MODULO },
+           CORE_INTERNAL_KEY: CHAVE,
+           URL_OPERACIONAL: "http://localhost:" + PORTA_MODULO,
+           // Precificacao: tela num servico, API em outro
+           URL_PRECIFICACAO: "http://localhost:" + PORTA_MODULO,
+           URL_PRECIFICACAO_API: "http://localhost:" + PORTA_API },
     stdio: "ignore",
   });
   await new Promise((r) => setTimeout(r, 900));
@@ -124,10 +140,30 @@ function portaLivre() {
   ok(dados.rota === "/api/dados", "modulo recebe /api/dados (sem o prefixo)");
   ok(dados.papel === "cco", "modulo enxerga o papel correto na chamada de API");
 
+  console.log("\n=== MODULO PARTIDO EM DOIS SERVICOS ===");
+  const comPrec = await criar("fach.prec@uniseter.com", [{ modulo: "precificacao", papel: "ADMIN" }]);
+  const tela = await fetch(F + "/precificacao/", C(comPrec));
+  ok(tela.status === 200, "a tela vem do servico principal");
+  ok(recebido.url === "/", "tela recebe o caminho sem o prefixo");
+
+  const chamadaApi = await fetch(F + "/precificacao/api/pricing", C(comPrec));
+  const corpoApi = await chamadaApi.json();
+  ok(chamadaApi.status === 200, "/api vai para o OUTRO servico");
+  ok(corpoApi.servico === "api", "quem respondeu foi a API, nao a tela");
+  ok(corpoApi.rota === "/api/pricing", "a API recebe /api/... como espera");
+  ok(corpoApi.papel === "ADMIN", "a identidade chega tambem na API");
+  ok(recebidoApi && recebidoApi.headers["x-ug-key"] === CHAVE, "chave interna acompanha");
+
+  // O modulo sem `sub` nao pode ser afetado pela novidade
+  const semSub = await fetch(F + "/operacional/api/dados", C(comAcesso));
+  ok(semSub.status === 200, "modulo de servico unico segue igual");
+  ok((await semSub.json()).rota === "/api/dados", "e continua recebendo /api/dados");
+
   await pool.query("DELETE FROM usuarios WHERE email LIKE 'fach.%@uniseter.com'");
   await pool.end();
   fachada.kill();
   moduloFalso.close();
+  apiFalsa.close();
 
   console.log("\n" + (falhas === 0 ? "TODOS OS TESTES PASSARAM" : falhas + " TESTE(S) FALHARAM"));
   process.exit(falhas === 0 ? 0 : 1);

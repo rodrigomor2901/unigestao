@@ -92,9 +92,12 @@ const MODULOS = {
     base: "/precificacao",
     interno: process.env.URL_PRECIFICACAO || "",
     icone: "calculator",
-    papeis: ["admin", "editor", "consulta"],
-    papelAdmin: "admin",
-    ativo: false,
+    // Confere com enum UserRole em packages/shared-types/src/enums.ts.
+    // Atencao: MAIUSCULAS. A lista anterior ("admin","editor","consulta") tinha
+    // os tres errados — nenhum existe naquele sistema.
+    papeis: ["ADMIN", "MANAGER", "ANALYST", "VIEWER"],
+    papelAdmin: "ADMIN",
+    ativo: true,
   },
 };
 
