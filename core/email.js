@@ -125,20 +125,49 @@ function moldura(titulo, miolo) {
 // botao — foi o que aconteceu no primeiro teste. Com a cor e o preenchimento
 // na celula (bgcolor como atributo, nao so no style, porque o Word tambem
 // ignora background em CSS), funciona no Outlook e continua igual no Gmail.
+// Botao "a prova de bala": duas versoes na mesma mensagem, cada cliente le a
+// sua. Foi preciso chegar aqui porque o Outlook do Windows desenha e-mail com
+// o motor do Word, e ele nao respeita padding, line-height nem border-radius
+// de CSS — tentar acertar a medida por CSS so mudava o tamanho do problema.
+//
+//   Outlook  -> uma forma VML (v:roundrect) com altura e largura em pixel.
+//               O <w:anchorlock/> impede o Word de deslocar o texto dentro
+//               dela; sem isso o rotulo escorrega para um canto.
+//   O resto  -> o link normal com fundo e cantos arredondados, dentro do
+//               truque de comentario `[if !mso]` que o Outlook pula e os
+//               demais clientes leem como conteudo comum.
+//
+// A largura precisa ser fixa: VML nao se ajusta ao texto. 7.4px por caractere
+// e a media do Arial 14 — com folga suficiente para os dois rotulos usados.
+const ALTURA_BOTAO = 40;
+function larguraBotao(texto) {
+  return Math.round(texto.length * 7.4) + 44;
+}
+
 function botao(texto) {
-  return '<table role="presentation" cellpadding="0" cellspacing="0" border="0" ' +
-           'style="margin:22px 0"><tr>' +
-      // Medidas iguais as do botao original em CSS: 11px/22px, corpo 14, sem
-      // negrito. line-height fixo porque, sem ele, o Word soma a entrelinha
-      // padrao e o botao cresce em altura sem motivo — foi o que deixou o
-      // primeiro conserto desproporcional.
-      '<td bgcolor="#1B3A6B" align="center" ' +
-          'style="border-radius:6px;padding:11px 22px;line-height:1">' +
-        '<a href="' + URL_PORTAL + '" style="color:#ffffff;text-decoration:none;' +
-        'font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1">' +
-        esc(texto) + '</a>' +
-      '</td>' +
-    '</tr></table>' +
+  const rotulo = esc(texto);
+  const larg = larguraBotao(texto);
+  return '<div style="margin:22px 0">' +
+      '<!--[if mso]>' +
+      '<v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" ' +
+        'xmlns:w="urn:schemas-microsoft-com:office:word" href="' + URL_PORTAL + '" ' +
+        'style="height:' + ALTURA_BOTAO + 'px;v-text-anchor:middle;width:' + larg + 'px;" ' +
+        'arcsize="15%" stroke="f" fillcolor="#1B3A6B">' +
+        '<w:anchorlock/>' +
+        '<center style="color:#ffffff;font-family:Arial,sans-serif;font-size:14px;">' +
+          rotulo +
+        '</center>' +
+      '</v:roundrect>' +
+      '<![endif]-->' +
+      '<!--[if !mso]><!-->' +
+      '<a href="' + URL_PORTAL + '" style="background-color:#1B3A6B;border-radius:6px;' +
+        'color:#ffffff;display:inline-block;font-family:Arial,Helvetica,sans-serif;' +
+        'font-size:14px;line-height:' + ALTURA_BOTAO + 'px;text-align:center;' +
+        'text-decoration:none;width:' + larg + 'px;-webkit-text-size-adjust:none">' +
+        rotulo +
+      '</a>' +
+      '<!--<![endif]-->' +
+    '</div>' +
     '<p style="margin:0 0 4px;font-size:13px;color:#667085">Se o botão não funcionar, ' +
     'copie este endereço no navegador:</p>' +
     '<p style="margin:0;font-size:13px"><a href="' + URL_PORTAL + '" style="color:#1B3A6B">' +

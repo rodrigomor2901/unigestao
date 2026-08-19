@@ -25,12 +25,16 @@
 //   - NAO cria linha para super admin: ele ja enxerga todos os modulos
 //
 // OPCOES
-//   --previa=<email>   nao importa nada: manda so um exemplo de cada mensagem
-//                      para esse endereco, para conferir como chega na caixa
-//                      de entrada antes de disparar para todo mundo
+//   --previa=<email>   nao importa nada: manda uma mensagem de exemplo para
+//                      esse endereco, para conferir como chega na caixa de
+//                      entrada antes de disparar para todo mundo
 //   --enviar           alem de importar, manda o e-mail de acesso a cada
 //                      pessoa. Sem isso, as senhas so aparecem na tela — que
 //                      era o unico jeito antes deste sistema saber enviar.
+//   --somente=novos    importa so quem ainda nao tem conta no Core; quem ja
+//                      tem fica intocado para uma rodada seguinte. Existe por
+//                      causa do limite diario de e-mail do SendGrid, que pode
+//                      nao caber a lista inteira num dia so.
 //
 // Sem --enviar a saida traz a lista de e-mails e senhas geradas, para repassar
 // a mao. Ela aparece UMA VEZ: as senhas nao ficam guardadas em lugar nenhum.
@@ -54,6 +58,15 @@ const opcao = (nome) => {
 };
 const ENVIAR = ARGS.includes("--enviar");
 const PREVIA = opcao("previa");
+
+// --somente=novos importa APENAS quem ainda nao tem conta no Core, e nem
+// encosta em quem ja tem. Serve para partir a importacao em dois dias quando o
+// limite diario de e-mail nao cabe a lista inteira.
+//
+// Rodar de novo depois, sem a opcao, completa o servico sem repetir ninguem:
+// quem foi criado no primeiro dia ja tem o modulo, e o script so avisa quem
+// ganhou algo novo.
+const SOMENTE_NOVOS = opcao("somente") === "novos";
 const soArgs = ARGS.filter((x) => !x.startsWith("--"));
 
 (async () => {
@@ -64,22 +77,24 @@ const soArgs = ARGS.filter((x) => !x.startsWith("--"));
   // mensagens chegando de verdade antes de disparar para uma lista inteira —
   // e-mail enviado nao volta atras.
   if (PREVIA) {
-    if (correio.modo() !== "envio") {
-      console.error("O envio nao esta ligado neste servico (modo: " + correio.modo() + ").");
-      console.error("Falta SENDGRID_API_KEY.");
+    // "rascunho" serve: a mensagem vai para o arquivo em vez do mundo, que e
+    // exatamente o que se quer ao ensaiar. So "desligado" impede.
+    if (correio.modo() === "desligado") {
+      console.error("Nao ha para onde mandar: falta SENDGRID_API_KEY (ou EMAIL_ARQUIVO).");
       process.exit(1);
     }
     const nomeModulo = modulos.get(moduloId) ? modulos.get(moduloId).nome : "Módulo de Exemplo";
     const exemplo = [{ nome: nomeModulo, papelRotulo: "Exemplo" }];
+    // So a mensagem de conta nova. As duas usam a mesma moldura e o mesmo
+    // botao, entao mandar as duas gastaria dois creditos para conferir a mesma
+    // coisa — e o plano do SendGrid tem limite diario.
     const r1 = await correio.avisarContaNova({
       nome: "Exemplo", email: PREVIA, senha: "EstaSenhaEUmExemplo", modulos: exemplo,
     });
-    const r2 = await correio.avisarModuloNovo({ nome: "Exemplo", email: PREVIA, modulos: exemplo });
     console.log("previa para " + PREVIA + ":");
     console.log("  conta nova ..: " + (r1.ok ? "enviado" : "FALHOU — " + r1.erro));
-    console.log("  modulo novo .: " + (r2.ok ? "enviado" : "FALHOU — " + r2.erro));
     console.log("\nNada foi importado. Confira a caixa de entrada antes de rodar de verdade.");
-    process.exit(r1.ok && r2.ok ? 0 : 1);
+    process.exit(r1.ok ? 0 : 1);
   }
 
   if (!moduloId || !b64) {
@@ -87,8 +102,11 @@ const soArgs = ARGS.filter((x) => !x.startsWith("--"));
     console.error("     node scripts/importar-usuarios.js <modulo> --previa=<email>");
     process.exit(1);
   }
-  if (ENVIAR && correio.modo() !== "envio") {
-    console.error("--enviar pedido, mas o envio nao esta ligado (modo: " + correio.modo() + ").");
+  // A trava e contra criar dezenas de contas cuja senha ninguem receberia — as
+  // senhas nao ficam guardadas para reenviar depois. Em "rascunho" a mensagem
+  // ainda existe (vai para o arquivo), entao so "desligado" e motivo para parar.
+  if (ENVIAR && correio.modo() === "desligado") {
+    console.error("--enviar pedido, mas nao ha para onde mandar (falta SENDGRID_API_KEY).");
     console.error("Nada foi importado — corrija a configuracao antes, para nao criar");
     console.error("dezenas de contas cuja senha ninguem vai receber.");
     process.exit(1);
@@ -114,6 +132,7 @@ const soArgs = ARGS.filter((x) => !x.startsWith("--"));
   const criados = [];
   const jaExistiam = [];
   const recusados = [];
+  const adiados = [];
 
   for (const item of lista) {
     const nome = String(item.nome || "").trim();
@@ -130,6 +149,11 @@ const soArgs = ARGS.filter((x) => !x.startsWith("--"));
       "SELECT id, nome, super_admin FROM usuarios WHERE LOWER(email) = $1",
       [email]
     );
+
+    if (achado.rows[0] && SOMENTE_NOVOS) {
+      adiados.push({ email, nome: achado.rows[0].nome, papel });
+      continue;
+    }
 
     if (achado.rows[0]) {
       const u = achado.rows[0];
@@ -187,6 +211,12 @@ const soArgs = ARGS.filter((x) => !x.startsWith("--"));
     for (const j of jaExistiam) {
       console.log(`  ${j.email}  ->  ${j.superAdmin ? "administrador geral (ja enxerga tudo)" : j.papel}`);
     }
+    console.log("");
+  }
+
+  if (adiados.length) {
+    console.log(`ADIADOS (${adiados.length}) — ja tem conta no Core; nada foi alterado neles.`);
+    console.log("  Rode de novo sem --somente=novos para conceder o modulo e avisa-los.");
     console.log("");
   }
 
