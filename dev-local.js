@@ -23,6 +23,10 @@ const env = {
   BOOTSTRAP_EMAIL: "rodrigo.moraes@uniseter.com",
   BOOTSTRAP_SENHA: "Uniseter@2026",
   SESSAO_HORAS: "10",
+  // Em desenvolvimento nenhum e-mail sai: cada mensagem vira uma linha em
+  // .emails-dev.jsonl. Sem isso, um teste de cadastro alcancaria a caixa de
+  // entrada de uma pessoa de verdade.
+  EMAIL_ARQUIVO: path.join(__dirname, ".emails-dev.jsonl"),
 };
 
 const core = fork(path.join(__dirname, "server.js"), [], {

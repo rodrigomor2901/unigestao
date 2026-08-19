@@ -14,6 +14,7 @@ const testes = [
   "dois-fatores.test.js",
   "senha-provisoria.test.js",
   "papel-admin.test.js",
+  "aviso-email.test.js",
   "fachada.test.js",
   "modulo-operacional.test.js",
 ];

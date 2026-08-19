@@ -20,6 +20,7 @@ const QRCode = require("qrcode");
 const db = require("./core/db");
 const auth = require("./core/auth");
 const modulos = require("./core/modulos");
+const correio = require("./core/email");
 
 const app = express();
 app.set("trust proxy", 1);
@@ -419,7 +420,13 @@ app.post("/api/admin/usuarios", exigeSuperAdmin, async (req, res, next) => {
     );
     await salvarModulos(id, req.body.modulos);
     await auth.auditar(req, "usuario_criado", { alvo: id, detalhe: { email, nome } });
-    res.json({ ok: true, id });
+
+    // Padrao: quem cria um acesso avisa a pessoa. Sem isso o administrador
+    // tem que copiar senha e link a mao para cada um, que era como se fazia.
+    const aviso = await avisarSeMarcado(req, () =>
+      correio.avisarContaNova({ nome, email, senha, modulos: paraEmail(req.body.modulos) })
+    );
+    res.json({ ok: true, id, email: aviso });
   } catch (e) {
     if (e.code === "23505") return res.status(409).json({ erro: "Já existe usuário com esse e-mail" });
     next(e);
@@ -458,13 +465,39 @@ app.patch("/api/admin/usuarios/:id", exigeSuperAdmin, async (req, res, next) => 
       params.push(id);
       await db.query(`UPDATE usuarios SET ${campos.join(", ")} WHERE id = $${params.length}`, params);
     }
-    if (req.body.modulos !== undefined) await salvarModulos(id, req.body.modulos);
+    // Quais modulos sao NOVOS para essa pessoa. Calculado antes de gravar —
+    // depois do salvarModulos a lista anterior ja foi substituida e nao da
+    // mais para saber o que mudou.
+    let novos = [];
+    if (req.body.modulos !== undefined) {
+      const antes = await db.query(
+        "SELECT modulo FROM usuario_modulos WHERE usuario_id = $1", [id]
+      );
+      const tinha = new Set(antes.rows.map((r) => r.modulo));
+      novos = (req.body.modulos || []).filter((m) => m && !tinha.has(m.modulo));
+      await salvarModulos(id, req.body.modulos);
+    }
 
     // Mudou senha ou desativou: derruba as sessoes abertas dessa pessoa
     if (req.body.senha || req.body.ativo === false) await auth.encerrarSessoesDoUsuario(id);
 
     await auth.auditar(req, "usuario_alterado", { alvo: id, detalhe: camposAlterados(req.body) });
-    res.json({ ok: true });
+
+    // Senha nova tem prioridade sobre modulo novo: quem acabou de ter a senha
+    // trocada precisa saber disso antes de qualquer outra novidade — e dois
+    // e-mails no mesmo minuto so confundem.
+    const dono = (await db.query("SELECT nome, email FROM usuarios WHERE id = $1", [id])).rows[0] || {};
+    let aviso = { ignorado: true, motivo: "nada a avisar" };
+    if (req.body.senha) {
+      aviso = await avisarSeMarcado(req, () =>
+        correio.avisarSenhaNova({ nome: dono.nome, email: dono.email, senha: String(req.body.senha) })
+      );
+    } else if (novos.length) {
+      aviso = await avisarSeMarcado(req, () =>
+        correio.avisarModuloNovo({ nome: dono.nome, email: dono.email, modulos: paraEmail(novos) })
+      );
+    }
+    res.json({ ok: true, email: aviso });
   } catch (e) {
     if (e.code === "23505") return res.status(409).json({ erro: "Já existe usuário com esse e-mail" });
     next(e);
@@ -485,6 +518,17 @@ app.post("/api/admin/usuarios/:id/2fa/resetar", exigeSuperAdmin, async (req, res
   }
 });
 
+// Em que modo o envio de e-mail esta. A tela usa isso para avisar o
+// administrador quando o e-mail nao vai sair, e os testes usam como trava:
+// so mexem em cadastro depois de confirmar que estao em "rascunho".
+app.get("/api/admin/email", exigeSuperAdmin, (req, res) => {
+  res.json({
+    configurado: correio.configurado(),
+    modo: correio.modo(),
+    remetente: correio.REMETENTE_ENDERECO,
+  });
+});
+
 app.get("/api/admin/auditoria", exigeSuperAdmin, async (req, res, next) => {
   try {
     const r = await db.query(
@@ -495,6 +539,35 @@ app.get("/api/admin/auditoria", exigeSuperAdmin, async (req, res, next) => {
     next(e);
   }
 });
+
+// Traduz [{modulo, papel}] para o que a pessoa le no e-mail: o nome do
+// sistema e o papel em portugues, nunca o valor cru gravado no banco
+// ("comercial_interno", "MANAGER").
+function paraEmail(lista) {
+  return (Array.isArray(lista) ? lista : [])
+    .filter((i) => i && modulos.existe(i.modulo))
+    .map((i) => ({
+      nome: modulos.get(i.modulo).nome,
+      papelRotulo: modulos.rotuloDoPapel(i.modulo, i.papel),
+    }));
+}
+
+// Avisar por e-mail e o padrao — o administrador desmarca na tela quando nao
+// quer (cadastro adiantado de quem ainda nao comecou, conta de teste).
+//
+// Nunca lanca: a conta ja foi criada ou alterada quando chegamos aqui, e
+// falha no envio nao pode desfazer isso nem virar erro na tela. O resultado
+// vai na resposta para o Admin Geral mostrar se saiu ou nao.
+async function avisarSeMarcado(req, envio) {
+  if (req.body.avisar === false) return { ignorado: true, motivo: "não solicitado" };
+  if (req.body.ativo === false) return { ignorado: true, motivo: "usuário desativado" };
+  if (!correio.configurado()) return { ignorado: true, motivo: "envio de e-mail não configurado" };
+  try {
+    return await envio();
+  } catch (e) {
+    return { ok: false, erro: e.message };
+  }
+}
 
 // Grava a lista de modulos de uma pessoa: [{modulo, papel}, ...]
 async function salvarModulos(usuarioId, lista) {

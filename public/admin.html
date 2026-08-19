@@ -139,6 +139,14 @@
       </span>
     </label>
 
+    <label class="modItem" style="grid-template-columns:22px 1fr;padding-left:2px">
+      <input type="checkbox" id="fAvisar" checked>
+      <span>
+        <label for="fAvisar">Avisar por e-mail</label>
+        <small id="dicaAvisar">Manda para a pessoa o endereço do portal, a senha e a lista de módulos liberados.</small>
+      </span>
+    </label>
+
     <div class="acoes">
       <button class="btn btn-sec esq" id="btnReset2FA" style="display:none" onclick="resetar2FA()">Resetar 2FA</button>
       <button class="btn btn-sec" onclick="fechar()">Cancelar</button>
@@ -149,6 +157,9 @@
 
 <script>
 var MODULOS = [];
+// Estado do envio de e-mail: "envio" (sai de verdade), "rascunho" (ambiente
+// local, grava em arquivo) ou "desligado" (sem SendGrid configurado).
+var EMAIL = { modo: 'desligado' };
 var USUARIOS = [];
 var editando = null;
 
@@ -175,6 +186,7 @@ async function api(url, metodo, corpo) {
 
 async function carregar() {
   MODULOS = await api('/api/admin/modulos');
+  EMAIL = await api('/api/admin/email').catch(function () { return { modo: 'desligado' }; });
   await listar();
 }
 
@@ -244,6 +256,22 @@ function abrir(id) {
   document.getElementById('lblSenha').textContent = editando ? 'Nova senha (opcional)' : 'Senha inicial';
   document.getElementById('fSuper').checked = editando ? editando.super_admin : false;
   document.getElementById('fAtivo').checked = editando ? editando.ativo : true;
+  // Sem envio configurado a caixa nao pode ficar marcada prometendo algo que
+  // nao vai acontecer — o administrador precisa saber que tem que passar a
+  // senha por outro caminho.
+  var podeEnviar = EMAIL.modo === 'envio' || EMAIL.modo === 'rascunho';
+  document.getElementById('fAvisar').checked = podeEnviar;
+  document.getElementById('fAvisar').disabled = !podeEnviar;
+  // Ao editar, o e-mail so sai se houver o que avisar — senha nova ou modulo
+  // que a pessoa ainda nao tinha. Mexer no nome nao gera mensagem nenhuma.
+  document.getElementById('dicaAvisar').textContent =
+    !podeEnviar
+      ? 'Envio de e-mail não configurado neste servidor — passe a senha por outro meio.'
+      : EMAIL.modo === 'rascunho'
+        ? 'Ambiente local: a mensagem é gravada em arquivo, não sai para ninguém.'
+        : editando
+          ? 'Se você definir uma senha nova ou liberar um módulo, a pessoa recebe um e-mail avisando.'
+          : 'Manda para a pessoa o endereço do portal, a senha e a lista de módulos liberados.';
   document.getElementById('btnReset2FA').style.display =
     editando && editando.totp_ativo ? '' : 'none';
 
@@ -306,6 +334,16 @@ function modulosSelecionados() {
   return out;
 }
 
+// O cadastro salvou de qualquer jeito — o e-mail e efeito colateral. Por isso
+// a mensagem sempre comeca confirmando o que foi salvo, e so depois conta o
+// que aconteceu com o aviso. Se o envio falhou, dizer isso importa: o
+// administrador precisa saber que tem que passar a senha por outro caminho.
+function recadoDoEnvio(res, email) {
+  if (!res || res.ignorado) return 'Cadastro salvo.';
+  if (res.ok) return 'Cadastro salvo e aviso enviado para ' + email + '.';
+  return 'Cadastro salvo, mas o e-mail não saiu. Avise a pessoa por outro meio.';
+}
+
 async function salvar() {
   var btn = document.getElementById('btnSalvar');
   btn.disabled = true;
@@ -316,20 +354,23 @@ async function salvar() {
       email: document.getElementById('fEmail').value,
       superAdmin: document.getElementById('fSuper').checked,
       ativo: document.getElementById('fAtivo').checked,
+      avisar: document.getElementById('fAvisar').checked,
       modulos: modulosSelecionados()
     };
     var senha = document.getElementById('fSenha').value;
 
+    var r;
     if (editando) {
       if (senha) corpo.senha = senha;
-      await api('/api/admin/usuarios/' + editando.id, 'PATCH', corpo);
+      r = await api('/api/admin/usuarios/' + editando.id, 'PATCH', corpo);
     } else {
       corpo.senha = senha;
-      await api('/api/admin/usuarios', 'POST', corpo);
+      r = await api('/api/admin/usuarios', 'POST', corpo);
     }
+    var destinatario = corpo.email;
     fechar();
     await listar();
-    alerta('Cadastro salvo.', 'ok');
+    alerta(recadoDoEnvio(r && r.email, destinatario), 'ok');
   } catch (e) {
     alerta(e.message, 'erro', 'modalAlerta');
   } finally {

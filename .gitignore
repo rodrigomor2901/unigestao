@@ -5,3 +5,6 @@ node_modules/
 
 # Listas de senhas provisorias geradas para distribuicao — nunca versionar
 acessos-para-enviar*.txt
+
+# Caixa de e-mail do ambiente local — mensagens gravadas em vez de enviadas
+.emails-dev.jsonl
