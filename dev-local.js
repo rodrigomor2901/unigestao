@@ -39,7 +39,8 @@ const fachada = fork(path.join(__dirname, "fachada", "server.js"), [], {
     // quem manda e a variavel do Railway, definida no servico da Fachada.
     URL_OPERACIONAL: process.env.URL_OPERACIONAL || "http://localhost:3200",
     URL_CRM: process.env.URL_CRM || "http://localhost:3300",
-    URL_DOCUMENTOS: process.env.URL_DOCUMENTOS || "http://localhost:3400",
+    URL_EVENTOS: process.env.URL_EVENTOS || "http://localhost:3400",
+    URL_DOCUMENTOS: process.env.URL_DOCUMENTOS || "http://localhost:3500",
   },
   stdio: "inherit",
 });

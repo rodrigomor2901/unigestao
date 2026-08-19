@@ -56,7 +56,7 @@ const MODULOS = {
     icone: "calendar",
     papeis: ["admin", "gestao", "proposta"],
     papelAdmin: "admin",
-    ativo: false,
+    ativo: true,
   },
   tarefas: {
     nome: "Gestão de Tarefas",
