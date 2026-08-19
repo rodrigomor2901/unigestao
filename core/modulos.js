@@ -78,8 +78,9 @@ const MODULOS = {
       admin: "Administrador", supervisor: "Supervisor", coordenador: "Coordenador",
       gerente: "Gerente", diretoria: "Diretoria", executor: "Executor",
       visualizador: "Visualizador", recepcao: "Recepção", solicitante: "Solicitante",
-      // recepcao_tao fica sem rotulo: nao sei o que TAO significa, e inventar
-      // um nome seria pior do que o arrumador automatico.
+      // TAO e uma SALA: no Tarefas o acesso desse papel e decidido por
+      // `reserva.sala === 'tao'` (server.js ~4614). Nao e sigla de setor.
+      recepcao_tao: "Recepção — Sala TAO",
     },
     papelAdmin: "admin",
     ativo: false,
