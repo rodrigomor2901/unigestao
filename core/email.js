@@ -137,21 +137,30 @@ function moldura(titulo, miolo) {
 //               truque de comentario `[if !mso]` que o Outlook pula e os
 //               demais clientes leem como conteudo comum.
 //
-// A largura precisa ser fixa: VML nao se ajusta ao texto. 7.4px por caractere
-// e a media do Arial 14 — com folga suficiente para os dois rotulos usados.
+// A largura precisa ser fixa: VML nao se ajusta ao texto.
+//
+// E precisa ser DUAS larguras. A altura em px o Word respeita, mas a largura
+// ele encolhe por volta de 0.8 (mede a forma em ponto e o texto em pixel) —
+// no primeiro teste os 185px declarados renderizaram ~148px e o rotulo quebrou
+// em duas linhas, cortado. Entao a forma do Outlook vai declarada com folga, e
+// a versao em CSS, que nao sofre disso, fica justa ao texto.
 const ALTURA_BOTAO = 40;
 function larguraBotao(texto) {
-  return Math.round(texto.length * 7.4) + 44;
+  return Math.round(texto.length * 7.8) + 44;
+}
+function larguraBotaoOutlook(texto) {
+  return Math.round(larguraBotao(texto) * 1.45);
 }
 
 function botao(texto) {
   const rotulo = esc(texto);
   const larg = larguraBotao(texto);
+  const largMso = larguraBotaoOutlook(texto);
   return '<div style="margin:22px 0">' +
       '<!--[if mso]>' +
       '<v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" ' +
         'xmlns:w="urn:schemas-microsoft-com:office:word" href="' + URL_PORTAL + '" ' +
-        'style="height:' + ALTURA_BOTAO + 'px;v-text-anchor:middle;width:' + larg + 'px;" ' +
+        'style="height:' + ALTURA_BOTAO + 'px;v-text-anchor:middle;width:' + largMso + 'px;" ' +
         'arcsize="15%" stroke="f" fillcolor="#1B3A6B">' +
         '<w:anchorlock/>' +
         '<center style="color:#ffffff;font-family:Arial,sans-serif;font-size:14px;">' +
