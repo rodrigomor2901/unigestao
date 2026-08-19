@@ -32,6 +32,10 @@ const MODULOS = {
     // Confere com ROLE_ACCESS em server.js do Lancamento de Extra (linha ~105).
     // `gestor` tem o mesmo alcance de `cco` e `admin`: enxerga todas as filas.
     papeis: ["admin", "gestor", "cco", "supervisor", "comercial"],
+    rotulos: {
+      admin: "Administrador", gestor: "Gestor", cco: "CCO",
+      supervisor: "Supervisor", comercial: "Comercial",
+    },
     papelAdmin: "admin",
     ativo: true,
   },
@@ -45,6 +49,7 @@ const MODULOS = {
     // `gestao` faltava na lista anterior — sem ele nao daria para atribuir o
     // acesso que as tres contas de setor usam hoje.
     papeis: ["admin", "gestao", "consulta"],
+    rotulos: { admin: "Administrador", gestao: "Gestão", consulta: "Consulta" },
     papelAdmin: "admin",
     ativo: true,
   },
@@ -55,6 +60,7 @@ const MODULOS = {
     interno: process.env.URL_EVENTOS || "",
     icone: "calendar",
     papeis: ["admin", "gestao", "proposta"],
+    rotulos: { admin: "Administrador", gestao: "Gestão", proposta: "Proposta" },
     papelAdmin: "admin",
     ativo: true,
   },
@@ -68,6 +74,13 @@ const MODULOS = {
       "admin", "supervisor", "coordenador", "gerente", "diretoria",
       "executor", "visualizador", "recepcao", "recepcao_tao", "solicitante",
     ],
+    rotulos: {
+      admin: "Administrador", supervisor: "Supervisor", coordenador: "Coordenador",
+      gerente: "Gerente", diretoria: "Diretoria", executor: "Executor",
+      visualizador: "Visualizador", recepcao: "Recepção", solicitante: "Solicitante",
+      // recepcao_tao fica sem rotulo: nao sei o que TAO significa, e inventar
+      // um nome seria pior do que o arrumador automatico.
+    },
     papelAdmin: "admin",
     ativo: false,
   },
@@ -83,6 +96,12 @@ const MODULOS = {
       "administrador", "diretoria", "gestor", "gestor_bonus", "financeiro",
       "juridico", "propostas", "comercial_interno", "vendedor",
     ],
+    rotulos: {
+      administrador: "Administrador", diretoria: "Diretoria", gestor: "Gestor",
+      gestor_bonus: "Gestor de Bônus", financeiro: "Financeiro",
+      juridico: "Jurídico", propostas: "Propostas",
+      comercial_interno: "Comercial Interno", vendedor: "Vendedor",
+    },
     papelAdmin: "administrador",
     ativo: true,
   },
@@ -96,6 +115,10 @@ const MODULOS = {
     // Atencao: MAIUSCULAS. A lista anterior ("admin","editor","consulta") tinha
     // os tres errados — nenhum existe naquele sistema.
     papeis: ["ADMIN", "MANAGER", "ANALYST", "VIEWER"],
+    rotulos: {
+      ADMIN: "Administrador", MANAGER: "Gerente",
+      ANALYST: "Analista", VIEWER: "Consulta",
+    },
     papelAdmin: "ADMIN",
     ativo: true,
   },
@@ -128,8 +151,21 @@ function papelDeAdmin(id) {
   return m.papeis[0] || "admin";
 }
 
+// Como o papel aparece na tela. O valor GRAVADO continua sendo o do modulo —
+// "MANAGER" na Precificacao, "comercial_interno" no CRM — porque e isso que
+// cada sistema entende. Aqui so muda o que a pessoa le.
+//
+// Sem rotulo declarado, arruma o que da: troca sublinhado por espaco e poe a
+// primeira letra maiuscula. Melhor um "Recepcao tao" do que inventar um nome.
+function rotuloDoPapel(id, papel) {
+  const m = MODULOS[id];
+  if (m && m.rotulos && m.rotulos[papel]) return m.rotulos[papel];
+  const bruto = String(papel || "").replace(/_/g, " ").toLowerCase();
+  return bruto.charAt(0).toUpperCase() + bruto.slice(1);
+}
+
 function get(id) {
   return MODULOS[id] || null;
 }
 
-module.exports = { MODULOS, listar, existe, papelValido, papelDeAdmin, get };
+module.exports = { MODULOS, listar, existe, papelValido, papelDeAdmin, rotuloDoPapel, get };

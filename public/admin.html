@@ -193,7 +193,7 @@ async function listar() {
       ? '<span class="selo selo-admin">todos os módulos</span>'
       : (u.modulos.length
           ? u.modulos.map(function (m) {
-              return '<span class="selo">' + esc(nomeModulo(m.modulo)) + ' · ' + esc(m.papel) + '</span>';
+              return '<span class="selo">' + esc(nomeModulo(m.modulo)) + ' · ' + esc(rotuloPapel(m.modulo, m.papel)) + '</span>';
             }).join('')
           : '<span class="nenhum">nenhum</span>');
 
@@ -209,6 +209,15 @@ async function listar() {
   corpo.querySelectorAll('button[data-id]').forEach(function (b) {
     b.addEventListener('click', function () { abrir(b.getAttribute('data-id')); });
   });
+}
+
+// Rotulo do papel conforme o modulo. O Core manda a lista com valor e rotulo;
+// aqui so procuramos. Sem achar, mostra o valor mesmo — melhor que nada.
+function rotuloPapel(moduloId, valor) {
+  var m = MODULOS.find(function (x) { return x.id === moduloId; });
+  if (!m) return valor;
+  var achado = (m.papeis || []).find(function (p) { return (p.valor !== undefined ? p.valor : p) === valor; });
+  return achado && achado.rotulo !== undefined ? achado.rotulo : valor;
 }
 
 function nomeModulo(id) {
@@ -245,8 +254,11 @@ function abrir(id) {
   // E aqui que a particularidade de cada sistema fica preservada.
   document.getElementById('listaModulos').innerHTML = MODULOS.map(function (m) {
     var marcado = Object.prototype.hasOwnProperty.call(atuais, m.id);
+    // value = o que o modulo entende (vai gravado); texto = o que se le.
     var opcoes = m.papeis.map(function (p) {
-      return '<option value="' + esc(p) + '"' + (atuais[m.id] === p ? ' selected' : '') + '>' + esc(p) + '</option>';
+      var valor = p.valor !== undefined ? p.valor : p;
+      var rotulo = p.rotulo !== undefined ? p.rotulo : p;
+      return '<option value="' + esc(valor) + '"' + (atuais[m.id] === valor ? ' selected' : '') + '>' + esc(rotulo) + '</option>';
     }).join('');
     return '<div class="modItem">' +
       '<input type="checkbox" id="mod_' + esc(m.id) + '" data-mod="' + esc(m.id) + '"' + (marcado ? ' checked' : '') + '>' +

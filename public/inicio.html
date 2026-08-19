@@ -86,7 +86,7 @@ async function carregar() {
     return '<a class="card modulo" href="' + esc(m.base) + '/">' +
              '<h3>' + esc(m.nome) + '</h3>' +
              '<p>' + esc(m.descricao || '') + '</p>' +
-             '<span class="selo selo-off">' + esc(m.papel) + '</span>' +
+             '<span class="selo selo-off">' + esc(m.papelRotulo || m.papel) + '</span>' +
            '</a>';
   }).join('');
 }

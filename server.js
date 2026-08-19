@@ -269,6 +269,7 @@ async function modulosDoUsuario(usuario) {
     return disponiveis.map((m) => ({
       id: m.id, nome: m.nome, descricao: m.descricao, base: m.base, icone: m.icone,
       papel: modulos.papelDeAdmin(m.id),
+      papelRotulo: modulos.rotuloDoPapel(m.id, modulos.papelDeAdmin(m.id)),
     }));
   }
   const r = await db.query("SELECT modulo, papel FROM usuario_modulos WHERE usuario_id = $1", [
@@ -280,6 +281,7 @@ async function modulosDoUsuario(usuario) {
     .map((m) => ({
       id: m.id, nome: m.nome, descricao: m.descricao, base: m.base, icone: m.icone,
       papel: papeis.get(m.id),
+      papelRotulo: modulos.rotuloDoPapel(m.id, papeis.get(m.id)),
     }));
 }
 
@@ -365,7 +367,10 @@ app.get("/api/interno/sessao", async (req, res, next) => {
 app.get("/api/admin/modulos", exigeSuperAdmin, (req, res) => {
   res.json(
     modulos.listar().map((m) => ({
-      id: m.id, nome: m.nome, descricao: m.descricao, papeis: m.papeis, icone: m.icone,
+      id: m.id, nome: m.nome, descricao: m.descricao, icone: m.icone,
+      // `valor` e o que o modulo entende e o que sera gravado; `rotulo` e so o
+      // que a pessoa le. Nao trocar um pelo outro.
+      papeis: m.papeis.map((p) => ({ valor: p, rotulo: modulos.rotuloDoPapel(m.id, p) })),
     }))
   );
 });
