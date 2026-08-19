@@ -83,7 +83,7 @@ const MODULOS = {
       recepcao_tao: "Recepção — Sala TAO",
     },
     papelAdmin: "admin",
-    ativo: false,
+    ativo: true,
   },
   crm: {
     nome: "CRM Comercial",
