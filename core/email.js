@@ -128,10 +128,15 @@ function moldura(titulo, miolo) {
 function botao(texto) {
   return '<table role="presentation" cellpadding="0" cellspacing="0" border="0" ' +
            'style="margin:22px 0"><tr>' +
-      '<td bgcolor="#1B3A6B" style="border-radius:6px;padding:12px 24px">' +
+      // Medidas iguais as do botao original em CSS: 11px/22px, corpo 14, sem
+      // negrito. line-height fixo porque, sem ele, o Word soma a entrelinha
+      // padrao e o botao cresce em altura sem motivo — foi o que deixou o
+      // primeiro conserto desproporcional.
+      '<td bgcolor="#1B3A6B" align="center" ' +
+          'style="border-radius:6px;padding:11px 22px;line-height:1">' +
         '<a href="' + URL_PORTAL + '" style="color:#ffffff;text-decoration:none;' +
-        'font-family:Arial,Helvetica,sans-serif;font-size:15px;font-weight:bold;' +
-        'display:inline-block">' + esc(texto) + '</a>' +
+        'font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1">' +
+        esc(texto) + '</a>' +
       '</td>' +
     '</tr></table>' +
     '<p style="margin:0 0 4px;font-size:13px;color:#667085">Se o botão não funcionar, ' +
