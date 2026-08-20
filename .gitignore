@@ -13,3 +13,4 @@ acessos-para-enviar*.txt
 # Sao relatorios regerados a cada execucao — e alguns citam trechos de codigo
 # e caminhos de arquivo que nao ha razao para versionar.
 .source-aware/
+.source-aware-retry/
