@@ -8,3 +8,8 @@ acessos-para-enviar*.txt
 
 # Caixa de e-mail do ambiente local — mensagens gravadas em vez de enviadas
 .emails-dev.jsonl
+
+# Saida de ferramentas de analise (gitleaks, trivy, semgrep, ast-grep).
+# Sao relatorios regerados a cada execucao — e alguns citam trechos de codigo
+# e caminhos de arquivo que nao ha razao para versionar.
+.source-aware/
