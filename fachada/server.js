@@ -189,6 +189,40 @@ document.addEventListener('click',function(ev){
     .then(function(){location.href='/'});
 });
 
+// Links que o modulo monta em tempo de execucao, pelo mesmo motivo das
+// imagens: quando o proprio JS gera <a href="/api/attachments/435/download">,
+// esse trecho nasce como TEXTO dentro do app.js — nunca foi HTML, entao a
+// reescrita da Fachada nao o alcanca. O clique ia para a raiz do dominio, ou
+// seja, para o Core, que responde "Cannot GET".
+//
+// Foi o que aconteceu com os anexos do CRM. Corrigido no clique, na fase de
+// captura, alterando o href antes de o navegador segui-lo — vale para link
+// comum e para os que abrem em outra aba.
+//
+// A barra do UniGestao fica de fora: os links dela apontam para a raiz DE
+// PROPOSITO ("Todos os modulos", "Sair"), e prefixa-los levaria a pessoa para
+// dentro do modulo em vez de para o portal.
+document.addEventListener('click',function(ev){
+  var a=ev.target.closest&&ev.target.closest('a[href]');
+  if(!a)return;
+  if(a.closest('#ug-barra'))return;
+  var bruto=a.getAttribute('href')||'';
+  if(bruto.charAt(0)!=='/'||bruto.indexOf('//')===0)return;
+  if(bruto.indexOf(BASE+'/')===0||bruto===BASE)return;
+  a.setAttribute('href',BASE+bruto);
+},true);
+
+// window.open com caminho da raiz cai no mesmo buraco — e e como varios
+// sistemas abrem recibo, anexo e relatorio em outra aba.
+if(window.open){
+  var _open=window.open;
+  window.open=function(u){
+    var args=Array.prototype.slice.call(arguments);
+    args[0]=pfx(u);
+    return _open.apply(window,args);
+  };
+}
+
 // Imagens que o modulo monta em tempo de execucao escapam da reescrita feita
 // no HTML: quando o proprio JS gera <img src="/assets/logo.png">, esse trecho
 // nunca passou pela Fachada, e o navegador vai buscar na raiz do dominio — no
