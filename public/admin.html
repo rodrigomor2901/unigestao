@@ -102,46 +102,6 @@
     </table>
   </div>
 
-  <div class="cabeca" style="margin-top:38px">
-    <div>
-      <h2>Mural</h2>
-      <p>Avisos que aparecem na tela inicial de todo mundo. Não manda e-mail — quem entra no portal vê.</p>
-    </div>
-  </div>
-
-  <div class="card" style="padding:20px;margin-bottom:16px">
-    <div id="avisoMural"></div>
-    <div style="display:grid;grid-template-columns:1fr 150px 150px;gap:12px">
-      <label class="campo"><span>Título</span>
-        <input type="text" id="aTitulo" placeholder="Ex.: Recesso de fim de ano"></label>
-      <label class="campo"><span>Tipo</span>
-        <select id="aTipo">
-          <option value="aviso">Aviso</option>
-          <option value="mudanca">Mudança</option>
-          <option value="evento">Evento</option>
-        </select></label>
-      <label class="campo"><span>Sai da tela em</span>
-        <input type="date" id="aFim"></label>
-    </div>
-    <label class="campo"><span>Texto</span>
-      <textarea id="aTexto" rows="3" placeholder="O que as pessoas precisam saber."></textarea></label>
-    <label style="display:flex;align-items:center;gap:8px;font-size:14px;margin:2px 0 14px">
-      <input type="checkbox" id="aFixado">
-      <span>Fixar no topo e não expirar</span>
-    </label>
-    <button class="btn" onclick="publicarAviso()">Publicar</button>
-  </div>
-
-  <div class="card" style="overflow:auto">
-    <table>
-      <thead>
-        <tr><th>Aviso</th><th>Tipo</th><th>Situação</th><th></th></tr>
-      </thead>
-      <tbody id="corpoMural">
-        <tr><td colspan="4" style="color:var(--texto-fraco)">Carregando…</td></tr>
-      </tbody>
-    </table>
-  </div>
 </main>
 
 <!-- Modal de edicao -->
@@ -171,6 +131,14 @@
       <span>
         <label for="fSuper">Administrador geral</label>
         <small>Enxerga todos os módulos e gerencia pessoas. Exige verificação em duas etapas.</small>
+      </span>
+    </label>
+
+    <label class="modItem" style="grid-template-columns:22px 1fr;padding-left:2px">
+      <input type="checkbox" id="fMural">
+      <span>
+        <label for="fMural">Pode publicar no mural</label>
+        <small>Escreve comunicados que aparecem para todo o grupo. O administrador geral já pode.</small>
       </span>
     </label>
 
@@ -231,88 +199,27 @@ async function carregar() {
   MODULOS = await api('/api/admin/modulos');
   EMAIL = await api('/api/admin/email').catch(function () { return { modo: 'desligado' }; });
   await listar();
-  await listarMural();
 }
 
-// ---------------------------------------------------------------------------
-// Mural
-// ---------------------------------------------------------------------------
-var ROTULO_TIPO = { aviso: 'Aviso', mudanca: 'Mudança', evento: 'Evento' };
-
-async function listarMural() {
-  var corpo = document.getElementById('corpoMural');
-  var dados = await api('/api/admin/mural').catch(function () { return { avisos: [] }; });
-  var avisos = dados.avisos || [];
-
-  if (!avisos.length) {
-    corpo.innerHTML = '<tr><td colspan="4" style="color:var(--texto-fraco)">' +
-      'Nenhum aviso publicado ainda.</td></tr>';
-    return;
-  }
-
-  corpo.innerHTML = avisos.map(function (a) {
-    // Vencido continua na lista do admin, de proposito: serve para reaproveitar
-    // o texto no ano seguinte, ou para apagar de vez. Na tela das pessoas ele
-    // ja sumiu sozinho.
-    var situacao = a.vencido
-      ? '<span class="selo selo-off">saiu da tela</span>'
-      : (a.fixado
-          ? '<span class="selo selo-admin">fixado</span>'
-          : '<span class="selo selo-off">até ' + esc(dataCurta(a.fim_em)) + '</span>');
-    return '<tr>' +
-      '<td><b>' + esc(a.titulo) + '</b>' +
-        (a.texto ? '<br><small style="color:var(--texto-fraco)">' +
-                   esc(a.texto.slice(0, 90)) + (a.texto.length > 90 ? '…' : '') + '</small>' : '') +
-      '</td>' +
-      '<td>' + esc(ROTULO_TIPO[a.tipo] || a.tipo) + '</td>' +
-      '<td>' + situacao + '</td>' +
-      '<td><button class="btn btn-sec" onclick="removerAviso(' + a.id + ')">Remover</button></td>' +
-    '</tr>';
-  }).join('');
+function alerta(msg, tipo, onde) {
+  var el = document.getElementById(onde || 'alerta');
+  el.innerHTML = msg ? '<div class="aviso aviso-' + (tipo || 'erro') + '">' + esc(msg) + '</div>' : '';
 }
 
-function dataCurta(iso) {
-  return iso ? new Date(iso).toLocaleDateString('pt-BR') : 'sem prazo';
+async function api(url, metodo, corpo) {
+  var opc = { method: metodo || 'GET', headers: { 'Content-Type': 'application/json' } };
+  if (corpo) opc.body = JSON.stringify(corpo);
+  var r = await fetch(url, opc);
+  if (r.status === 401) { location.href = '/'; throw new Error('Sessão expirada'); }
+  var d = await r.json().catch(function () { return {}; });
+  if (!r.ok) throw new Error(d.erro || 'Falha na comunicação com o servidor');
+  return d;
 }
 
-async function publicarAviso() {
-  var aviso = document.getElementById('avisoMural');
-  aviso.innerHTML = '';
-  var titulo = document.getElementById('aTitulo').value.trim();
-  if (titulo.length < 3) {
-    aviso.innerHTML = '<div class="aviso aviso-erro">Escreva um título.</div>';
-    return;
-  }
-  var fim = document.getElementById('aFim').value;
-  try {
-    await api('/api/admin/mural', 'POST', {
-      titulo: titulo,
-      texto: document.getElementById('aTexto').value,
-      tipo: document.getElementById('aTipo').value,
-      fixado: document.getElementById('aFixado').checked,
-      // Sem data escolhida, o servidor coloca 30 dias — aviso sem prazo vira
-      // paisagem e o mural morre.
-      fimEm: fim ? new Date(fim + 'T23:59:59').toISOString() : null,
-    });
-    document.getElementById('aTitulo').value = '';
-    document.getElementById('aTexto').value = '';
-    document.getElementById('aFim').value = '';
-    document.getElementById('aFixado').checked = false;
-    aviso.innerHTML = '<div class="aviso aviso-ok">Publicado. Já aparece na tela inicial de todo mundo.</div>';
-    await listarMural();
-  } catch (e) {
-    aviso.innerHTML = '<div class="aviso aviso-erro">' + esc(e.message) + '</div>';
-  }
-}
-
-async function removerAviso(id) {
-  if (!confirm('Remover este aviso do mural?')) return;
-  try {
-    await api('/api/admin/mural/' + id, 'DELETE');
-    await listarMural();
-  } catch (e) {
-    alerta(e.message);
-  }
+async function carregar() {
+  MODULOS = await api('/api/admin/modulos');
+  EMAIL = await api('/api/admin/email').catch(function () { return { modo: 'desligado' }; });
+  await listar();
 }
 
 async function listar() {
@@ -380,6 +287,7 @@ function abrir(id) {
     : 'mínimo 8 caracteres';
   document.getElementById('lblSenha').textContent = editando ? 'Nova senha (opcional)' : 'Senha inicial';
   document.getElementById('fSuper').checked = editando ? editando.super_admin : false;
+  document.getElementById('fMural').checked = editando ? !!editando.mural_autor : false;
   document.getElementById('fAtivo').checked = editando ? editando.ativo : true;
   // Sem envio configurado a caixa nao pode ficar marcada prometendo algo que
   // nao vai acontecer — o administrador precisa saber que tem que passar a
@@ -478,6 +386,7 @@ async function salvar() {
       nome: document.getElementById('fNome').value,
       email: document.getElementById('fEmail').value,
       superAdmin: document.getElementById('fSuper').checked,
+      muralAutor: document.getElementById('fMural').checked,
       ativo: document.getElementById('fAtivo').checked,
       avisar: document.getElementById('fAvisar').checked,
       modulos: modulosSelecionados()

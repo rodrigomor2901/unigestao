@@ -142,3 +142,71 @@ CREATE INDEX IF NOT EXISTS idx_avisos_janela ON avisos (inicio_em, fim_em);
 -- Quando a pessoa olhou o mural pela ultima vez — e o que decide o ponto de
 -- "novo". Sem isso, ou nada e destacado, ou tudo fica destacado para sempre.
 ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS mural_visto_em TIMESTAMPTZ;
+
+-- ------------------------------------------------------------
+-- MURAL — publicacoes, imagem, curtidas, comentarios, leitura
+-- ------------------------------------------------------------
+-- Quem publica: administrador geral e quem for marcado como autor.
+--
+-- `mural_autor` e um marcador por pessoa, e nao um papel novo. A ideia era
+-- "diretoria, gestao e marketing", mas isso e CARGO, e cargo aqui e texto
+-- livre digitado por cada um na agenda — amarrar permissao a texto livre daria
+-- acesso a quem escrevesse "Gestao de Contratos" e negaria a quem escrevesse
+-- "Diretor". Marcar a pessoa e explicito e nao depende de como ela se descreve.
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS mural_autor BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Publicacao: o aviso agora tem imagem, pop-up e nao expira mais sozinho.
+-- Vira historico permanente, consultavel no modulo Mural.
+ALTER TABLE avisos ADD COLUMN IF NOT EXISTS popup_ate   TIMESTAMPTZ;
+ALTER TABLE avisos ADD COLUMN IF NOT EXISTS editado_em  TIMESTAMPTZ;
+ALTER TABLE avisos ADD COLUMN IF NOT EXISTS arquivado   BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- A imagem fica em tabela propria pelo mesmo motivo da foto de perfil: a
+-- listagem do mural le titulo e texto o tempo todo e nao pode arrastar
+-- centenas de kilobytes junto a cada carregamento.
+CREATE TABLE IF NOT EXISTS aviso_imagem (
+  aviso_id   BIGINT PRIMARY KEY REFERENCES avisos(id) ON DELETE CASCADE,
+  tipo       TEXT        NOT NULL,
+  bytes      BYTEA       NOT NULL,
+  enviada_em TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Leitura por pessoa. Serve para duas coisas ao mesmo tempo: o "lido" que a
+-- pessoa marca, e o controle de quem ja viu o pop-up — se fossem duas tabelas,
+-- as duas responderiam a mesma pergunta e sairiam do ar juntas.
+CREATE TABLE IF NOT EXISTS aviso_leitura (
+  aviso_id   BIGINT NOT NULL REFERENCES avisos(id) ON DELETE CASCADE,
+  usuario_id TEXT   NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  lido_em    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  popup_em   TIMESTAMPTZ,
+  PRIMARY KEY (aviso_id, usuario_id)
+);
+
+CREATE TABLE IF NOT EXISTS aviso_curtida (
+  aviso_id   BIGINT NOT NULL REFERENCES avisos(id) ON DELETE CASCADE,
+  usuario_id TEXT   NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  criado_em  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (aviso_id, usuario_id)
+);
+
+CREATE TABLE IF NOT EXISTS aviso_comentario (
+  id         BIGSERIAL PRIMARY KEY,
+  aviso_id   BIGINT NOT NULL REFERENCES avisos(id) ON DELETE CASCADE,
+  usuario_id TEXT   REFERENCES usuarios(id) ON DELETE SET NULL,
+  texto      TEXT   NOT NULL,
+  criado_em  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_comentario_aviso ON aviso_comentario (aviso_id, criado_em);
+
+-- Historico de edicao: guarda o texto ANTES da alteracao, com autor e hora.
+-- Publicacao que muda sem deixar rastro gera discussao sobre o que estava
+-- escrito — e num comunicado de empresa essa discussao custa caro.
+CREATE TABLE IF NOT EXISTS aviso_edicao (
+  id           BIGSERIAL PRIMARY KEY,
+  aviso_id     BIGINT NOT NULL REFERENCES avisos(id) ON DELETE CASCADE,
+  editor_id    TEXT   REFERENCES usuarios(id) ON DELETE SET NULL,
+  editado_em   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  titulo_antes TEXT   NOT NULL,
+  texto_antes  TEXT   NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_edicao_aviso ON aviso_edicao (aviso_id, editado_em DESC);

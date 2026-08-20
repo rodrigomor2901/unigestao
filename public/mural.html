@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UniGestão — Mural</title>
+<link rel="icon" href="/marca/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/core.css">
+<style>
+  .topo {
+    background: var(--accent); color: #fff; padding: 14px 24px;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  }
+  .topo h1 { font-size: 19px; display: flex; align-items: center; gap: 10px; }
+  .topo h1 img { width: 30px; height: 30px; }
+  .topo h1 span { color: var(--laranja); }
+  .topo .quem { display: flex; align-items: center; gap: 14px; font-size: 14px; }
+  .topo a { color: #fff; font-size: 14px; text-decoration: underline; }
+  main { max-width: 680px; margin: 0 auto; padding: 30px 24px 70px; }
+  .titulo { margin-bottom: 6px; font-size: 22px; }
+  .sub { color: var(--texto-fraco); margin: 0 0 22px; font-size: 14.5px; }
+
+  /* publicar */
+  .compor { padding: 18px; margin-bottom: 22px; }
+  .compor .linha { display: grid; grid-template-columns: 1fr 150px; gap: 12px; }
+  .compor textarea { min-height: 80px; }
+  .compor .opcoes { display: flex; flex-wrap: wrap; gap: 16px; align-items: center;
+                    font-size: 13.5px; margin: 8px 0 14px; }
+  .compor .opcoes label { display: flex; align-items: center; gap: 7px; }
+  .compor .acoes { display: flex; gap: 10px; align-items: center; }
+  .previaImg { max-width: 100%; border-radius: 8px; margin: 10px 0; display: none; }
+  #arquivo { display: none; }
+
+  /* publicacao */
+  .pub { padding: 0; margin-bottom: 16px; overflow: hidden; }
+  .pub-cab { display: flex; gap: 12px; padding: 16px 18px 0; align-items: flex-start; }
+  .bolha {
+    width: 40px; height: 40px; border-radius: 50%; object-fit: cover; flex: none;
+    background: var(--accent-soft); display: grid; place-items: center;
+    color: var(--accent); font-weight: 700; font-size: 14px;
+  }
+  .pub-quem { flex: 1; min-width: 0; }
+  .pub-quem b { font-size: 14.5px; display: block; }
+  .pub-quem small { color: var(--texto-fraco); font-size: 12.5px; }
+  .pub-menu { position: relative; }
+  .pub-menu > summary { list-style: none; cursor: pointer; color: var(--texto-fraco);
+                        padding: 2px 8px; border-radius: 5px; }
+  .pub-menu > summary::-webkit-details-marker { display: none; }
+  .pub-menu > summary:hover { background: var(--bg); }
+  .pub-menu .itens {
+    position: absolute; right: 0; top: 26px; background: #fff; border-radius: 8px;
+    box-shadow: 0 6px 20px rgba(16,24,40,.18); padding: 6px; z-index: 10; min-width: 160px;
+  }
+  .pub-menu .itens button {
+    display: block; width: 100%; text-align: left; background: none; border: 0;
+    font: inherit; font-size: 13.5px; padding: 8px 10px; border-radius: 5px; cursor: pointer;
+  }
+  .pub-menu .itens button:hover { background: var(--bg); }
+  .pub-corpo { padding: 12px 18px 0; }
+  .pub-corpo h3 { font-size: 16px; margin: 0 0 6px; color: var(--accent); }
+  .pub-corpo p { margin: 0; font-size: 14.5px; line-height: 1.6; white-space: pre-wrap; }
+  .pub img.foto { width: 100%; display: block; margin-top: 14px; }
+  .pub-rodape { display: flex; gap: 6px; padding: 10px 12px; border-top: 1px solid var(--borda);
+                margin-top: 14px; }
+  .pub-rodape button {
+    background: none; border: 0; font: inherit; font-size: 13.5px; color: var(--texto-fraco);
+    padding: 7px 12px; border-radius: 6px; cursor: pointer;
+  }
+  .pub-rodape button:hover { background: var(--bg); }
+  .pub-rodape button.on { color: var(--laranja); font-weight: 600; }
+  .selo-tipo { font-size: 10.5px; letter-spacing: .05em; text-transform: uppercase;
+               font-weight: 700; padding: 2px 7px; border-radius: 4px; }
+  .selo-tipo.aviso   { background: var(--accent-soft); color: var(--accent); }
+  .selo-tipo.mudanca { background: #FDF0E0; color: #9a4d05; }
+  .selo-tipo.evento  { background: #E7F4EC; color: #06603c; }
+  .editado { font-size: 12px; color: var(--texto-fraco); }
+  .editado button { background:none;border:0;padding:0;font:inherit;font-size:12px;
+                    color: var(--accent); text-decoration: underline; cursor: pointer; }
+
+  /* comentarios */
+  .coments { padding: 4px 18px 16px; display: none; }
+  .coment { display: flex; gap: 10px; padding: 10px 0; border-top: 1px solid #f1efeb; }
+  .coment .bolha { width: 30px; height: 30px; font-size: 11px; }
+  .coment .txt { flex: 1; min-width: 0; }
+  .coment .txt b { font-size: 13.5px; }
+  .coment .txt small { color: var(--texto-fraco); font-size: 12px; }
+  .coment .txt p { margin: 2px 0 0; font-size: 13.5px; line-height: 1.5; white-space: pre-wrap; }
+  .coment .apagar { background:none;border:0;color:var(--erro);font-size:12px;cursor:pointer; }
+  .novo-coment { display: flex; gap: 8px; margin-top: 12px; }
+  .novo-coment input { flex: 1; }
+
+  .fim { text-align: center; color: var(--texto-fraco); font-size: 13.5px; padding: 18px; }
+</style>
+</head>
+<body>
+
+<header class="topo">
+  <h1><img src="/marca/simbolo-claro.svg" alt="" width="30" height="30">Uni<span>Gestão</span></h1>
+  <div class="quem">
+    <a href="/agenda">Agenda</a>
+    <a href="/">Meus módulos</a>
+  </div>
+</header>
+
+<main>
+  <h2 class="titulo">Mural</h2>
+  <p class="sub">Comunicados, mudanças e eventos do grupo. Tudo fica aqui para consulta.</p>
+
+  <div class="card compor" id="compor" style="display:none">
+    <div id="avisoCompor"></div>
+    <div class="linha">
+      <label class="campo"><span>Título</span>
+        <input id="cTitulo" placeholder="Ex.: Recesso de fim de ano"></label>
+      <label class="campo"><span>Tipo</span>
+        <select id="cTipo">
+          <option value="aviso">Aviso</option>
+          <option value="mudanca">Mudança</option>
+          <option value="evento">Evento</option>
+        </select></label>
+    </div>
+    <label class="campo"><span>Texto</span>
+      <textarea id="cTexto" placeholder="O que as pessoas precisam saber."></textarea></label>
+    <img class="previaImg" id="previaImg" alt="">
+    <div class="opcoes">
+      <label><input type="checkbox" id="cFixado"> Fixar no topo</label>
+      <label><input type="checkbox" id="cPopup"> Abrir como janela</label>
+      <label id="lblDias" style="display:none">por
+        <input id="cPopupDias" type="number" min="1" max="30" value="7" style="width:64px"> dias</label>
+    </div>
+    <div class="acoes">
+      <button class="btn btn-sec" type="button" id="btnImagem">Adicionar imagem</button>
+      <button class="btn" type="button" id="btnPublicar">Publicar</button>
+    </div>
+    <input type="file" id="arquivo" accept="image/*">
+  </div>
+
+  <div id="lista"></div>
+  <div class="fim" id="fim" style="display:none"></div>
+</main>
+
+<script src="/mural.js"></script>
+</body>
+</html>

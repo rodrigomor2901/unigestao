@@ -22,13 +22,14 @@ const auth = require("./core/auth");
 const modulos = require("./core/modulos");
 const correio = require("./core/email");
 const perfil = require("./core/perfil");
+const mural = require("./core/mural");
 
 const app = express();
 app.set("trust proxy", 1);
-// 2mb cobre a foto em base64 com folga: o limite real da imagem e 400 KB
-// (core/perfil.js), que em base64 da ~545 KB. O resto das rotas manda JSON
-// pequeno, entao o teto so existe por causa da foto.
-app.use(express.json({ limit: "2mb" }));
+// 3mb cobre a maior imagem aceita em base64 com folga: o teto real e 900 KB
+// para a imagem do mural (core/mural.js), que em base64 da ~1,2 MB. O resto
+// das rotas manda JSON pequeno — este limite existe so por causa de imagem.
+app.use(express.json({ limit: "3mb" }));
 
 const PORT = process.env.PORT || 3000;
 
@@ -76,6 +77,11 @@ app.get("/agenda", (req, res) => {
 app.get("/perfil", (req, res) => {
   if (!req.usuario) return res.redirect("/");
   res.sendFile(path.join(PUBLIC, "perfil.html"));
+});
+
+app.get("/mural", (req, res) => {
+  if (!req.usuario) return res.redirect("/");
+  res.sendFile(path.join(PUBLIC, "mural.html"));
 });
 
 app.get("/admin", (req, res) => {
@@ -282,6 +288,7 @@ app.get("/api/eu", exigeLogin, async (req, res, next) => {
         cargo: dados.cargo || "",
         temFoto: Boolean(dados.tem_foto),
         perfilCompleto: perfil.completo(dados),
+        podePublicarMural: mural.podePublicar(req.usuario),
         // A tela so barra quando as duas coisas valem: a exigencia esta ligada
         // E falta dado. Assim o mesmo codigo serve para antes e depois de a
         // regra entrar em vigor, sem if espalhado pela interface.
@@ -412,54 +419,139 @@ app.get("/api/agenda/departamentos", exigeLogin, async (req, res, next) => {
   }
 });
 
+
 // ---------------------------------------------------------------------------
-// MURAL — avisos da empresa
+// MURAL — comunicados da empresa
 // ---------------------------------------------------------------------------
-// Quem le: todo mundo que entra no portal. Quem escreve: administrador geral.
+// Publicacao continua: nada expira, tudo fica para consulta no modulo Mural.
+// Quem publica: administrador geral e quem for marcado como autor.
 //
-// Nao dispara e-mail de proposito. Aviso de empresa por e-mail some na caixa de
-// entrada e gasta a cota diaria do SendGrid, que ja e apertada; aqui a pessoa
-// ve quando entra, que e quando ela esta com a cabeca no trabalho.
+// Nao dispara e-mail. Comunicado por e-mail some na caixa de entrada e gasta a
+// cota diaria do SendGrid; aqui a pessoa ve quando entra no portal.
 
-const TIPOS_AVISO = ["aviso", "mudanca", "evento"];
-
-function normalizarAviso(corpo) {
-  const titulo = String(corpo.titulo || "").trim().slice(0, 120);
-  const texto = String(corpo.texto || "").trim().slice(0, 2000);
-  const tipo = TIPOS_AVISO.includes(corpo.tipo) ? corpo.tipo : "aviso";
-  const fixado = Boolean(corpo.fixado);
-
-  // Prazo: um aviso sem data de fim vira paisagem — fica na tela para sempre,
-  // as pessoas param de ler e o mural morre. Por isso o padrao e 30 dias, e
-  // "sem prazo" so acontece quando alguem marca `fixado` de proposito.
-  let fim = null;
-  if (corpo.fimEm) {
-    const d = new Date(corpo.fimEm);
-    if (!isNaN(d)) fim = d;
-  } else if (!fixado) {
-    fim = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+function exigeAutorMural(req, res, next) {
+  if (!req.usuario) return res.status(401).json({ erro: "Sessão expirada" });
+  if (!mural.podePublicar(req.usuario)) {
+    return res.status(403).json({ erro: "Você não tem permissão para publicar no mural." });
   }
-  return { titulo, texto, tipo, fixado, fim };
+  next();
+}
+
+// Monta a lista com curtidas, comentarios e o que ESTA pessoa ja fez.
+// Uma consulta so, com subselects: com N publicacoes na tela, buscar curtida e
+// comentario de cada uma daria 2N idas ao banco a cada carregamento.
+async function listarPublicacoes(usuarioId, { limite = 20, offset = 0 } = {}) {
+  const r = await db.query(
+    `SELECT a.id, a.titulo, a.texto, a.tipo, a.fixado, a.criado_em, a.editado_em,
+            a.popup_ate, a.autor_id, u.nome AS autor, u.cargo AS autor_cargo,
+            EXISTS (SELECT 1 FROM aviso_imagem i WHERE i.aviso_id = a.id) AS tem_imagem,
+            (SELECT count(*)::int FROM aviso_curtida c WHERE c.aviso_id = a.id) AS curtidas,
+            (SELECT count(*)::int FROM aviso_comentario m WHERE m.aviso_id = a.id) AS comentarios,
+            EXISTS (SELECT 1 FROM aviso_curtida c WHERE c.aviso_id = a.id AND c.usuario_id = $1) AS curti,
+            EXISTS (SELECT 1 FROM aviso_leitura l WHERE l.aviso_id = a.id AND l.usuario_id = $1) AS li,
+            (SELECT count(*)::int FROM aviso_edicao e WHERE e.aviso_id = a.id) AS edicoes
+       FROM avisos a LEFT JOIN usuarios u ON u.id = a.autor_id
+      WHERE a.arquivado = FALSE
+      ORDER BY a.fixado DESC, a.criado_em DESC
+      LIMIT $2 OFFSET $3`,
+    [usuarioId, limite, offset]
+  );
+  return r.rows;
 }
 
 app.get("/api/mural", exigeLogin, async (req, res, next) => {
   try {
-    const r = await db.query(
-      `SELECT a.id, a.titulo, a.texto, a.tipo, a.fixado, a.criado_em, a.fim_em,
-              u.nome AS autor
-         FROM avisos a LEFT JOIN usuarios u ON u.id = a.autor_id
-        WHERE a.inicio_em <= NOW() AND (a.fim_em IS NULL OR a.fim_em > NOW())
-        ORDER BY a.fixado DESC, a.criado_em DESC
-        LIMIT 20`
-    );
-    const visto = req.usuario.mural_visto_em ? new Date(req.usuario.mural_visto_em) : null;
+    const limite = Math.min(50, Math.max(1, parseInt(req.query.limite, 10) || 20));
+    const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+    const total = await db.query("SELECT count(*)::int n FROM avisos WHERE arquivado = FALSE");
     res.json({
-      avisos: r.rows.map((a) => ({
-        ...a,
-        // "novo" = publicado depois da ultima vez que ESTA pessoa abriu o
-        // mural. Sem essa marca, ou nada se destaca, ou tudo fica destacado
-        // para sempre e o destaque perde o sentido.
-        novo: !visto || new Date(a.criado_em) > visto,
+      publicacoes: await listarPublicacoes(req.usuario.id, { limite, offset }),
+      total: total.rows[0].n,
+      podePublicar: mural.podePublicar(req.usuario),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// O pop-up que ainda nao foi mostrado para ESTA pessoa.
+//
+// Devolve no maximo um: dois pop-ups seguidos viram uma sequencia de janelas
+// para fechar, e a pessoa fecha as duas sem ler nenhuma.
+app.get("/api/mural/popup", exigeLogin, async (req, res, next) => {
+  try {
+    const r = await db.query(
+      `SELECT a.id, a.titulo, a.texto, a.tipo, u.nome AS autor,
+              EXISTS (SELECT 1 FROM aviso_imagem i WHERE i.aviso_id = a.id) AS tem_imagem
+         FROM avisos a LEFT JOIN usuarios u ON u.id = a.autor_id
+        WHERE a.arquivado = FALSE AND a.popup_ate IS NOT NULL AND a.popup_ate > NOW()
+          AND NOT EXISTS (
+            SELECT 1 FROM aviso_leitura l
+             WHERE l.aviso_id = a.id AND l.usuario_id = $1 AND l.popup_em IS NOT NULL)
+        ORDER BY a.criado_em
+        LIMIT 1`,
+    [req.usuario.id]);
+    res.json({ publicacao: r.rows[0] || null });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Marca como lido. `popup` = true quando a pessoa fechou a janela — e o que
+// impede o mesmo pop-up de aparecer de novo no proximo acesso.
+app.post("/api/mural/:id/lido", exigeLogin, async (req, res, next) => {
+  try {
+    const popup = Boolean(req.body && req.body.popup);
+    await db.query(
+      `INSERT INTO aviso_leitura (aviso_id, usuario_id, popup_em)
+       VALUES ($1,$2,${popup ? "NOW()" : "NULL"})
+       ON CONFLICT (aviso_id, usuario_id) DO UPDATE
+         SET lido_em = NOW(),
+             popup_em = COALESCE(aviso_leitura.popup_em, EXCLUDED.popup_em)`,
+      [req.params.id, req.usuario.id]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.post("/api/mural/:id/curtir", exigeLogin, async (req, res, next) => {
+  try {
+    // Um clique liga, outro desliga — e o que as pessoas ja esperam de um
+    // botao de curtir, sem precisar de duas rotas.
+    const existe = await db.query(
+      "DELETE FROM aviso_curtida WHERE aviso_id=$1 AND usuario_id=$2 RETURNING 1",
+      [req.params.id, req.usuario.id]
+    );
+    if (!existe.rowCount) {
+      await db.query(
+        "INSERT INTO aviso_curtida (aviso_id, usuario_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
+        [req.params.id, req.usuario.id]
+      );
+    }
+    const n = await db.query(
+      "SELECT count(*)::int n FROM aviso_curtida WHERE aviso_id=$1", [req.params.id]);
+    res.json({ ok: true, curti: !existe.rowCount, curtidas: n.rows[0].n });
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.get("/api/mural/:id/comentarios", exigeLogin, async (req, res, next) => {
+  try {
+    const r = await db.query(
+      `SELECT c.id, c.texto, c.criado_em, c.usuario_id, u.nome AS autor,
+              EXISTS (SELECT 1 FROM usuario_foto f WHERE f.usuario_id = c.usuario_id) AS tem_foto
+         FROM aviso_comentario c LEFT JOIN usuarios u ON u.id = c.usuario_id
+        WHERE c.aviso_id = $1 ORDER BY c.criado_em`,
+      [req.params.id]
+    );
+    const aviso = await db.query("SELECT autor_id FROM avisos WHERE id=$1", [req.params.id]);
+    res.json({
+      comentarios: r.rows.map((c) => ({
+        ...c,
+        podeApagar: mural.podeApagarComentario(req.usuario, c, aviso.rows[0]),
       })),
     });
   } catch (e) {
@@ -467,69 +559,152 @@ app.get("/api/mural", exigeLogin, async (req, res, next) => {
   }
 });
 
-// Marca o mural como lido. Chamado pela tela depois de mostrar os avisos.
-app.post("/api/mural/visto", exigeLogin, async (req, res, next) => {
+app.post("/api/mural/:id/comentarios", exigeLogin, async (req, res, next) => {
   try {
-    await db.query("UPDATE usuarios SET mural_visto_em = NOW() WHERE id = $1", [req.usuario.id]);
-    res.json({ ok: true });
-  } catch (e) {
-    next(e);
-  }
-});
-
-app.get("/api/admin/mural", exigeSuperAdmin, async (req, res, next) => {
-  try {
-    // O admin ve tambem os vencidos, para poder reaproveitar ou apagar.
+    const v = mural.validarComentario(req.body && req.body.texto);
+    if (!v.ok) return res.status(400).json({ erro: "Escreva alguma coisa." });
     const r = await db.query(
-      `SELECT a.id, a.titulo, a.texto, a.tipo, a.fixado, a.inicio_em, a.fim_em,
-              a.criado_em, u.nome AS autor,
-              (a.fim_em IS NOT NULL AND a.fim_em <= NOW()) AS vencido
-         FROM avisos a LEFT JOIN usuarios u ON u.id = a.autor_id
-        ORDER BY a.criado_em DESC LIMIT 100`
+      "INSERT INTO aviso_comentario (aviso_id, usuario_id, texto) VALUES ($1,$2,$3) RETURNING id",
+      [req.params.id, req.usuario.id, v.texto]
     );
-    res.json({ avisos: r.rows });
-  } catch (e) {
-    next(e);
-  }
-});
-
-app.post("/api/admin/mural", exigeSuperAdmin, async (req, res, next) => {
-  try {
-    const v = normalizarAviso(req.body || {});
-    if (v.titulo.length < 3) return res.status(400).json({ erro: "Escreva um título." });
-    const r = await db.query(
-      `INSERT INTO avisos (titulo, texto, tipo, fim_em, fixado, autor_id)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-      [v.titulo, v.texto, v.tipo, v.fim, v.fixado, req.usuario.id]
-    );
-    await auth.auditar(req, "aviso_publicado", {
-      usuarioId: req.usuario.id, email: req.usuario.email,
-      alvo: String(r.rows[0].id), detalhe: { titulo: v.titulo, tipo: v.tipo },
-    });
     res.json({ ok: true, id: r.rows[0].id });
   } catch (e) {
     next(e);
   }
 });
 
-app.patch("/api/admin/mural/:id", exigeSuperAdmin, async (req, res, next) => {
+app.delete("/api/mural/comentarios/:id", exigeLogin, async (req, res, next) => {
   try {
-    const v = normalizarAviso(req.body || {});
-    if (v.titulo.length < 3) return res.status(400).json({ erro: "Escreva um título." });
-    await db.query(
-      "UPDATE avisos SET titulo=$1, texto=$2, tipo=$3, fim_em=$4, fixado=$5 WHERE id=$6",
-      [v.titulo, v.texto, v.tipo, v.fim, v.fixado, req.params.id]
-    );
+    const c = await db.query(
+      `SELECT c.id, c.usuario_id, a.autor_id
+         FROM aviso_comentario c JOIN avisos a ON a.id = c.aviso_id
+        WHERE c.id = $1`, [req.params.id]);
+    if (!c.rows[0]) return res.status(404).json({ erro: "Comentário não encontrado" });
+    if (!mural.podeApagarComentario(req.usuario, c.rows[0], c.rows[0])) {
+      return res.status(403).json({ erro: "Sem permissão para apagar este comentário." });
+    }
+    await db.query("DELETE FROM aviso_comentario WHERE id = $1", [req.params.id]);
     res.json({ ok: true });
   } catch (e) {
     next(e);
   }
 });
 
-app.delete("/api/admin/mural/:id", exigeSuperAdmin, async (req, res, next) => {
+app.get("/api/mural/:id/imagem", exigeLogin, async (req, res, next) => {
   try {
-    await db.query("DELETE FROM avisos WHERE id = $1", [req.params.id]);
-    await auth.auditar(req, "aviso_removido", {
+    const r = await db.query("SELECT tipo, bytes FROM aviso_imagem WHERE aviso_id=$1", [req.params.id]);
+    if (!r.rows[0]) return res.status(404).end();
+    res.set("Content-Type", r.rows[0].tipo);
+    res.set("Cache-Control", "private, max-age=3600");
+    res.send(r.rows[0].bytes);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Historico de edicao — aberto a todos, de proposito.
+//
+// O objetivo e nao gerar transtorno: quem leu o comunicado antes precisa poder
+// conferir o que mudou, sem depender de alguem com acesso de administrador.
+app.get("/api/mural/:id/edicoes", exigeLogin, async (req, res, next) => {
+  try {
+    const r = await db.query(
+      `SELECT e.editado_em, e.titulo_antes, e.texto_antes, u.nome AS editor
+         FROM aviso_edicao e LEFT JOIN usuarios u ON u.id = e.editor_id
+        WHERE e.aviso_id = $1 ORDER BY e.editado_em DESC`,
+      [req.params.id]
+    );
+    res.json({ edicoes: r.rows });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// --- publicar, editar, apagar ---
+
+app.post("/api/mural", exigeAutorMural, async (req, res, next) => {
+  try {
+    const v = mural.validarPublicacao(req.body || {});
+    if (!v.ok) return res.status(400).json({ erro: v.erros[0] });
+    const d = v.valores;
+    const r = await db.query(
+      `INSERT INTO avisos (titulo, texto, tipo, fixado, popup_ate, autor_id)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+      [d.titulo, d.texto, d.tipo, Boolean(req.body.fixado), d.popupAte, req.usuario.id]
+    );
+    const id = r.rows[0].id;
+
+    if (req.body.imagem && req.body.imagemTipo) {
+      const bytes = Buffer.from(String(req.body.imagem), "base64");
+      if (!mural.IMAGEM_TIPOS.includes(req.body.imagemTipo)) {
+        return res.status(400).json({ erro: "Formato de imagem não aceito." });
+      }
+      if (bytes.length > mural.IMAGEM_MAX_BYTES) {
+        return res.status(413).json({ erro: "Imagem muito grande." });
+      }
+      await db.query(
+        "INSERT INTO aviso_imagem (aviso_id, tipo, bytes) VALUES ($1,$2,$3)",
+        [id, req.body.imagemTipo, bytes]
+      );
+    }
+
+    await auth.auditar(req, "mural_publicado", {
+      usuarioId: req.usuario.id, email: req.usuario.email,
+      alvo: String(id), detalhe: { titulo: d.titulo, tipo: d.tipo, popup: Boolean(d.popupAte) },
+    });
+    res.json({ ok: true, id });
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.patch("/api/mural/:id", exigeLogin, async (req, res, next) => {
+  try {
+    const atual = await db.query("SELECT * FROM avisos WHERE id=$1", [req.params.id]);
+    if (!atual.rows[0]) return res.status(404).json({ erro: "Publicação não encontrada" });
+    if (!mural.podeEditar(req.usuario, atual.rows[0])) {
+      return res.status(403).json({ erro: "Sem permissão para editar esta publicação." });
+    }
+    const v = mural.validarPublicacao(req.body || {});
+    if (!v.ok) return res.status(400).json({ erro: v.erros[0] });
+    const d = v.valores;
+
+    // Guarda o texto ANTES na mesma transacao da alteracao. Publicacao que
+    // muda sem deixar rastro gera discussao sobre o que estava escrito — e num
+    // comunicado de empresa essa discussao custa caro.
+    await db.transaction(async (c) => {
+      await c.query(
+        `INSERT INTO aviso_edicao (aviso_id, editor_id, titulo_antes, texto_antes)
+         VALUES ($1,$2,$3,$4)`,
+        [req.params.id, req.usuario.id, atual.rows[0].titulo, atual.rows[0].texto]
+      );
+      await c.query(
+        `UPDATE avisos SET titulo=$1, texto=$2, tipo=$3, fixado=$4, editado_em=NOW()
+          WHERE id=$5`,
+        [d.titulo, d.texto, d.tipo, Boolean(req.body.fixado), req.params.id]
+      );
+    });
+
+    await auth.auditar(req, "mural_editado", {
+      usuarioId: req.usuario.id, email: req.usuario.email, alvo: String(req.params.id),
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Arquivar, e nao apagar: o mural e historico, e curtida e comentario das
+// pessoas somem junto com a publicacao. Some da tela, continua no banco.
+app.delete("/api/mural/:id", exigeLogin, async (req, res, next) => {
+  try {
+    const atual = await db.query("SELECT autor_id FROM avisos WHERE id=$1", [req.params.id]);
+    if (!atual.rows[0]) return res.status(404).json({ erro: "Publicação não encontrada" });
+    if (!mural.podeEditar(req.usuario, atual.rows[0])) {
+      return res.status(403).json({ erro: "Sem permissão para remover esta publicação." });
+    }
+    await db.query("UPDATE avisos SET arquivado = TRUE WHERE id = $1", [req.params.id]);
+    await auth.auditar(req, "mural_arquivado", {
       usuarioId: req.usuario.id, email: req.usuario.email, alvo: String(req.params.id),
     });
     res.json({ ok: true });
@@ -713,7 +888,7 @@ app.get("/api/admin/usuarios", exigeSuperAdmin, async (req, res, next) => {
     }
     const r = await db.query(
       `SELECT u.id, u.nome, u.email, u.ativo, u.super_admin, u.totp_ativo,
-              u.senha_temp, u.ultimo_login,
+              u.senha_temp, u.ultimo_login, u.mural_autor,
               COALESCE(json_agg(json_build_object('modulo', m.modulo, 'papel', m.papel))
                        FILTER (WHERE m.modulo IS NOT NULL), '[]') AS modulos
          FROM usuarios u
@@ -740,9 +915,10 @@ app.post("/api/admin/usuarios", exigeSuperAdmin, async (req, res, next) => {
 
     const id = "u" + crypto.randomBytes(9).toString("hex");
     await db.query(
-      `INSERT INTO usuarios (id, nome, email, senha, senha_temp, super_admin)
-       VALUES ($1,$2,$3,$4,TRUE,$5)`,
-      [id, nome, email, auth.gerarHash(senha), Boolean(req.body.superAdmin)]
+      `INSERT INTO usuarios (id, nome, email, senha, senha_temp, super_admin, mural_autor)
+       VALUES ($1,$2,$3,$4,TRUE,$5,$6)`,
+      [id, nome, email, auth.gerarHash(senha), Boolean(req.body.superAdmin),
+       Boolean(req.body.muralAutor)]
     );
     await salvarModulos(id, req.body.modulos);
     await auth.auditar(req, "usuario_criado", { alvo: id, detalhe: { email, nome } });
@@ -773,6 +949,7 @@ app.patch("/api/admin/usuarios/:id", exigeSuperAdmin, async (req, res, next) => 
     if (req.body.email !== undefined) set("email", String(req.body.email).toLowerCase().trim());
     if (req.body.ativo !== undefined) set("ativo", Boolean(req.body.ativo));
     if (req.body.superAdmin !== undefined) set("super_admin", Boolean(req.body.superAdmin));
+    if (req.body.muralAutor !== undefined) set("mural_autor", Boolean(req.body.muralAutor));
     if (req.body.senha) {
       if (String(req.body.senha).length < 8)
         return res.status(400).json({ erro: "A senha precisa ter ao menos 8 caracteres" });

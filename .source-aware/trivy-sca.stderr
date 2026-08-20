@@ -1,0 +1,9 @@
+2026-08-20T14:32:06Z	INFO	[vuln] Vulnerability scanning is enabled
+2026-08-20T14:32:33Z	INFO	Number of language-specific files	num=1
+2026-08-20T14:32:33Z	INFO	[npm] Detecting vulnerabilities...
+
+📣 [34mNotices:[0m
+  - Version 0.74.0 of Trivy is now available, current version is 0.73.0
+
+To suppress version checks, run Trivy scans with the --skip-version-check flag
+

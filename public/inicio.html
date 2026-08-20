@@ -83,7 +83,23 @@
   .aviso-tipo.evento  { background: #E7F4EC; color: #06603c; }
   .aviso-pino { font-size: 11px; color: var(--texto-fraco); }
   .aviso-rodape { margin-top: 8px; font-size: 11.5px; color: var(--texto-fraco); }
-  .mural .vazio-mural { padding: 20px; text-align: center; color: var(--texto-fraco); font-size: 13px; }
+  .mural .todos { display: block; text-align: center; font-size: 13px; padding: 8px;
+                  color: var(--accent); text-decoration: none; }
+  .mural .todos:hover { text-decoration: underline; }
+
+  /* Pop-up: interrompe a pessoa antes de ela fazer o que veio fazer, entao so
+     aparece uma vez por publicacao e some para sempre depois de fechada. */
+  .cortina {
+    position: fixed; inset: 0; background: rgba(20,28,44,.55); z-index: 100;
+    display: grid; place-items: center; padding: 20px;
+  }
+  .popup { width: 100%; max-width: 480px; padding: 0; overflow: hidden; }
+  .popup .cab { background: var(--accent); color: #fff; padding: 14px 20px; font-size: 14px; }
+  .popup .miolo { padding: 22px; }
+  .popup h3 { font-size: 18px; margin: 0 0 8px; color: var(--accent); }
+  .popup p { margin: 0; font-size: 14.5px; line-height: 1.6; white-space: pre-wrap; }
+  .popup img { width: 100%; display: block; }
+  .popup .pe { padding: 0 22px 20px; display: flex; gap: 10px; justify-content: flex-end; }
   .titulo { margin-bottom: 6px; font-size: 22px; }
   .sub { color: var(--texto-fraco); margin: 0 0 28px; }
   .grade { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); }
@@ -107,6 +123,7 @@
   <h1><img src="/marca/simbolo-claro.svg" alt="" width="30" height="30">Uni<span>Gestão</span></h1>
   <div class="quem">
     <span id="nome"></span>
+    <a href="/mural">Mural</a>
     <a href="/agenda">Agenda</a>
     <a href="/perfil">Meu perfil</a>
     <a href="/admin" id="linkAdmin" style="display:none">Admin Geral</a>
@@ -124,7 +141,7 @@
     <!-- O mural so aparece quando ha o que mostrar: painel vazio na tela toda
          vez ensina a pessoa a ignorar aquele canto. -->
     <aside class="mural" id="mural" style="display:none">
-      <h3>Mural <span class="conta" id="muralConta" style="display:none"></span></h3>
+      <h3><a href="/mural" style="color:inherit;text-decoration:none">Mural</a> <span class="conta" id="muralConta" style="display:none"></span></h3>
       <div id="muralLista"></div>
     </aside>
   </div>
@@ -158,7 +175,7 @@ async function carregar() {
     // um sistema, e servir para achar quem liberar o acesso e justamente o que
     // ela precisa neste momento.
     grade.innerHTML = '<div class="card vazio">Você ainda não tem nenhum módulo liberado.<br>' +
-                      'Fale com o administrador do sistema.</div>' + cartaoAgenda();
+                      'Fale com o administrador do sistema.</div>' + cartaoMural() + cartaoAgenda();
     return;
   }
 
@@ -172,51 +189,54 @@ async function carregar() {
              '<p>' + esc(m.descricao || '') + '</p>' +
              '<span class="selo selo-off">' + esc(m.papelRotulo || m.papel) + '</span>' +
            '</a>';
-  }).join('') + cartaoAgenda();
+  }).join('') + cartaoMural() + cartaoAgenda();
 
   carregarMural();
 }
 
 // ---------------------------------------------------------------------------
-// Mural
+// Mural na tela inicial — os 5 mais recentes
 // ---------------------------------------------------------------------------
+// So um resumo: o mural inteiro, com curtida, comentario e historico, mora em
+// /mural. Aqui a pessoa ve o que mudou desde a ultima vez e clica se quiser.
 var TIPO_ROTULO = { aviso: 'Aviso', mudanca: 'Mudança', evento: 'Evento' };
 
 async function carregarMural() {
-  var r = await fetch('/api/mural');
+  var r = await fetch('/api/mural?limite=5');
   if (!r.ok) return;
-  var avisos = (await r.json()).avisos || [];
-  if (!avisos.length) return;   // sem avisos, o painel nem aparece
+  var pubs = (await r.json()).publicacoes || [];
+  if (!pubs.length) return;   // sem publicacao, o painel nem aparece
 
-  var novos = avisos.filter(function (a) { return a.novo; }).length;
+  var naoLidos = pubs.filter(function (p) { return !p.li; }).length;
   document.getElementById('mural').style.display = '';
-  if (novos) {
+  if (naoLidos) {
     var c = document.getElementById('muralConta');
-    c.textContent = novos + ' novo' + (novos > 1 ? 's' : '');
+    c.textContent = naoLidos + ' nov' + (naoLidos > 1 ? 'os' : 'o');
     c.style.display = '';
   }
 
-  document.getElementById('muralLista').innerHTML = avisos.map(function (a) {
-    var tipo = TIPO_ROTULO[a.tipo] || 'Aviso';
-    return '<div class="card aviso-cartao' + (a.novo ? ' destaque' : '') + '">' +
+  document.getElementById('muralLista').innerHTML = pubs.map(function (p) {
+    var tipo = TIPO_ROTULO[p.tipo] || 'Aviso';
+    return '<a class="card aviso-cartao' + (p.li ? '' : ' destaque') + '" href="/mural" ' +
+             'style="display:block;text-decoration:none;color:inherit">' +
       '<div class="aviso-topo">' +
-        '<span class="aviso-tipo ' + esc(a.tipo) + '">' + esc(tipo) + '</span>' +
-        (a.fixado ? '<span class="aviso-pino">fixado</span>' : '') +
+        '<span class="aviso-tipo ' + esc(p.tipo) + '">' + esc(tipo) + '</span>' +
+        (p.fixado ? '<span class="aviso-pino">fixado</span>' : '') +
       '</div>' +
-      '<h4>' + esc(a.titulo) + '</h4>' +
-      (a.texto ? '<p>' + esc(a.texto) + '</p>' : '') +
-      '<div class="aviso-rodape">' + esc(quando(a.criado_em)) +
-        (a.autor ? ' · ' + esc(a.autor) : '') + '</div>' +
-    '</div>';
-  }).join('');
+      '<h4>' + esc(p.titulo) + '</h4>' +
+      (p.texto ? '<p>' + esc(p.texto.slice(0, 130)) + (p.texto.length > 130 ? '…' : '') + '</p>' : '') +
+      '<div class="aviso-rodape">' + esc(quando(p.criado_em)) +
+        (p.autor ? ' · ' + esc(p.autor) : '') +
+        (p.curtidas ? ' · ' + p.curtidas + ' ★' : '') +
+        (p.comentarios ? ' · ' + p.comentarios + ' 💬' : '') +
+      '</div>' +
+    '</a>';
+  }).join('') + '<a class="todos" href="/mural">Ver tudo no mural →</a>';
 
-  // Marca como lido DEPOIS de desenhar. Se marcasse antes, um erro no meio do
-  // caminho apagaria o "novo" de avisos que a pessoa nunca chegou a ver.
-  if (novos) fetch('/api/mural/visto', { method: 'POST' });
+  mostrarPopup();
 }
 
 // "hoje", "ontem", "há 3 dias" — data cheia so quando ja e coisa antiga.
-// Numa lista curta e recente, a distancia diz mais do que o dia exato.
 function quando(iso) {
   var dias = Math.floor((Date.now() - new Date(iso)) / 86400000);
   if (dias <= 0) return 'hoje';
@@ -225,21 +245,43 @@ function quando(iso) {
   return new Date(iso).toLocaleDateString('pt-BR');
 }
 
-// A Agenda aparece como cartao junto dos modulos, porque e ali que as pessoas
-// procuram o que o sistema oferece. Mas ela NAO entra no registro de modulos:
-// aquele registro guarda sistemas independentes, cada um com o proprio banco,
-// alcancados pela Fachada — a Agenda e parte do proprio portal. Registra-la
-// como modulo faria a Fachada tentar encaminhar /agenda para um servico que
-// nao existe.
-//
-// Por isso tambem o selo diz "Todo o grupo" em vez de um papel: nao ha papel,
-// todo mundo que entra no portal enxerga a agenda inteira.
-function cartaoAgenda() {
-  return '<a class="card modulo" href="/agenda">' +
-           '<h3>Agenda</h3>' +
-           '<p>Telefone, ramal, departamento e cargo de todo mundo do grupo</p>' +
-           '<span class="selo selo-off">Todo o grupo</span>' +
-         '</a>';
+// ---------------------------------------------------------------------------
+// Pop-up
+// ---------------------------------------------------------------------------
+// Um por vez, e so enquanto o prazo do comunicado durar. Dois pop-ups seguidos
+// viram uma fila de janelas para fechar, e a pessoa fecha as duas sem ler.
+async function mostrarPopup() {
+  var r = await fetch('/api/mural/popup');
+  if (!r.ok) return;
+  var p = (await r.json()).publicacao;
+  if (!p) return;
+
+  var cortina = document.createElement('div');
+  cortina.className = 'cortina';
+  cortina.innerHTML =
+    '<div class="card popup">' +
+      '<div class="cab">Comunicado — ' + esc(TIPO_ROTULO[p.tipo] || 'Aviso') + '</div>' +
+      (p.tem_imagem ? '<img src="/api/mural/' + p.id + '/imagem" alt="">' : '') +
+      '<div class="miolo">' +
+        '<h3>' + esc(p.titulo) + '</h3>' +
+        (p.texto ? '<p>' + esc(p.texto) + '</p>' : '') +
+      '</div>' +
+      '<div class="pe">' +
+        '<a class="btn btn-sec" href="/mural">Abrir no mural</a>' +
+        '<button class="btn" id="fecharPopup">Entendi</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(cortina);
+
+  // So o botao fecha. Clicar fora fecharia sem querer, e o pop-up nao volta —
+  // a pessoa perderia o comunicado por um clique distraido.
+  document.getElementById('fecharPopup').addEventListener('click', async function () {
+    await fetch('/api/mural/' + p.id + '/lido', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ popup: true }),
+    });
+    cortina.remove();
+  });
 }
 
 function esc(s) {
