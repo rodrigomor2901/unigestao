@@ -288,6 +288,18 @@ function shim(base, usuario, listaModulos) {
 </div>`;
 }
 
+function paraOLogin(res, destino) {
+  // So caminho interno vira destino: precisa comecar com uma barra e o
+  // caractere seguinte nao pode ser outra barra nem contrabarra. Sem esse
+  // corte, "//site.com" e "/\site.com" passariam e o portal viraria trampolim
+  // para levar gente a qualquer endereco — o proprio dominio do login dando
+  // credibilidade ao golpe.
+  const seguro = typeof destino === "string" && /^\/[^/\\]/.test(destino);
+  const local = seguro ? "/?ir=" + encodeURIComponent(destino) : "/";
+  res.writeHead(302, { location: local });
+  return res.end();
+}
+
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
@@ -484,18 +496,20 @@ const servidor = http.createServer(async (req, res) => {
     return responder(res, 503, "Este módulo ainda não foi conectado ao UniGestão.");
   }
 
+  // Quem chega sem sessao vai para o login levando junto o destino.
+  //
+  // Sem isto, clicar em "Ver no sistema" num e-mail de notificacao levava a
+  // pessoa ao login e, depois de entrar, a tela de modulos — nao a tarefa que
+  // ela queria ver. Dois cliques a mais, toda vez, para 44 pessoas.
+  //
+  // So caminho interno entra no parametro: sem "//" no comeco e sem esquema,
+  // senao o portal viraria trampolim para levar gente a qualquer site.
   const token = lerCookie(req);
-  if (!token) {
-    res.writeHead(302, { location: "/" });
-    return res.end();
-  }
+  if (!token) return paraOLogin(res, req.url);
 
   const quem = await identificar(token, modulo);
 
-  if (quem.erro === 401) {
-    res.writeHead(302, { location: "/" });
-    return res.end();
-  }
+  if (quem.erro === 401) return paraOLogin(res, req.url);
   if (quem.erro === 403) {
     return responder(res, 403, "Você não tem acesso a este módulo. Fale com o administrador.");
   }

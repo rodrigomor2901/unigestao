@@ -97,6 +97,20 @@
 </div>
 
 <script>
+// Para onde ir depois de entrar.
+//
+// Quem clica em "Ver no sistema" num e-mail de notificacao chega aqui com
+// ?ir=/tarefas/... — e volta para la assim que a sessao existir, em vez de
+// parar na lista de modulos e ter que procurar de novo o que queria ver.
+//
+// O valor e conferido de novo AQUI, e nao so na Fachada que o escreveu:
+// qualquer pessoa pode digitar ?ir=... na barra de endereco, entao a tela
+// trata o parametro como se viesse de estranho.
+function destinoDepoisDoLogin() {
+  var ir = new URLSearchParams(location.search).get("ir") || "";
+  return /^\/[^/\\]/.test(ir) ? ir : "/";
+}
+
 var tempToken = null;
 
 function mostrar(id) {
@@ -165,7 +179,7 @@ document.getElementById('etapaSenha').addEventListener('submit', async function 
       document.getElementById('codigoCad').focus();
       return;
     }
-    location.href = '/';
+    location.href = destinoDepoisDoLogin();
   } catch (e) {
     alerta(e.message);
   } finally {
@@ -181,7 +195,7 @@ document.getElementById('etapaCodigo').addEventListener('submit', async function
       tempToken: tempToken,
       codigo: document.getElementById('codigo').value
     });
-    location.href = '/';
+    location.href = destinoDepoisDoLogin();
   } catch (e) {
     erroNoCodigo(e, 'codigo');
   }
@@ -195,7 +209,7 @@ document.getElementById('etapaCadastro').addEventListener('submit', async functi
       tempToken: tempToken,
       codigo: document.getElementById('codigoCad').value
     });
-    location.href = '/';
+    location.href = destinoDepoisDoLogin();
   } catch (e) {
     erroNoCodigo(e, 'codigoCad');
   }
