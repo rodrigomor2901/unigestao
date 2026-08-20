@@ -159,6 +159,30 @@ function portaLivre() {
   ok(corpo.indexOf("ug-barra") < corpo.indexOf("Sistema antigo"),
      "barra entra logo apos <body>, antes do conteudo");
 
+  console.log("\n=== MENU DE TROCA DE MODULO ===");
+  // Com um modulo so nao ha para onde trocar
+  ok(!corpo.includes("ug-troca"), "com um modulo so, nao aparece menu");
+  ok(corpo.includes("Todos os módulos"), "e o link de voltar continua");
+
+  const doisModulos = await criar("fach.dois@uniseter.com", [
+    { modulo: "operacional", papel: "cco" },
+    { modulo: "eventos", papel: "gestao" },
+  ]);
+  const comMenu = await (await fetch(`${F}/operacional/`, C(doisModulos))).text();
+  ok(comMenu.includes("ug-troca"), "com dois modulos, o menu aparece");
+  ok(comMenu.includes("Gestão de Eventos"), "lista o outro modulo pelo nome");
+  ok(comMenu.includes('href="/eventos/"'), "com o endereco certo");
+  ok(/class="ug-aqui"[^>]*>Movimentação Operacional/.test(comMenu) ||
+     comMenu.includes('class="ug-aqui" aria-current="page">Movimentação Operacional'),
+     "marca o modulo em que a pessoa esta");
+  ok(!/onclick|addEventListener\(['"]click['"],\s*function\s*\(\)\s*\{\s*document/.test(comMenu),
+     "sem script para abrir — modulo com CSP estrita bloquearia");
+  ok(comMenu.includes("<details"), "usa <details>, que abre sozinho no navegador");
+
+  // Um modulo inativo no registro nao pode vazar para o menu
+  ok(!comMenu.includes("/tarefas/") || comMenu.includes("Gestão de Tarefas"),
+     "so entra no menu o que existe no registro");
+
   console.log("\n=== CHAMADA DE API ATRAVES DA FACHADA ===");
   const api = await fetch(`${F}/operacional/api/dados`, C(comAcesso));
   const dados = await api.json();

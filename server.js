@@ -336,6 +336,21 @@ app.get("/api/interno/sessao", async (req, res, next) => {
     }
     if (!modulos.existe(moduloId)) return res.status(404).json({ erro: "Módulo desconhecido" });
 
+    // A lista do que a pessoa alcanca acompanha a resposta para a Fachada
+    // montar o menu de troca de modulo na barra. Sem isso ela so sabe onde a
+    // pessoa esta, e trocar de sistema exigiria voltar ao inicio a cada vez.
+    const alcance = usuario.super_admin
+      ? modulos.listar().map((m) => ({ id: m.id, nome: m.nome, base: m.base }))
+      : (await db.query(
+          "SELECT modulo FROM usuario_modulos WHERE usuario_id = $1", [usuario.id]
+        )).rows
+          .filter((x) => modulos.existe(x.modulo))
+          .map((x) => {
+            const m = modulos.get(x.modulo);
+            return { id: x.modulo, nome: m.nome, base: m.base };
+          })
+          .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+
     if (usuario.super_admin) {
       // Cada modulo batiza o proprio papel de administrador. Mandar "admin"
       // para todos fazia o CRM — que chama de "administrador" — recusar o
@@ -343,6 +358,7 @@ app.get("/api/interno/sessao", async (req, res, next) => {
       return res.json({
         id: usuario.id, nome: usuario.nome, email: usuario.email,
         papel: modulos.papelDeAdmin(moduloId), superAdmin: true,
+        modulos: alcance,
       });
     }
 
@@ -355,6 +371,7 @@ app.get("/api/interno/sessao", async (req, res, next) => {
     res.json({
       id: usuario.id, nome: usuario.nome, email: usuario.email,
       papel: r.rows[0].papel, superAdmin: false,
+      modulos: alcance,
     });
   } catch (e) {
     next(e);

@@ -227,15 +227,62 @@ padding:7px 16px;background:#26357A;color:#fff;font:14px/1.4 'DM Sans',system-ui
 #ug-barra .ug-marca{font-weight:600;display:flex;align-items:center;gap:8px}
 #ug-barra .ug-marca img{width:22px;height:22px}
 #ug-barra .ug-marca span{color:#F7B312}
-#ug-barra .ug-dir{margin-left:auto;display:flex;gap:14px;align-items:center;font-size:13px}`;
+#ug-barra .ug-dir{margin-left:auto;display:flex;gap:14px;align-items:center;font-size:13px}
 
-function shim(base, usuario) {
+/* Menu de troca de modulo. <details> nativo: sem script, sem CSP no caminho. */
+#ug-barra .ug-troca{position:relative}
+#ug-barra .ug-troca>summary{list-style:none;cursor:pointer;opacity:.9;
+padding:3px 8px;border-radius:5px;user-select:none}
+#ug-barra .ug-troca>summary::-webkit-details-marker{display:none}
+#ug-barra .ug-troca>summary::after{content:" ▾";font-size:11px}
+#ug-barra .ug-troca>summary:hover{opacity:1;background:rgba(255,255,255,.12)}
+#ug-barra .ug-troca[open]>summary{background:rgba(255,255,255,.16);opacity:1}
+#ug-barra .ug-menu{position:absolute;top:calc(100% + 6px);left:0;min-width:230px;
+background:#fff;border-radius:8px;padding:6px;box-shadow:0 6px 20px rgba(16,24,40,.22);
+display:flex;flex-direction:column;z-index:10000}
+#ug-barra .ug-menu a{display:block;padding:8px 10px;border-radius:5px;
+color:#26357A;opacity:1;font-size:13.5px;white-space:nowrap}
+#ug-barra .ug-menu a:hover{background:#E9ECF6;text-decoration:none}
+/* O modulo atual fica marcado e sem realce de clique: e para onde a pessoa ja
+   esta, e um item que parece clicavel mas nao leva a lugar nenhum confunde. */
+#ug-barra .ug-menu a.ug-aqui{color:#6b7280;font-weight:600;cursor:default}
+#ug-barra .ug-menu a.ug-aqui:hover{background:none}
+#ug-barra .ug-menu a.ug-todos{border-top:1px solid #eceff3;margin-top:4px;
+padding-top:10px;color:#6b7280;font-size:13px}`;
+
+// O menu de troca de modulo usa <details>/<summary>, nao JavaScript.
+//
+// Abrir e fechar e comportamento nativo do navegador: funciona com o teclado,
+// funciona com leitor de tela e — o que importa aqui — nao depende de script.
+// Modulos com politica estrita (o CRM manda `script-src 'self'`) bloqueiam
+// qualquer manipulador inline, e um menu que nao abre e pior do que menu
+// nenhum.
+function menuModulos(base, lista) {
+  if (!lista || lista.length < 2) {
+    // Com um modulo so nao ha para onde trocar; o link de sempre basta.
+    return `<a href="/">◂ Todos os módulos</a>`;
+  }
+  const itens = lista.map((m) => {
+    const aqui = m.base === base;
+    return `<a href="${escapeHtml(m.base)}/"${aqui ? ' class="ug-aqui" aria-current="page"' : ""}>` +
+           `${escapeHtml(m.nome)}${aqui ? " ·" : ""}</a>`;
+  }).join("\n    ");
+  return `<details class="ug-troca">
+  <summary>Trocar de módulo</summary>
+  <div class="ug-menu">
+    ${itens}
+    <a class="ug-todos" href="/">◂ Todos os módulos</a>
+  </div>
+</details>`;
+}
+
+function shim(base, usuario, listaModulos) {
   const dados = escapeHtml(JSON.stringify(usuario));
   return `<link rel="stylesheet" href="${base}/__ug/barra.css">
 <script src="${base}/__ug/shim.js" data-base="${escapeHtml(base)}" data-usuario="${dados}"></script>
 <div id="ug-barra">
   <a class="ug-marca" href="/"><img src="${base}/__ug/marca.svg" alt="" width="22" height="22">Uni<span>Gestão</span></a>
-  <a href="/">◂ Todos os módulos</a>
+  ${menuModulos(base, listaModulos)}
   <div class="ug-dir"><span>${escapeHtml(usuario.nome || "")}</span>
   <a id="ug-sair" href="/">Sair</a></div>
 </div>`;
@@ -319,7 +366,7 @@ function encaminhar(req, res, destino, caminho, extras, injetar) {
         // apontam para a raiz de proposito.
         html = prefixarCaminhos(html, injetar.base);
 
-        const bloco = shim(injetar.base, injetar.usuario);
+        const bloco = shim(injetar.base, injetar.usuario, injetar.modulos);
         if (/<body[^>]*>/i.test(html)) {
           html = html.replace(/<body[^>]*>/i, (m) => m + bloco);
         } else {
@@ -440,7 +487,14 @@ const servidor = http.createServer(async (req, res) => {
   const resto = req.url.slice(("/" + modulo).length) || "/";
   encaminhar(req, res, destino, resto, extras, {
     base: "/" + modulo,
+    // O que o modulo enxerga em window.UNIGESTAO.usuario. Deliberadamente
+    // enxuto: e contrato com codigo de terceiro, entao so entra aqui o que o
+    // modulo realmente usa.
     usuario: { id: quem.id, nome: quem.nome, email: quem.email, papel: quem.papel },
+    // A lista de modulos vai por fora, so para a barra montar o menu de troca.
+    // Fora do data-usuario de proposito: nenhum modulo precisa saber a que
+    // outros sistemas a pessoa tem acesso.
+    modulos: quem.modulos || [],
   });
 });
 
