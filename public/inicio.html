@@ -284,6 +284,31 @@ async function mostrarPopup() {
   });
 }
 
+// Mural e Agenda aparecem como cartoes junto dos modulos, porque e ali que as
+// pessoas procuram o que o sistema oferece. Mas NAO entram no registro de
+// modulos: aquele registro guarda sistemas independentes, cada um com o
+// proprio banco, alcancados pela Fachada. Os dois sao parte do proprio portal
+// — registra-los faria a Fachada tentar encaminhar para um servico que nao
+// existe.
+//
+// O selo diz "Todo o grupo" em vez de um papel: nao ha papel, todo mundo que
+// entra no portal enxerga os dois.
+function cartaoMural() {
+  return '<a class="card modulo" href="/mural">' +
+           '<h3>Mural</h3>' +
+           '<p>Comunicados, mudanças e eventos do grupo</p>' +
+           '<span class="selo selo-off">Todo o grupo</span>' +
+         '</a>';
+}
+
+function cartaoAgenda() {
+  return '<a class="card modulo" href="/agenda">' +
+           '<h3>Agenda</h3>' +
+           '<p>Telefone, ramal, departamento e cargo de todo mundo do grupo</p>' +
+           '<span class="selo selo-off">Todo o grupo</span>' +
+         '</a>';
+}
+
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];

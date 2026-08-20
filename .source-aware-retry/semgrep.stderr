@@ -1,0 +1,31 @@
+               
+               
+┌─────────────┐
+│ Scan Status │
+└─────────────┘
+  Scanning 57 files tracked by git with 1078 Code rules:
+                                                                                                                        
+  Language      Rules   Files          Origin      Rules                                                                
+ ─────────────────────────────        ───────────────────                                                               
+  <multilang>      62      57          Community    1078                                                                
+  js              154      14                                                                                           
+  json              4       9                                                                                           
+  html              1       6                                                                                           
+                                                                                                                        
+RPC subprocess did not exit cleanly. Killing it.
+                
+                
+┌──────────────┐
+│ Scan Summary │
+└──────────────┘
+✅ Scan completed successfully.
+ • Findings: 7 (7 blocking)
+ • Rules run: 220
+ • Targets scanned: 57
+ • Parsed lines: ~100.0%
+ • Scan skipped: 
+   ◦ Matching --exclude patterns: 2
+   ◦ Files larger than  files 1.0 MB: 1
+   ◦ Files matching .semgrepignore patterns: 12
+ • For a detailed list of skipped files and lines, run semgrep with the --verbose flag
+Ran 220 rules on 57 files: 7 findings.
