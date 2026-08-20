@@ -20,6 +20,42 @@ CREATE TABLE IF NOT EXISTS usuarios (
 CREATE INDEX IF NOT EXISTS idx_usuarios_email ON usuarios (LOWER(email));
 CREATE INDEX IF NOT EXISTS idx_usuarios_ativo ON usuarios (ativo);
 
+-- ------------------------------------------------------------
+-- AGENDA CORPORATIVA
+-- ------------------------------------------------------------
+-- Dados de contato da pessoa, para todo mundo do grupo poder achar quem
+-- precisa falar. Ficam aqui, e nao num modulo, porque o Core e quem sabe quem
+-- e cada pessoa — e assim a agenda serve aos seis sistemas de uma vez.
+--
+-- `cargo` e o cargo da pessoa na empresa. NAO confundir com `papel` em
+-- usuario_modulos, que e o nivel de acesso dela dentro de um sistema: a mesma
+-- pessoa pode ser "Coordenadora" de cargo e ter papel "executor" no Tarefas.
+--
+-- Telefone e ramal separados porque sao coisas diferentes e quem tem os dois
+-- vai querer informar os dois. Nenhum dos dois e obrigatorio sozinho — o que
+-- se exige e ter pelo menos uma forma de contato (ver core/perfil.js).
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS telefone     TEXT;
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS ramal        TEXT;
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS departamento TEXT;
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS cargo        TEXT;
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS perfil_em    TIMESTAMPTZ;
+
+-- Busca por nome/departamento/cargo sem depender de maiuscula e acento
+CREATE INDEX IF NOT EXISTS idx_usuarios_departamento ON usuarios (LOWER(departamento));
+
+-- A foto fica em tabela separada, nao em coluna de `usuarios`.
+--
+-- Motivo pratico: `usuarios` e lida o tempo todo — em toda requisicao de
+-- modulo, na leitura de sessao, na listagem do Admin Geral. Uma coluna de
+-- dezenas de kilobytes seria arrastada junto em consultas que nunca precisam
+-- dela. Em tabela propria, a foto so e lida quando alguem realmente a pede.
+CREATE TABLE IF NOT EXISTS usuario_foto (
+  usuario_id  TEXT PRIMARY KEY REFERENCES usuarios(id) ON DELETE CASCADE,
+  tipo        TEXT        NOT NULL,   -- image/jpeg ou image/png
+  bytes       BYTEA       NOT NULL,
+  enviada_em  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- O CORACAO DO SISTEMA: quem acessa qual modulo, e com que papel la dentro.
 -- O Core guarda o rotulo do papel mas NAO sabe o que ele significa —
 -- quem interpreta continua sendo cada modulo, como ja e hoje.

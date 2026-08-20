@@ -78,6 +78,8 @@
   <h1><img src="/marca/simbolo-claro.svg" alt="" width="30" height="30">Uni<span>Gestão</span></h1>
   <div class="quem">
     <span id="nome"></span>
+    <a href="/agenda">Agenda</a>
+    <a href="/perfil">Meu perfil</a>
     <a href="/admin" id="linkAdmin" style="display:none">Admin Geral</a>
     <button onclick="sair()">Sair</button>
   </div>
@@ -105,6 +107,11 @@ async function carregar() {
   // depois que a pessoa define uma senha propria. O Core tambem barra do lado
   // do servidor, entao pular esta tela pela URL nao adianta.
   if (d.usuario.senhaTemp) return exigirNovaSenha();
+
+  // Cadastro incompleto, com a exigencia ligada: vai completar antes de seguir.
+  // A ordem importa — senha primeiro, cadastro depois: nao adianta pedir dados
+  // a quem ainda esta com a senha provisoria na mao.
+  if (d.usuario.exigirPerfil) { location.href = "/perfil"; return; }
 
   if (!d.modulos.length) {
     sub.textContent = '';

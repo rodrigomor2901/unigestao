@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UniGestão — Meu perfil</title>
+<link rel="icon" href="/marca/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/core.css">
+<style>
+  .topo {
+    background: var(--accent); color: #fff; padding: 14px 24px;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    flex-wrap: wrap;
+  }
+  .topo h1 { font-size: 19px; display: flex; align-items: center; gap: 10px; }
+  .topo h1 img { width: 30px; height: 30px; }
+  .topo h1 span { color: var(--laranja); }
+  .topo a, .topo button {
+    color: #fff; background: none; border: 0; font: inherit; font-size: 14px;
+    cursor: pointer; text-decoration: underline; padding: 0;
+  }
+  .topo .quem { display: flex; align-items: center; gap: 14px; font-size: 14px; }
+  main { max-width: 620px; margin: 0 auto; padding: 34px 24px 60px; }
+  .titulo { margin-bottom: 6px; font-size: 22px; }
+  .sub { color: var(--texto-fraco); margin: 0 0 24px; font-size: 14.5px; line-height: 1.55; }
+  .cartao { padding: 26px; }
+  .dupla { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 520px) { .dupla { grid-template-columns: 1fr; } }
+  .dica { font-size: 12.5px; color: var(--texto-fraco); margin: -10px 0 14px; line-height: 1.5; }
+  .retrato { display: flex; align-items: center; gap: 16px; margin-bottom: 22px; }
+  .retrato .bolha {
+    width: 84px; height: 84px; border-radius: 50%; object-fit: cover;
+    background: var(--accent-soft); display: grid; place-items: center;
+    color: var(--accent); font-weight: 700; font-size: 26px; flex: none;
+  }
+  .retrato .acoes { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+  .retrato button {
+    background: none; border: 0; padding: 0; font: inherit; font-size: 13.5px;
+    color: var(--accent); text-decoration: underline; cursor: pointer;
+  }
+  .retrato .apagar { color: var(--erro); }
+  .retrato .obs { font-size: 12.5px; color: var(--texto-fraco); }
+  .btn { width: 100%; margin-top: 6px; }
+  #arquivo { display: none; }
+</style>
+</head>
+<body>
+
+<header class="topo">
+  <h1><img src="/marca/simbolo-claro.svg" alt="" width="30" height="30">Uni<span>Gestão</span></h1>
+  <div class="quem">
+    <a href="/agenda">Agenda</a>
+    <a href="/" id="voltar">Meus módulos</a>
+  </div>
+</header>
+
+<main>
+  <h2 class="titulo" id="tituloPagina">Meu perfil</h2>
+  <p class="sub" id="subPagina">
+    Estes dados aparecem na agenda do grupo, para qualquer pessoa achar você quando precisar.
+  </p>
+
+  <div class="card cartao">
+    <div id="aviso"></div>
+
+    <div class="retrato">
+      <img class="bolha" id="foto" alt="" style="display:none">
+      <div class="bolha" id="iniciais"></div>
+      <div class="acoes">
+        <button type="button" id="btnFoto">Escolher foto</button>
+        <button type="button" id="btnApagarFoto" class="apagar" style="display:none">Remover foto</button>
+        <span class="obs">Opcional. A imagem é reduzida no seu computador antes de subir.</span>
+      </div>
+      <input type="file" id="arquivo" accept="image/*">
+    </div>
+
+    <div class="dupla">
+      <label class="campo"><span>Telefone corporativo</span>
+        <input id="telefone" inputmode="tel" placeholder="(19) 99999-0000" autocomplete="tel"></label>
+      <label class="campo"><span>Ramal</span>
+        <input id="ramal" placeholder="2010"></label>
+    </div>
+    <p class="dica">
+      Se você não tem celular corporativo, informe só o ramal do PABX — basta um dos dois.
+    </p>
+
+    <div class="dupla">
+      <label class="campo"><span>Departamento</span>
+        <input id="departamento" list="deptos" placeholder="Comercial" autocomplete="off"></label>
+      <label class="campo"><span>Cargo</span>
+        <input id="cargo" placeholder="Analista" autocomplete="organization-title"></label>
+    </div>
+    <datalist id="deptos"></datalist>
+
+    <button class="btn" id="salvar">Salvar</button>
+  </div>
+</main>
+
+<script>
+var EU = null;
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+function iniciaisDe(nome) {
+  var p = String(nome || '').trim().split(/\s+/);
+  if (!p[0]) return '?';
+  return (p[0][0] + (p.length > 1 ? p[p.length - 1][0] : '')).toUpperCase();
+}
+
+function mostrarFoto(temFoto) {
+  var img = document.getElementById('foto');
+  var ini = document.getElementById('iniciais');
+  if (temFoto) {
+    // A data no fim forca o navegador a buscar de novo depois de trocar a foto,
+    // em vez de mostrar a antiga que ele guardou.
+    img.src = '/api/foto/' + encodeURIComponent(EU.id) + '?v=' + Date.now();
+    img.style.display = '';
+    ini.style.display = 'none';
+    document.getElementById('btnApagarFoto').style.display = '';
+  } else {
+    img.style.display = 'none';
+    ini.style.display = 'grid';
+    ini.textContent = iniciaisDe(EU.nome);
+    document.getElementById('btnApagarFoto').style.display = 'none';
+  }
+}
+
+async function carregar() {
+  var r = await fetch('/api/eu');
+  if (!r.ok) { location.href = '/'; return; }
+  var d = await r.json();
+  EU = d.usuario;
+
+  document.getElementById('telefone').value = EU.telefone
+    ? formatar(EU.telefone) : '';
+  document.getElementById('ramal').value = EU.ramal || '';
+  document.getElementById('departamento').value = EU.departamento || '';
+  document.getElementById('cargo').value = EU.cargo || '';
+  mostrarFoto(EU.temFoto);
+
+  // Quem chegou aqui obrigado nao tem para onde escapar: a tela muda de tom e
+  // o caminho de volta some, porque voltar nao resolveria nada.
+  if (EU.exigirPerfil) {
+    document.getElementById('tituloPagina').textContent = 'Complete seu cadastro';
+    document.getElementById('subPagina').textContent =
+      'Antes de continuar, precisamos de alguns dados seus. Eles aparecem na agenda do grupo, ' +
+      'para qualquer pessoa achar você quando precisar. A foto é opcional.';
+    document.getElementById('voltar').style.display = 'none';
+  }
+
+  var dep = await fetch('/api/agenda/departamentos');
+  if (dep.ok) {
+    var lista = (await dep.json()).departamentos || [];
+    document.getElementById('deptos').innerHTML =
+      lista.map(function (x) { return '<option value="' + esc(x.departamento) + '">'; }).join('');
+  }
+}
+
+function formatar(d) {
+  d = String(d || '');
+  if (d.length === 10) return '(' + d.slice(0,2) + ') ' + d.slice(2,6) + '-' + d.slice(6);
+  if (d.length === 11) return '(' + d.slice(0,2) + ') ' + d.slice(2,7) + '-' + d.slice(7);
+  return d;
+}
+
+document.getElementById('telefone').addEventListener('input', function () {
+  var d = this.value.replace(/\D/g, '').slice(0, 11);
+  this.value = d.length > 6 ? formatar(d) : d;
+});
+
+document.getElementById('salvar').addEventListener('click', async function () {
+  var btn = this, aviso = document.getElementById('aviso');
+  aviso.innerHTML = '';
+  btn.disabled = true;
+  try {
+    var r = await fetch('/api/perfil', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        telefone: document.getElementById('telefone').value,
+        ramal: document.getElementById('ramal').value,
+        departamento: document.getElementById('departamento').value,
+        cargo: document.getElementById('cargo').value,
+      }),
+    });
+    var d = await r.json().catch(function () { return {}; });
+    if (!r.ok) throw new Error(d.erro || 'Não foi possível salvar');
+    if (EU.exigirPerfil) { location.href = '/'; return; }
+    aviso.innerHTML = '<div class="aviso aviso-ok">Salvo.</div>';
+  } catch (e) {
+    aviso.innerHTML = '<div class="aviso aviso-erro">' + esc(e.message) + '</div>';
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Foto: reduzida AQUI, no navegador, antes de subir.
+//
+// A camera de um celular manda 3 a 8 MB por foto. Subir isso para cortar
+// depois desperdicaria a internet de quem esta enviando — que muitas vezes e
+// dados moveis — e obrigaria o servidor a redimensionar, o que exigiria uma
+// biblioteca de imagem so para isso. O canvas do proprio navegador resolve.
+// ---------------------------------------------------------------------------
+var LADO = 320;
+
+document.getElementById('btnFoto').addEventListener('click', function () {
+  document.getElementById('arquivo').click();
+});
+
+document.getElementById('arquivo').addEventListener('change', async function () {
+  var arq = this.files && this.files[0];
+  if (!arq) return;
+  var aviso = document.getElementById('aviso');
+  aviso.innerHTML = '';
+  try {
+    var base64 = await reduzir(arq);
+    var r = await fetch('/api/perfil/foto', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tipo: 'image/jpeg', base64: base64 }),
+    });
+    var d = await r.json().catch(function () { return {}; });
+    if (!r.ok) throw new Error(d.erro || 'Não foi possível enviar a foto');
+    EU.temFoto = true;
+    mostrarFoto(true);
+  } catch (e) {
+    aviso.innerHTML = '<div class="aviso aviso-erro">' + esc(e.message) + '</div>';
+  } finally {
+    this.value = '';
+  }
+});
+
+function reduzir(arq) {
+  return new Promise(function (resolve, reject) {
+    var img = new Image();
+    var url = URL.createObjectURL(arq);
+    img.onload = function () {
+      URL.revokeObjectURL(url);
+      // Recorte quadrado pelo centro: a agenda mostra a foto redonda, e uma
+      // imagem retangular esticada para caber deforma o rosto.
+      var lado = Math.min(img.width, img.height);
+      var sx = (img.width - lado) / 2, sy = (img.height - lado) / 2;
+      var c = document.createElement('canvas');
+      c.width = LADO; c.height = LADO;
+      c.getContext('2d').drawImage(img, sx, sy, lado, lado, 0, 0, LADO, LADO);
+      var dataUrl = c.toDataURL('image/jpeg', 0.82);
+      resolve(dataUrl.slice(dataUrl.indexOf(',') + 1));
+    };
+    img.onerror = function () {
+      URL.revokeObjectURL(url);
+      reject(new Error('Não consegui ler essa imagem.'));
+    };
+    img.src = url;
+  });
+}
+
+document.getElementById('btnApagarFoto').addEventListener('click', async function () {
+  await fetch('/api/perfil/foto', { method: 'DELETE' });
+  EU.temFoto = false;
+  mostrarFoto(false);
+});
+
+carregar();
+</script>
+</body>
+</html>

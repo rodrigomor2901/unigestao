@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UniGestão — Agenda</title>
+<link rel="icon" href="/marca/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/core.css">
+<style>
+  .topo {
+    background: var(--accent); color: #fff; padding: 14px 24px;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    flex-wrap: wrap;
+  }
+  .topo h1 { font-size: 19px; display: flex; align-items: center; gap: 10px; }
+  .topo h1 img { width: 30px; height: 30px; }
+  .topo h1 span { color: var(--laranja); }
+  .topo .quem { display: flex; align-items: center; gap: 14px; font-size: 14px; }
+  .topo a { color: #fff; font-size: 14px; text-decoration: underline; }
+  main { max-width: 980px; margin: 0 auto; padding: 30px 24px 60px; }
+  .titulo { margin-bottom: 6px; font-size: 22px; }
+  .sub { color: var(--texto-fraco); margin: 0 0 20px; font-size: 14.5px; }
+  .busca { position: relative; margin-bottom: 12px; }
+  .busca input { width: 100%; }
+  .filtros { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 22px; }
+  .filtros button {
+    border: 1px solid var(--borda); background: var(--surface); color: var(--texto-fraco);
+    border-radius: 999px; padding: 5px 13px; font: inherit; font-size: 13px; cursor: pointer;
+  }
+  .filtros button:hover { border-color: var(--accent); color: var(--accent); }
+  .filtros button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .lista { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+  .pessoa { display: flex; gap: 14px; padding: 16px; align-items: flex-start; }
+  .bolha {
+    width: 52px; height: 52px; border-radius: 50%; object-fit: cover; flex: none;
+    background: var(--accent-soft); display: grid; place-items: center;
+    color: var(--accent); font-weight: 700; font-size: 17px;
+  }
+  .pessoa .dados { min-width: 0; }
+  .pessoa h3 { font-size: 15px; margin: 0 0 2px; color: var(--accent); }
+  .pessoa .cargo { font-size: 13px; color: var(--texto-fraco); margin: 0 0 8px; }
+  .pessoa .contato { font-size: 13.5px; line-height: 1.65; }
+  .pessoa .contato a { color: var(--texto); text-decoration: none; }
+  .pessoa .contato a:hover { text-decoration: underline; }
+  .pessoa .rot { color: var(--texto-fraco); }
+  .pessoa .selo { margin-top: 8px; }
+  .vazio { padding: 34px; text-align: center; color: var(--texto-fraco); }
+  .incompleto { font-size: 13px; color: var(--texto-fraco); font-style: italic; }
+</style>
+</head>
+<body>
+
+<header class="topo">
+  <h1><img src="/marca/simbolo-claro.svg" alt="" width="30" height="30">Uni<span>Gestão</span></h1>
+  <div class="quem">
+    <a href="/perfil">Meu perfil</a>
+    <a href="/">Meus módulos</a>
+  </div>
+</header>
+
+<main>
+  <h2 class="titulo">Agenda</h2>
+  <p class="sub" id="sub">Carregando…</p>
+
+  <div class="busca">
+    <input id="q" placeholder="Buscar por nome, departamento, cargo, ramal ou telefone" autocomplete="off">
+  </div>
+  <div class="filtros" id="filtros"></div>
+
+  <div class="lista" id="lista"></div>
+</main>
+
+<script>
+var PESSOAS = [];
+var DEPTO = '';
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+// Compara sem acento e sem maiuscula: quem digita "eventos" tem que achar
+// "Eventos", e quem digita "gestao" tem que achar "Gestão".
+function norm(s) {
+  return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+}
+
+function iniciais(nome) {
+  var p = String(nome || '').trim().split(/\s+/);
+  if (!p[0]) return '?';
+  return (p[0][0] + (p.length > 1 ? p[p.length - 1][0] : '')).toUpperCase();
+}
+
+async function carregar() {
+  var r = await fetch('/api/agenda');
+  if (!r.ok) { location.href = '/'; return; }
+  PESSOAS = (await r.json()).pessoas || [];
+
+  var deps = {};
+  PESSOAS.forEach(function (p) { if (p.departamento) deps[p.departamento] = (deps[p.departamento] || 0) + 1; });
+  var ordenados = Object.keys(deps).sort(function (a, b) { return deps[b] - deps[a] || a.localeCompare(b, 'pt-BR'); });
+  document.getElementById('filtros').innerHTML =
+    '<button data-d="" class="on">Todos</button>' +
+    ordenados.map(function (d) {
+      return '<button data-d="' + esc(d) + '">' + esc(d) + ' · ' + deps[d] + '</button>';
+    }).join('');
+
+  document.getElementById('filtros').addEventListener('click', function (ev) {
+    var b = ev.target.closest('button');
+    if (!b) return;
+    DEPTO = b.getAttribute('data-d');
+    this.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
+    render();
+  });
+
+  render();
+}
+
+function render() {
+  var termo = norm(document.getElementById('q').value);
+  var digitos = termo.replace(/\D/g, '');
+
+  var achadas = PESSOAS.filter(function (p) {
+    if (DEPTO && p.departamento !== DEPTO) return false;
+    if (!termo) return true;
+    if (digitos && (String(p.telefone).indexOf(digitos) >= 0 || norm(p.ramal).indexOf(digitos) >= 0)) return true;
+    return norm(p.nome).indexOf(termo) >= 0
+        || norm(p.departamento).indexOf(termo) >= 0
+        || norm(p.cargo).indexOf(termo) >= 0
+        || norm(p.email).indexOf(termo) >= 0;
+  });
+
+  document.getElementById('sub').textContent = achadas.length === 1
+    ? '1 pessoa' : achadas.length + ' pessoas';
+
+  if (!achadas.length) {
+    document.getElementById('lista').innerHTML =
+      '<div class="card vazio">Ninguém encontrado com esse termo.</div>';
+    return;
+  }
+
+  document.getElementById('lista').innerHTML = achadas.map(function (p) {
+    var retrato = p.temFoto
+      ? '<img class="bolha" src="/api/foto/' + encodeURIComponent(p.id) + '" alt="">'
+      : '<div class="bolha">' + esc(iniciais(p.nome)) + '</div>';
+
+    var linhas = [];
+    if (p.telefoneFormatado) {
+      linhas.push('<div><span class="rot">Tel</span> <a href="tel:' + esc(p.telefone) + '">' +
+                  esc(p.telefoneFormatado) + '</a></div>');
+    }
+    if (p.ramal) linhas.push('<div><span class="rot">Ramal</span> ' + esc(p.ramal) + '</div>');
+    linhas.push('<div><a href="mailto:' + esc(p.email) + '">' + esc(p.email) + '</a></div>');
+
+    // Quem ainda nao preencheu aparece do mesmo jeito, com o que se sabe. Some
+    // da agenda seria pior: a pessoa existe e alguem pode precisar dela.
+    var faltando = (!p.departamento && !p.cargo)
+      ? '<div class="incompleto">cadastro ainda não preenchido</div>' : '';
+
+    return '<div class="card pessoa">' + retrato +
+      '<div class="dados">' +
+        '<h3>' + esc(p.nome) + '</h3>' +
+        '<p class="cargo">' + esc([p.cargo, p.departamento].filter(Boolean).join(' · ')) + '</p>' +
+        '<div class="contato">' + linhas.join('') + '</div>' +
+        faltando +
+      '</div></div>';
+  }).join('');
+}
+
+document.getElementById('q').addEventListener('input', render);
+carregar();
+</script>
+</body>
+</html>

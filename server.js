@@ -21,10 +21,14 @@ const db = require("./core/db");
 const auth = require("./core/auth");
 const modulos = require("./core/modulos");
 const correio = require("./core/email");
+const perfil = require("./core/perfil");
 
 const app = express();
 app.set("trust proxy", 1);
-app.use(express.json({ limit: "1mb" }));
+// 2mb cobre a foto em base64 com folga: o limite real da imagem e 400 KB
+// (core/perfil.js), que em base64 da ~545 KB. O resto das rotas manda JSON
+// pequeno, entao o teto so existe por causa da foto.
+app.use(express.json({ limit: "2mb" }));
 
 const PORT = process.env.PORT || 3000;
 
@@ -62,6 +66,16 @@ const PUBLIC = path.join(__dirname, "public");
 
 app.get("/", (req, res) => {
   res.sendFile(path.join(PUBLIC, req.usuario ? "inicio.html" : "login.html"));
+});
+
+app.get("/agenda", (req, res) => {
+  if (!req.usuario) return res.redirect("/");
+  res.sendFile(path.join(PUBLIC, "agenda.html"));
+});
+
+app.get("/perfil", (req, res) => {
+  if (!req.usuario) return res.redirect("/");
+  res.sendFile(path.join(PUBLIC, "perfil.html"));
 });
 
 app.get("/admin", (req, res) => {
@@ -248,6 +262,13 @@ app.post("/api/logout", async (req, res, next) => {
 
 app.get("/api/eu", exigeLogin, async (req, res, next) => {
   try {
+    const p = await db.query(
+      `SELECT telefone, ramal, departamento, cargo,
+              EXISTS (SELECT 1 FROM usuario_foto f WHERE f.usuario_id = u.id) AS tem_foto
+         FROM usuarios u WHERE u.id = $1`,
+      [req.usuario.id]
+    );
+    const dados = p.rows[0] || {};
     res.json({
       usuario: {
         id: req.usuario.id,
@@ -255,9 +276,146 @@ app.get("/api/eu", exigeLogin, async (req, res, next) => {
         email: req.usuario.email,
         superAdmin: req.usuario.super_admin,
         senhaTemp: req.usuario.senha_temp,
+        telefone: dados.telefone || "",
+        ramal: dados.ramal || "",
+        departamento: dados.departamento || "",
+        cargo: dados.cargo || "",
+        temFoto: Boolean(dados.tem_foto),
+        perfilCompleto: perfil.completo(dados),
+        // A tela so barra quando as duas coisas valem: a exigencia esta ligada
+        // E falta dado. Assim o mesmo codigo serve para antes e depois de a
+        // regra entrar em vigor, sem if espalhado pela interface.
+        exigirPerfil: perfil.exigindoPerfil() && !perfil.completo(dados),
       },
       modulos: await modulosDoUsuario(req.usuario),
     });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PERFIL — cada pessoa mantem o proprio
+// ---------------------------------------------------------------------------
+
+app.post("/api/perfil", exigeLogin, async (req, res, next) => {
+  try {
+    const r = perfil.validar(req.body || {});
+    if (!r.ok) return res.status(400).json({ erro: r.erros[0], erros: r.erros });
+    const v = r.valores;
+    await db.query(
+      `UPDATE usuarios
+          SET telefone = $1, ramal = $2, departamento = $3, cargo = $4, perfil_em = NOW()
+        WHERE id = $5`,
+      [v.telefone || null, v.ramal || null, v.departamento, v.cargo, req.usuario.id]
+    );
+    await auth.auditar(req, "perfil_atualizado", {
+      usuarioId: req.usuario.id, email: req.usuario.email,
+      detalhe: { departamento: v.departamento, cargo: v.cargo },
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// A foto chega em base64 no corpo, nao como multipart.
+//
+// Evita uma dependencia de upload so para isto, e a tela ja reduz a imagem
+// antes de enviar (canvas no navegador), entao o que chega aqui e pequeno.
+// A checagem de tamanho e de tipo e refeita no servidor porque a validacao da
+// tela protege o usuario distraido, nao quem chama a API direto.
+app.post("/api/perfil/foto", exigeLogin, async (req, res, next) => {
+  try {
+    const { tipo, base64 } = req.body || {};
+    if (!perfil.FOTO_TIPOS.includes(tipo)) {
+      return res.status(400).json({ erro: "Formato não aceito. Use JPG, PNG ou WebP." });
+    }
+    const bytes = Buffer.from(String(base64 || ""), "base64");
+    if (!bytes.length) return res.status(400).json({ erro: "Imagem vazia." });
+    if (bytes.length > perfil.FOTO_MAX_BYTES) {
+      return res.status(413).json({ erro: "Imagem muito grande." });
+    }
+    await db.query(
+      `INSERT INTO usuario_foto (usuario_id, tipo, bytes) VALUES ($1,$2,$3)
+       ON CONFLICT (usuario_id) DO UPDATE SET tipo = EXCLUDED.tipo,
+         bytes = EXCLUDED.bytes, enviada_em = NOW()`,
+      [req.usuario.id, tipo, bytes]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.delete("/api/perfil/foto", exigeLogin, async (req, res, next) => {
+  try {
+    await db.query("DELETE FROM usuario_foto WHERE usuario_id = $1", [req.usuario.id]);
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// AGENDA — todo mundo do grupo pode consultar
+// ---------------------------------------------------------------------------
+
+app.get("/api/agenda", exigeLogin, async (req, res, next) => {
+  try {
+    const r = await db.query(
+      `SELECT u.id, u.nome, u.email, u.telefone, u.ramal, u.departamento, u.cargo,
+              EXISTS (SELECT 1 FROM usuario_foto f WHERE f.usuario_id = u.id) AS tem_foto
+         FROM usuarios u
+        WHERE u.ativo = TRUE
+        ORDER BY u.nome`
+    );
+    res.json({
+      pessoas: r.rows.map((p) => ({
+        id: p.id,
+        nome: p.nome,
+        email: p.email,
+        telefone: p.telefone || "",
+        telefoneFormatado: perfil.formatarTelefone(p.telefone),
+        ramal: p.ramal || "",
+        departamento: p.departamento || "",
+        cargo: p.cargo || "",
+        temFoto: p.tem_foto,
+      })),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Departamentos ja cadastrados, para a tela sugerir enquanto a pessoa digita.
+// E o que evita "Comercial", "comercial" e "Com." convivendo na mesma agenda.
+app.get("/api/agenda/departamentos", exigeLogin, async (req, res, next) => {
+  try {
+    const r = await db.query(
+      `SELECT departamento, count(*)::int AS quantos
+         FROM usuarios
+        WHERE ativo = TRUE AND departamento IS NOT NULL AND departamento <> ''
+        GROUP BY departamento
+        ORDER BY quantos DESC, departamento`
+    );
+    res.json({ departamentos: r.rows });
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.get("/api/foto/:id", exigeLogin, async (req, res, next) => {
+  try {
+    const r = await db.query(
+      "SELECT tipo, bytes FROM usuario_foto WHERE usuario_id = $1", [req.params.id]
+    );
+    if (!r.rows[0]) return res.status(404).end();
+    res.set("Content-Type", r.rows[0].tipo);
+    // Cache curto: a foto muda pouco, mas quando muda a pessoa quer ver a nova
+    // no mesmo dia, nao na semana que vem.
+    res.set("Cache-Control", "private, max-age=600");
+    res.send(r.rows[0].bytes);
   } catch (e) {
     next(e);
   }
@@ -328,6 +486,24 @@ app.get("/api/interno/sessao", async (req, res, next) => {
     // inicio", e la a tela obriga a definir uma senha antes de seguir.
     if (usuario.senha_temp) {
       return res.status(401).json({ erro: "Defina uma senha antes de acessar os módulos", senhaTemp: true });
+    }
+
+    // Cadastro incompleto, com a exigencia ligada, tambem nao abre modulo.
+    //
+    // A tela ja desvia para /perfil, mas a tela e so conveniencia: sem esta
+    // conferencia bastaria digitar /crm/ na barra de endereco para pular o
+    // formulario. Quem decide e o servidor; a interface apenas obedece.
+    if (perfil.exigindoPerfil()) {
+      const p = await db.query(
+        "SELECT telefone, ramal, departamento, cargo FROM usuarios WHERE id = $1",
+        [usuario.id]
+      );
+      if (!perfil.completo(p.rows[0])) {
+        return res.status(401).json({
+          erro: "Complete seu cadastro antes de acessar os módulos",
+          perfilIncompleto: true,
+        });
+      }
     }
 
     const moduloId = String(req.query.modulo || "");
