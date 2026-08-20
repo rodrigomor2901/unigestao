@@ -54,7 +54,36 @@
      sem isto o cartao branco continua opaco, mas a barra navy some atras. */
   .topo, main { position: relative; z-index: 1; }
 
-  main { max-width: 980px; margin: 0 auto; padding: 34px 24px 60px; }
+  main { max-width: 1180px; margin: 0 auto; padding: 34px 24px 60px; }
+
+  /* Duas colunas: modulos a esquerda, mural a direita.
+     O mural desce para baixo dos modulos quando a tela encolhe — numa tela
+     estreita ele empurraria os cartoes para uma faixa espremida, e os modulos
+     sao o motivo pelo qual a pessoa entrou. */
+  .colunas { display: grid; gap: 26px; grid-template-columns: 1fr 320px; align-items: start; }
+  @media (max-width: 900px) { .colunas { grid-template-columns: 1fr; } }
+
+  .mural h3 { font-size: 15px; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
+  .mural .conta {
+    background: var(--laranja); color: #fff; border-radius: 999px;
+    font-size: 11px; font-weight: 700; padding: 1px 7px;
+  }
+  .aviso-cartao { padding: 15px 16px; margin-bottom: 10px; position: relative; }
+  .aviso-cartao.destaque { border-left: 3px solid var(--laranja); }
+  .aviso-cartao h4 { font-size: 14px; margin: 0 0 4px; color: var(--accent); line-height: 1.35; }
+  .aviso-cartao p { margin: 0; font-size: 13px; color: var(--texto-fraco); line-height: 1.55;
+                    white-space: pre-wrap; }
+  .aviso-topo { display: flex; align-items: center; gap: 7px; margin-bottom: 6px; }
+  .aviso-tipo {
+    font-size: 10.5px; letter-spacing: .05em; text-transform: uppercase;
+    font-weight: 700; padding: 2px 7px; border-radius: 4px;
+  }
+  .aviso-tipo.aviso   { background: var(--accent-soft); color: var(--accent); }
+  .aviso-tipo.mudanca { background: #FDF0E0; color: #9a4d05; }
+  .aviso-tipo.evento  { background: #E7F4EC; color: #06603c; }
+  .aviso-pino { font-size: 11px; color: var(--texto-fraco); }
+  .aviso-rodape { margin-top: 8px; font-size: 11.5px; color: var(--texto-fraco); }
+  .mural .vazio-mural { padding: 20px; text-align: center; color: var(--texto-fraco); font-size: 13px; }
   .titulo { margin-bottom: 6px; font-size: 22px; }
   .sub { color: var(--texto-fraco); margin: 0 0 28px; }
   .grade { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); }
@@ -86,9 +115,19 @@
 </header>
 
 <main>
-  <h2 class="titulo">Seus módulos</h2>
-  <p class="sub" id="sub">Carregando…</p>
-  <div class="grade" id="grade"></div>
+  <div class="colunas">
+    <div>
+      <h2 class="titulo">Seus módulos</h2>
+      <p class="sub" id="sub">Carregando…</p>
+      <div class="grade" id="grade"></div>
+    </div>
+    <!-- O mural so aparece quando ha o que mostrar: painel vazio na tela toda
+         vez ensina a pessoa a ignorar aquele canto. -->
+    <aside class="mural" id="mural" style="display:none">
+      <h3>Mural <span class="conta" id="muralConta" style="display:none"></span></h3>
+      <div id="muralLista"></div>
+    </aside>
+  </div>
 </main>
 
 <script>
@@ -134,6 +173,56 @@ async function carregar() {
              '<span class="selo selo-off">' + esc(m.papelRotulo || m.papel) + '</span>' +
            '</a>';
   }).join('') + cartaoAgenda();
+
+  carregarMural();
+}
+
+// ---------------------------------------------------------------------------
+// Mural
+// ---------------------------------------------------------------------------
+var TIPO_ROTULO = { aviso: 'Aviso', mudanca: 'Mudança', evento: 'Evento' };
+
+async function carregarMural() {
+  var r = await fetch('/api/mural');
+  if (!r.ok) return;
+  var avisos = (await r.json()).avisos || [];
+  if (!avisos.length) return;   // sem avisos, o painel nem aparece
+
+  var novos = avisos.filter(function (a) { return a.novo; }).length;
+  document.getElementById('mural').style.display = '';
+  if (novos) {
+    var c = document.getElementById('muralConta');
+    c.textContent = novos + ' novo' + (novos > 1 ? 's' : '');
+    c.style.display = '';
+  }
+
+  document.getElementById('muralLista').innerHTML = avisos.map(function (a) {
+    var tipo = TIPO_ROTULO[a.tipo] || 'Aviso';
+    return '<div class="card aviso-cartao' + (a.novo ? ' destaque' : '') + '">' +
+      '<div class="aviso-topo">' +
+        '<span class="aviso-tipo ' + esc(a.tipo) + '">' + esc(tipo) + '</span>' +
+        (a.fixado ? '<span class="aviso-pino">fixado</span>' : '') +
+      '</div>' +
+      '<h4>' + esc(a.titulo) + '</h4>' +
+      (a.texto ? '<p>' + esc(a.texto) + '</p>' : '') +
+      '<div class="aviso-rodape">' + esc(quando(a.criado_em)) +
+        (a.autor ? ' · ' + esc(a.autor) : '') + '</div>' +
+    '</div>';
+  }).join('');
+
+  // Marca como lido DEPOIS de desenhar. Se marcasse antes, um erro no meio do
+  // caminho apagaria o "novo" de avisos que a pessoa nunca chegou a ver.
+  if (novos) fetch('/api/mural/visto', { method: 'POST' });
+}
+
+// "hoje", "ontem", "há 3 dias" — data cheia so quando ja e coisa antiga.
+// Numa lista curta e recente, a distancia diz mais do que o dia exato.
+function quando(iso) {
+  var dias = Math.floor((Date.now() - new Date(iso)) / 86400000);
+  if (dias <= 0) return 'hoje';
+  if (dias === 1) return 'ontem';
+  if (dias < 7) return 'há ' + dias + ' dias';
+  return new Date(iso).toLocaleDateString('pt-BR');
 }
 
 // A Agenda aparece como cartao junto dos modulos, porque e ali que as pessoas

@@ -412,6 +412,132 @@ app.get("/api/agenda/departamentos", exigeLogin, async (req, res, next) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// MURAL — avisos da empresa
+// ---------------------------------------------------------------------------
+// Quem le: todo mundo que entra no portal. Quem escreve: administrador geral.
+//
+// Nao dispara e-mail de proposito. Aviso de empresa por e-mail some na caixa de
+// entrada e gasta a cota diaria do SendGrid, que ja e apertada; aqui a pessoa
+// ve quando entra, que e quando ela esta com a cabeca no trabalho.
+
+const TIPOS_AVISO = ["aviso", "mudanca", "evento"];
+
+function normalizarAviso(corpo) {
+  const titulo = String(corpo.titulo || "").trim().slice(0, 120);
+  const texto = String(corpo.texto || "").trim().slice(0, 2000);
+  const tipo = TIPOS_AVISO.includes(corpo.tipo) ? corpo.tipo : "aviso";
+  const fixado = Boolean(corpo.fixado);
+
+  // Prazo: um aviso sem data de fim vira paisagem — fica na tela para sempre,
+  // as pessoas param de ler e o mural morre. Por isso o padrao e 30 dias, e
+  // "sem prazo" so acontece quando alguem marca `fixado` de proposito.
+  let fim = null;
+  if (corpo.fimEm) {
+    const d = new Date(corpo.fimEm);
+    if (!isNaN(d)) fim = d;
+  } else if (!fixado) {
+    fim = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  }
+  return { titulo, texto, tipo, fixado, fim };
+}
+
+app.get("/api/mural", exigeLogin, async (req, res, next) => {
+  try {
+    const r = await db.query(
+      `SELECT a.id, a.titulo, a.texto, a.tipo, a.fixado, a.criado_em, a.fim_em,
+              u.nome AS autor
+         FROM avisos a LEFT JOIN usuarios u ON u.id = a.autor_id
+        WHERE a.inicio_em <= NOW() AND (a.fim_em IS NULL OR a.fim_em > NOW())
+        ORDER BY a.fixado DESC, a.criado_em DESC
+        LIMIT 20`
+    );
+    const visto = req.usuario.mural_visto_em ? new Date(req.usuario.mural_visto_em) : null;
+    res.json({
+      avisos: r.rows.map((a) => ({
+        ...a,
+        // "novo" = publicado depois da ultima vez que ESTA pessoa abriu o
+        // mural. Sem essa marca, ou nada se destaca, ou tudo fica destacado
+        // para sempre e o destaque perde o sentido.
+        novo: !visto || new Date(a.criado_em) > visto,
+      })),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Marca o mural como lido. Chamado pela tela depois de mostrar os avisos.
+app.post("/api/mural/visto", exigeLogin, async (req, res, next) => {
+  try {
+    await db.query("UPDATE usuarios SET mural_visto_em = NOW() WHERE id = $1", [req.usuario.id]);
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.get("/api/admin/mural", exigeSuperAdmin, async (req, res, next) => {
+  try {
+    // O admin ve tambem os vencidos, para poder reaproveitar ou apagar.
+    const r = await db.query(
+      `SELECT a.id, a.titulo, a.texto, a.tipo, a.fixado, a.inicio_em, a.fim_em,
+              a.criado_em, u.nome AS autor,
+              (a.fim_em IS NOT NULL AND a.fim_em <= NOW()) AS vencido
+         FROM avisos a LEFT JOIN usuarios u ON u.id = a.autor_id
+        ORDER BY a.criado_em DESC LIMIT 100`
+    );
+    res.json({ avisos: r.rows });
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.post("/api/admin/mural", exigeSuperAdmin, async (req, res, next) => {
+  try {
+    const v = normalizarAviso(req.body || {});
+    if (v.titulo.length < 3) return res.status(400).json({ erro: "Escreva um título." });
+    const r = await db.query(
+      `INSERT INTO avisos (titulo, texto, tipo, fim_em, fixado, autor_id)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+      [v.titulo, v.texto, v.tipo, v.fim, v.fixado, req.usuario.id]
+    );
+    await auth.auditar(req, "aviso_publicado", {
+      usuarioId: req.usuario.id, email: req.usuario.email,
+      alvo: String(r.rows[0].id), detalhe: { titulo: v.titulo, tipo: v.tipo },
+    });
+    res.json({ ok: true, id: r.rows[0].id });
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.patch("/api/admin/mural/:id", exigeSuperAdmin, async (req, res, next) => {
+  try {
+    const v = normalizarAviso(req.body || {});
+    if (v.titulo.length < 3) return res.status(400).json({ erro: "Escreva um título." });
+    await db.query(
+      "UPDATE avisos SET titulo=$1, texto=$2, tipo=$3, fim_em=$4, fixado=$5 WHERE id=$6",
+      [v.titulo, v.texto, v.tipo, v.fim, v.fixado, req.params.id]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.delete("/api/admin/mural/:id", exigeSuperAdmin, async (req, res, next) => {
+  try {
+    await db.query("DELETE FROM avisos WHERE id = $1", [req.params.id]);
+    await auth.auditar(req, "aviso_removido", {
+      usuarioId: req.usuario.id, email: req.usuario.email, alvo: String(req.params.id),
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
 app.get("/api/foto/:id", exigeLogin, async (req, res, next) => {
   try {
     const r = await db.query(

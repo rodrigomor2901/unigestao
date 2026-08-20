@@ -113,3 +113,32 @@ CREATE TABLE IF NOT EXISTS auditoria (
 );
 CREATE INDEX IF NOT EXISTS idx_auditoria_at      ON auditoria (at DESC);
 CREATE INDEX IF NOT EXISTS idx_auditoria_usuario ON auditoria (usuario_id);
+
+-- ------------------------------------------------------------
+-- MURAL — avisos da empresa na tela inicial
+-- ------------------------------------------------------------
+-- Aviso de empresa por e-mail some na caixa de entrada e ainda gasta a cota
+-- diaria do SendGrid, que ja e apertada. O mural e o contrario: quem entra no
+-- portal ve, quem nao entra nao e incomodado. Por isso ele NAO manda e-mail.
+--
+-- `fim_em` e o que impede o mural de virar paisagem. Aviso sem prazo fica na
+-- tela para sempre, as pessoas param de ler, e o mural morre. Todo aviso nasce
+-- com prazo; quem quiser um permanente marca `fixado`, que e uma decisao
+-- consciente e nao o padrao.
+CREATE TABLE IF NOT EXISTS avisos (
+  id         BIGSERIAL   PRIMARY KEY,
+  titulo     TEXT        NOT NULL,
+  texto      TEXT        NOT NULL DEFAULT '',
+  -- aviso | mudanca | evento — muda so a cor e o rotulo na tela
+  tipo       TEXT        NOT NULL DEFAULT 'aviso',
+  inicio_em  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  fim_em     TIMESTAMPTZ,
+  fixado     BOOLEAN     NOT NULL DEFAULT FALSE,
+  autor_id   TEXT        REFERENCES usuarios(id) ON DELETE SET NULL,
+  criado_em  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_avisos_janela ON avisos (inicio_em, fim_em);
+
+-- Quando a pessoa olhou o mural pela ultima vez — e o que decide o ponto de
+-- "novo". Sem isso, ou nada e destacado, ou tudo fica destacado para sempre.
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS mural_visto_em TIMESTAMPTZ;
