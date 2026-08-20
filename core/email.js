@@ -100,9 +100,11 @@ function moldura(titulo, miolo) {
     '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" ' +
            'bgcolor="#ffffff" ' +
            'style="max-width:520px;background:#ffffff;border-radius:10px;overflow:hidden">' +
-      '<tr><td bgcolor="#1B3A6B" style="background:#1B3A6B;padding:18px 26px">' +
+      '<tr><td bgcolor="#26357A" style="background:#26357A;padding:18px 26px">' +
         '<span style="color:#fff;font-size:19px;font-weight:700">Uni</span>' +
-        '<span style="color:#F5820A;font-size:19px;font-weight:700">Gestão</span>' +
+        // Amarelo, nao laranja: sobre o navy o laranja #EC7807 escurece e some.
+        // E o mesmo amarelo que o simbolo do Grupo usa na parte de cima do U.
+        '<span style="color:#F7B312;font-size:19px;font-weight:700">Gestão</span>' +
       '</td></tr>' +
       '<tr><td style="padding:26px">' +
         '<h1 style="margin:0 0 16px;font-size:18px;color:#101828">' + esc(titulo) + '</h1>' +
@@ -118,13 +120,6 @@ function moldura(titulo, miolo) {
     '</td></tr></table>';
 }
 
-// O botao e uma TABELA de uma celula, nao um <a> estilizado.
-//
-// O Outlook do Windows desenha e-mail com o motor do Word, que ignora padding
-// em link: o <a> estilizado sai como um texto grifado apertado, sem cara de
-// botao — foi o que aconteceu no primeiro teste. Com a cor e o preenchimento
-// na celula (bgcolor como atributo, nao so no style, porque o Word tambem
-// ignora background em CSS), funciona no Outlook e continua igual no Gmail.
 // Botao "a prova de bala": duas versoes na mesma mensagem, cada cliente le a
 // sua. Foi preciso chegar aqui porque o Outlook do Windows desenha e-mail com
 // o motor do Word, e ele nao respeita padding, line-height nem border-radius
@@ -161,7 +156,7 @@ function botao(texto) {
       '<v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" ' +
         'xmlns:w="urn:schemas-microsoft-com:office:word" href="' + URL_PORTAL + '" ' +
         'style="height:' + ALTURA_BOTAO + 'px;v-text-anchor:middle;width:' + largMso + 'px;" ' +
-        'arcsize="15%" stroke="f" fillcolor="#1B3A6B">' +
+        'arcsize="15%" stroke="f" fillcolor="#26357A">' +
         '<w:anchorlock/>' +
         '<center style="color:#ffffff;font-family:Arial,sans-serif;font-size:14px;">' +
           rotulo +
@@ -169,7 +164,7 @@ function botao(texto) {
       '</v:roundrect>' +
       '<![endif]-->' +
       '<!--[if !mso]><!-->' +
-      '<a href="' + URL_PORTAL + '" style="background-color:#1B3A6B;border-radius:6px;' +
+      '<a href="' + URL_PORTAL + '" style="background-color:#26357A;border-radius:6px;' +
         'color:#ffffff;display:inline-block;font-family:Arial,Helvetica,sans-serif;' +
         'font-size:14px;line-height:' + ALTURA_BOTAO + 'px;text-align:center;' +
         'text-decoration:none;width:' + larg + 'px;-webkit-text-size-adjust:none">' +
@@ -179,7 +174,7 @@ function botao(texto) {
     '</div>' +
     '<p style="margin:0 0 4px;font-size:13px;color:#667085">Se o botão não funcionar, ' +
     'copie este endereço no navegador:</p>' +
-    '<p style="margin:0;font-size:13px"><a href="' + URL_PORTAL + '" style="color:#1B3A6B">' +
+    '<p style="margin:0;font-size:13px"><a href="' + URL_PORTAL + '" style="color:#26357A">' +
     esc(URL_PORTAL) + '</a></p>';
 }
 

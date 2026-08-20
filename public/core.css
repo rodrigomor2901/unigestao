@@ -1,13 +1,16 @@
 /* ==========================================================================
    UniGestao — design system compartilhado
-   Mesmos tokens dos sistemas do grupo: navy #1B3A6B, laranja #F5820A.
+   Cores tiradas do arquivo original da marca do Grupo Uniseter, nao escolhidas
+   por semelhanca: navy #26357A, laranja #EC7807, amarelo #F7B312. O portal
+   usava um #1B3A6B parecido, que nao era o azul da empresa.
    ========================================================================== */
 
 :root {
-  --accent: #1B3A6B;
-  --accent-dark: #142C52;
-  --accent-soft: #E8EDF4;
-  --laranja: #F5820A;
+  --accent: #26357A;
+  --accent-dark: #1B2757;
+  --accent-soft: #E9ECF6;
+  --laranja: #EC7807;
+  --amarelo: #F7B312;
   --bg: #f5f4f0;
   --surface: #ffffff;
   --texto: #1c1c1c;

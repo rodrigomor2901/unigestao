@@ -31,6 +31,8 @@
 
 const http = require("http");
 const https = require("https");
+const fs = require("fs");
+const path = require("path");
 const { URL } = require("url");
 
 const PORT = process.env.PORT || 8080;
@@ -207,12 +209,19 @@ document.addEventListener('error',function(ev){
 },true);
 })();`;
 
+// O simbolo vai embutido aqui em vez de ser buscado no Core: a barra aparece
+// dentro do modulo, e uma requisicao a outro servico em toda pagina e uma coisa
+// a mais que pode falhar sozinha. Sao ~2 KB lidos uma vez, na subida.
+const MARCA_SVG = fs.readFileSync(
+  path.join(__dirname, "..", "public", "marca", "simbolo-claro.svg"), "utf8");
+
 const BARRA_CSS = `#ug-barra{position:sticky;top:0;z-index:9999;display:flex;align-items:center;gap:14px;
-padding:7px 16px;background:#1B3A6B;color:#fff;font:14px/1.4 'DM Sans',system-ui,sans-serif}
+padding:7px 16px;background:#26357A;color:#fff;font:14px/1.4 'DM Sans',system-ui,sans-serif}
 #ug-barra a{color:#fff;text-decoration:none;opacity:.9;cursor:pointer}
 #ug-barra a:hover{opacity:1;text-decoration:underline}
-#ug-barra .ug-marca{font-weight:600}
-#ug-barra .ug-marca span{color:#F5820A}
+#ug-barra .ug-marca{font-weight:600;display:flex;align-items:center;gap:8px}
+#ug-barra .ug-marca img{width:22px;height:22px}
+#ug-barra .ug-marca span{color:#F7B312}
 #ug-barra .ug-dir{margin-left:auto;display:flex;gap:14px;align-items:center;font-size:13px}`;
 
 function shim(base, usuario) {
@@ -220,7 +229,7 @@ function shim(base, usuario) {
   return `<link rel="stylesheet" href="${base}/__ug/barra.css">
 <script src="${base}/__ug/shim.js" data-base="${escapeHtml(base)}" data-usuario="${dados}"></script>
 <div id="ug-barra">
-  <a class="ug-marca" href="/">Uni<span>Gestão</span></a>
+  <a class="ug-marca" href="/"><img src="${base}/__ug/marca.svg" alt="" width="22" height="22">Uni<span>Gestão</span></a>
   <a href="/">◂ Todos os módulos</a>
   <div class="ug-dir"><span>${escapeHtml(usuario.nome || "")}</span>
   <a id="ug-sair" href="/">Sair</a></div>
@@ -336,9 +345,9 @@ function responder(res, status, msg) {
   const corpo = `<!doctype html><meta charset="utf-8">
 <title>UniGestão</title>
 <div style="font:16px/1.6 'DM Sans',system-ui,sans-serif;max-width:460px;margin:16vh auto;padding:0 24px;color:#1c1c1c">
-  <h1 style="font-size:20px;color:#1B3A6B;margin:0 0 8px">UniGestão</h1>
+  <h1 style="font-size:20px;color:#26357A;margin:0 0 8px">UniGestão</h1>
   <p style="color:#6b7280">${escapeHtml(msg)}</p>
-  <p><a href="/" style="color:#1B3A6B">Voltar ao início</a></p>
+  <p><a href="/" style="color:#26357A">Voltar ao início</a></p>
 </div>`;
   res.writeHead(status, { "content-type": "text/html; charset=utf-8" });
   res.end(corpo);
@@ -367,6 +376,13 @@ const servidor = http.createServer(async (req, res) => {
       "cache-control": "no-cache",
     });
     return res.end(SHIM_JS);
+  }
+  if (caminho === `/${modulo}/__ug/marca.svg`) {
+    res.writeHead(200, {
+      "content-type": "image/svg+xml; charset=utf-8",
+      "cache-control": "public, max-age=3600",
+    });
+    return res.end(MARCA_SVG);
   }
   if (caminho === `/${modulo}/__ug/barra.css`) {
     res.writeHead(200, {

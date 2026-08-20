@@ -129,6 +129,18 @@ function portaLivre() {
   ok(shimCorpo.includes("window.UNIGESTAO"), "shim.js traz a logica");
   const barraCss = await fetch(`${F}/operacional/__ug/barra.css`, C(comAcesso));
   ok(barraCss.status === 200, "barra.css responde");
+
+  // A marca tambem sai da Fachada. Se viesse do Core seria uma requisicao a
+  // outro servico em toda pagina de modulo, capaz de falhar sozinha.
+  const marca = await fetch(`${F}/operacional/__ug/marca.svg`, C(comAcesso));
+  const marcaCorpo = await marca.text();
+  ok(marca.status === 200, "marca.svg responde");
+  ok((marca.headers.get("content-type") || "").includes("image/svg+xml"),
+     "servida como imagem SVG");
+  ok(marcaCorpo.includes("<svg") && marcaCorpo.includes("ugCavidade"),
+     "e o simbolo com a peca de encaixe, nao um arquivo qualquer");
+  ok(corpo.includes('src="/operacional/__ug/marca.svg"'),
+     "a barra referencia a marca ja com o prefixo do modulo");
   ok(recebido.url !== "/__ug/shim.js", "esses arquivos nao sao repassados ao modulo");
   ok(corpo.indexOf("ug-barra") < corpo.indexOf("Sistema antigo"),
      "barra entra logo apos <body>, antes do conteudo");

@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>UniGestão</title>
+<link rel="icon" href="/marca/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/core.css">
@@ -12,7 +13,8 @@
     background: var(--accent); color: #fff; padding: 14px 24px;
     display: flex; align-items: center; justify-content: space-between; gap: 16px;
   }
-  .topo h1 { font-size: 19px; }
+  .topo h1 { font-size: 19px; display: flex; align-items: center; gap: 10px; }
+  .topo h1 img { width: 30px; height: 30px; }
   .topo h1 span { color: var(--laranja); }
   .topo .quem { display: flex; align-items: center; gap: 14px; font-size: 14px; }
   .topo a, .topo button {
@@ -40,7 +42,7 @@
 <body>
 
 <header class="topo">
-  <h1>Uni<span>Gestão</span></h1>
+  <h1><img src="/marca/simbolo-claro.svg" alt="" width="30" height="30">Uni<span>Gestão</span></h1>
   <div class="quem">
     <span id="nome"></span>
     <a href="/admin" id="linkAdmin" style="display:none">Admin Geral</a>
