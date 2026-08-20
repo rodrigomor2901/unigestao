@@ -31,8 +31,6 @@
 
 const http = require("http");
 const https = require("https");
-const fs = require("fs");
-const path = require("path");
 const { URL } = require("url");
 
 const PORT = process.env.PORT || 8080;
@@ -209,11 +207,18 @@ document.addEventListener('error',function(ev){
 },true);
 })();`;
 
-// O simbolo vai embutido aqui em vez de ser buscado no Core: a barra aparece
-// dentro do modulo, e uma requisicao a outro servico em toda pagina e uma coisa
-// a mais que pode falhar sozinha. Sao ~2 KB lidos uma vez, na subida.
-const MARCA_SVG = fs.readFileSync(
-  path.join(__dirname, "..", "public", "marca", "simbolo-claro.svg"), "utf8");
+// O simbolo vai escrito aqui, nao lido de public/marca/.
+//
+// A Fachada e publicada com a PROPRIA pasta na raiz do container: dentro dele
+// server.js e /app/server.js, e `../public` aponta para /public, que nao
+// existe. Ler do disco derrubou o servico inteiro na subida — o processo morre
+// antes de escutar a porta, entao nao e um icone faltando, e o portal fora do
+// ar. Mesmo motivo pelo qual SHIM_JS e BARRA_CSS tambem sao literais.
+//
+// Se o desenho mudar em public/marca/simbolo-claro.svg, atualizar aqui junto.
+// Sao ~700 bytes; a alternativa (copiar a pasta no build) custaria mais do que
+// resolve.
+const MARCA_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="UniGestão"><defs><linearGradient id="ugGrad" gradientUnits="userSpaceOnUse" x1="0" y1="6" x2="0" y2="58"><stop offset="0" stop-color="#F7B312"/><stop offset=".55" stop-color="#F7B312"/><stop offset=".72" stop-color="#EC7807"/><stop offset="1" stop-color="#EC7807"/></linearGradient><mask id="ugCavidade"><rect width="64" height="64" fill="#fff"/><circle cx="53" cy="28.8" r="3.7" fill="#000"/></mask></defs><g fill="none" stroke="url(#ugGrad)"><path d="M11 6 V34 A21 21 0 0 0 53 34 V30" stroke-width="7"/><path d="M17.5 6 V34 A14.5 14.5 0 0 0 46.5 34 V30" stroke-width="3.2"/><path d="M24 6 V34 A8 8 0 0 0 40 34 V30" stroke-width="2.8"/></g><circle cx="53" cy="30" r="3" fill="#EC7807"/><g fill="#ffffff" mask="url(#ugCavidade)"><rect x="49.5" y="6" width="7" height="22.8" rx="3.5"/><rect x="44.9" y="6" width="3.2" height="22.8" rx="1.6"/><rect x="38.6" y="6" width="2.8" height="22.8" rx="1.4"/></g></svg>`;
 
 const BARRA_CSS = `#ug-barra{position:sticky;top:0;z-index:9999;display:flex;align-items:center;gap:14px;
 padding:7px 16px;background:#26357A;color:#fff;font:14px/1.4 'DM Sans',system-ui,sans-serif}

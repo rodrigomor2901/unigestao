@@ -90,6 +90,20 @@ function portaLivre() {
   const F = "http://localhost:" + PORTA_FACHADA;
   const C = (t) => ({ headers: { cookie: "unigestao_sessao=" + t } });
 
+  console.log("\n=== A FACHADA NAO PODE DEPENDER DE NADA FORA DA PASTA DELA ===");
+  // No Railway a Fachada e publicada com a propria pasta na RAIZ do container:
+  // la dentro server.js e /app/server.js e `../public` aponta para /public, que
+  // nao existe. Localmente `../public` existe, entao um readFileSync assim
+  // passa em todo teste e derruba a producao — foi o que aconteceu quando a
+  // marca passou a ser lida do disco. O processo morre antes de escutar a
+  // porta: nao e um arquivo faltando, e o portal inteiro fora do ar.
+  const fonte = require("fs").readFileSync(
+    path.join(__dirname, "..", "fachada", "server.js"), "utf8");
+  ok(!/__dirname\s*,\s*["']\.\.["']/.test(fonte),
+     "nao alcanca a pasta de cima (__dirname + '..')");
+  ok(!/require\(["']\.\.\//.test(fonte),
+     "nao importa modulo de fora da pasta");
+
   console.log("\n=== ROTEAMENTO ===");
   const raiz = await fetch(`${F}/`, { redirect: "manual" });
   ok(raiz.status === 200, "/ vai para o Core");
