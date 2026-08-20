@@ -27,6 +27,7 @@
   .sub { color: var(--texto-fraco); margin: 0 0 24px; font-size: 14.5px; line-height: 1.55; }
   .cartao { padding: 26px; }
   .dupla { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .campo select { width: 100%; font: inherit; }
   @media (max-width: 520px) { .dupla { grid-template-columns: 1fr; } }
   .dica { font-size: 12.5px; color: var(--texto-fraco); margin: -10px 0 14px; line-height: 1.5; }
   .retrato { display: flex; align-items: center; gap: 16px; margin-bottom: 22px; }
@@ -88,11 +89,13 @@
 
     <div class="dupla">
       <label class="campo"><span>Departamento</span>
-        <input id="departamento" list="deptos" placeholder="Comercial" autocomplete="off"></label>
+        <select id="departamento"></select></label>
       <label class="campo"><span>Cargo</span>
         <input id="cargo" placeholder="Analista" autocomplete="organization-title"></label>
     </div>
-    <datalist id="deptos"></datalist>
+    <!-- So aparece se a pessoa escolher "Outro" na lista -->
+    <label class="campo" id="campoOutro" style="display:none"><span>Qual departamento?</span>
+      <input id="deptoOutro" placeholder="Digite o nome do departamento" autocomplete="off"></label>
 
     <button class="btn" id="salvar">Salvar</button>
   </div>
@@ -140,7 +143,6 @@ async function carregar() {
   document.getElementById('telefone').value = EU.telefone
     ? formatar(EU.telefone) : '';
   document.getElementById('ramal').value = EU.ramal || '';
-  document.getElementById('departamento').value = EU.departamento || '';
   document.getElementById('cargo').value = EU.cargo || '';
   mostrarFoto(EU.temFoto);
 
@@ -155,11 +157,37 @@ async function carregar() {
   }
 
   var dep = await fetch('/api/agenda/departamentos');
-  if (dep.ok) {
-    var lista = (await dep.json()).departamentos || [];
-    document.getElementById('deptos').innerHTML =
-      lista.map(function (x) { return '<option value="' + esc(x.departamento) + '">'; }).join('');
-  }
+  var lista = dep.ok ? ((await dep.json()).departamentos || []) : [];
+  montarLista(lista.map(function (x) { return x.departamento; }), EU.departamento || '');
+}
+
+// A lista nao e fechada: "Outro" abre um campo para digitar, e o que for
+// digitado passa a aparecer na lista de quem preencher depois. Lista fechada
+// travaria quem nao se encaixa; campo livre puro produziria "Comercial",
+// "comercial" e "Com." na mesma agenda.
+function montarLista(nomes, atual) {
+  var sel = document.getElementById('departamento');
+  if (atual && nomes.indexOf(atual) < 0) nomes = nomes.concat([atual]);
+  sel.innerHTML =
+    '<option value="">Selecione…</option>' +
+    nomes.map(function (n) {
+      return '<option value="' + esc(n) + '"' + (n === atual ? ' selected' : '') + '>' +
+             esc(n) + '</option>';
+    }).join('') +
+    '<option value="__outro">Outro…</option>';
+
+  sel.addEventListener('change', function () {
+    var outro = this.value === '__outro';
+    document.getElementById('campoOutro').style.display = outro ? '' : 'none';
+    if (outro) document.getElementById('deptoOutro').focus();
+  });
+}
+
+function departamentoEscolhido() {
+  var sel = document.getElementById('departamento');
+  return sel.value === '__outro'
+    ? document.getElementById('deptoOutro').value
+    : sel.value;
 }
 
 function formatar(d) {
@@ -184,7 +212,7 @@ document.getElementById('salvar').addEventListener('click', async function () {
       body: JSON.stringify({
         telefone: document.getElementById('telefone').value,
         ramal: document.getElementById('ramal').value,
-        departamento: document.getElementById('departamento').value,
+        departamento: departamentoEscolhido(),
         cargo: document.getElementById('cargo').value,
       }),
     });

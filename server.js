@@ -396,10 +396,17 @@ app.get("/api/agenda/departamentos", exigeLogin, async (req, res, next) => {
       `SELECT departamento, count(*)::int AS quantos
          FROM usuarios
         WHERE ativo = TRUE AND departamento IS NOT NULL AND departamento <> ''
-        GROUP BY departamento
-        ORDER BY quantos DESC, departamento`
+        GROUP BY departamento`
     );
-    res.json({ departamentos: r.rows });
+    // Junta a lista de partida com o que ja esta em uso. Um departamento
+    // digitado por alguem vira opcao para quem preencher depois — e por isso
+    // a lista se organiza sozinha sem precisar de manutencao.
+    const emUso = new Map(r.rows.map((x) => [x.departamento, x.quantos]));
+    const nomes = new Set([...perfil.DEPARTAMENTOS, ...emUso.keys()]);
+    const lista = [...nomes]
+      .map((nome) => ({ departamento: nome, quantos: emUso.get(nome) || 0 }))
+      .sort((a, b) => a.departamento.localeCompare(b.departamento, "pt-BR"));
+    res.json({ departamentos: lista });
   } catch (e) {
     next(e);
   }

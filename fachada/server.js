@@ -323,6 +323,22 @@ function encaminhar(req, res, destino, caminho, extras, injetar) {
   headers.host = alvo.host;
   delete headers["accept-encoding"]; // simplifica a injecao de HTML
 
+  // Numa navegacao de pagina, o navegador pode mandar "so me responda se
+  // mudou" (if-none-match / if-modified-since) com o ETag que ele guardou. O
+  // modulo entao responde 304 SEM CORPO — e sem corpo nao ha onde injetar a
+  // barra: o navegador exibe a copia velha que tem em maos.
+  //
+  // Como so da para saber que a resposta e HTML depois que ela chega, o corte
+  // e feito pelo pedido: navegacao de pagina (Accept com text/html) vai sempre
+  // buscar o conteudo inteiro. Arquivo estatico — script, folha de estilo,
+  // imagem — nao passa por aqui e continua aproveitando o cache normalmente,
+  // que e onde o cache realmente importa.
+  const querHtml = String(req.headers.accept || "").includes("text/html");
+  if (querHtml && injetar) {
+    delete headers["if-none-match"];
+    delete headers["if-modified-since"];
+  }
+
   const proxy = mod.request(
     {
       protocol: alvo.protocol,
@@ -378,6 +394,22 @@ function encaminhar(req, res, destino, caminho, extras, injetar) {
         // `transfer-encoding: chunked` e `content-length` juntos sao invalidos
         // em HTTP e o navegador recusa a resposta inteira.
         delete h["transfer-encoding"];
+
+        // O corpo tambem deixou de ser o que o modulo gerou — e o ETag e o
+        // Last-Modified que vieram com ele descrevem o ARQUIVO ORIGINAL, sem a
+        // barra. Repassa-los e mentir para o navegador: na visita seguinte ele
+        // pergunta "mudou?", o modulo responde "nao" (304, porque o arquivo
+        // dele de fato nao mudou) e o navegador mostra a copia guardada — com
+        // a barra velha dentro.
+        //
+        // Foi exatamente o que aconteceu quando o menu de trocar de modulo
+        // entrou: apareceu na hora no CRM e na Movimentacao, que mandam
+        // no-store, e nao apareceu em Eventos, Documentos, Tarefas e
+        // Precificacao, que mandam ETag. O sintoma parecia ser do menu; a
+        // causa estava aqui.
+        delete h["etag"];
+        delete h["last-modified"];
+        h["cache-control"] = "no-store, must-revalidate";
         h["content-length"] = corpo.length;
         res.writeHead(r.statusCode, h);
         res.end(corpo);

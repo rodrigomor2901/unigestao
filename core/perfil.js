@@ -23,6 +23,33 @@ function exigindoPerfil() {
 const DEPARTAMENTOS_MIN = 2;
 const CARGO_MIN = 2;
 
+// Lista de partida dos departamentos.
+//
+// Ela existe porque campo livre puro produz "Comercial", "comercial" e "Com."
+// na mesma agenda, e a busca por departamento deixa de funcionar. Mas nao e
+// uma lista fechada: a tela oferece "Outro" e o que a pessoa digitar passa a
+// aparecer para quem preencher depois. Assim a agenda se organiza sozinha sem
+// travar quem nao se encaixa.
+//
+// Estes nomes sao um chute informado a partir dos sistemas do grupo — conferir
+// com o RH e ajustar aqui e o certo a fazer.
+const DEPARTAMENTOS = [
+  "Comercial",
+  "Operações",
+  "Financeiro",
+  "Recursos Humanos",
+  "Departamento Pessoal",
+  "Jurídico",
+  "Tecnologia da Informação",
+  "Diretoria",
+  "Recepção",
+  "Facilities",
+  "Segurança",
+  "Suprimentos",
+  "Qualidade",
+  "Segurança do Trabalho",
+];
+
 // Guarda so digitos e os separadores que as pessoas realmente usam. Sem isso
 // o mesmo numero entra como "(19) 3212-0000", "1932120000" e "19 3212 0000",
 // e a busca por telefone deixa de funcionar.
@@ -106,7 +133,7 @@ const FOTO_MAX_BYTES = 400 * 1024;
 const FOTO_TIPOS = ["image/jpeg", "image/png", "image/webp"];
 
 module.exports = {
-  exigindoPerfil, validar, completo, normalizar,
+  exigindoPerfil, validar, completo, normalizar, DEPARTAMENTOS,
   limparTelefone, limparRamal, limparTexto, formatarTelefone,
   FOTO_MAX_BYTES, FOTO_TIPOS,
 };

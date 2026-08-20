@@ -183,6 +183,35 @@ function portaLivre() {
   ok(!comMenu.includes("/tarefas/") || comMenu.includes("Gestão de Tarefas"),
      "so entra no menu o que existe no registro");
 
+  console.log("\n=== HTML REESCRITO NAO PODE SER GUARDADO PELO NAVEGADOR ===");
+  // O corpo entregue nao e mais o que o modulo gerou. Repassar o ETag dele e
+  // mentir: na visita seguinte o navegador pergunta "mudou?", o modulo diz
+  // "nao" (o arquivo dele realmente nao mudou) e a pessoa continua vendo a
+  // barra antiga. Foi o que aconteceu quando o menu de trocar de modulo
+  // entrou e nao apareceu em quatro dos seis sistemas.
+  const cab = await fetch(`${F}/operacional/`, C(comAcesso));
+  ok(!cab.headers.get("etag"), "ETag do modulo nao e repassado");
+  ok(!cab.headers.get("last-modified"), "Last-Modified tambem nao");
+  ok((cab.headers.get("cache-control") || "").includes("no-store"),
+     "a pagina do modulo nao fica guardada");
+
+  // E o pedido condicional do navegador tambem nao pode chegar ao modulo:
+  // 304 vem sem corpo, e sem corpo nao ha onde injetar a barra.
+  recebido = null;
+  await fetch(`${F}/operacional/`, {
+    headers: { ...C(comAcesso).headers, "if-none-match": '"abc"',
+               accept: "text/html,application/xhtml+xml" },
+  });
+  ok(!recebido.headers["if-none-match"], "if-none-match nao chega ao modulo numa navegacao");
+
+  // Ja um arquivo estatico segue com o cache intacto — e onde ele importa.
+  recebido = null;
+  await fetch(`${F}/operacional/app.js`, {
+    headers: { ...C(comAcesso).headers, "if-none-match": '"abc"', accept: "*/*" },
+  });
+  ok(recebido.headers["if-none-match"] === '"abc"',
+     "arquivo estatico continua podendo ser revalidado");
+
   console.log("\n=== CHAMADA DE API ATRAVES DA FACHADA ===");
   const api = await fetch(`${F}/operacional/api/dados`, C(comAcesso));
   const dados = await api.json();

@@ -115,8 +115,11 @@ async function carregar() {
 
   if (!d.modulos.length) {
     sub.textContent = '';
+    // Sem modulo liberado a pessoa ainda tem a agenda: ela e do portal, nao de
+    // um sistema, e servir para achar quem liberar o acesso e justamente o que
+    // ela precisa neste momento.
     grade.innerHTML = '<div class="card vazio">Você ainda não tem nenhum módulo liberado.<br>' +
-                      'Fale com o administrador do sistema.</div>';
+                      'Fale com o administrador do sistema.</div>' + cartaoAgenda();
     return;
   }
 
@@ -130,7 +133,24 @@ async function carregar() {
              '<p>' + esc(m.descricao || '') + '</p>' +
              '<span class="selo selo-off">' + esc(m.papelRotulo || m.papel) + '</span>' +
            '</a>';
-  }).join('');
+  }).join('') + cartaoAgenda();
+}
+
+// A Agenda aparece como cartao junto dos modulos, porque e ali que as pessoas
+// procuram o que o sistema oferece. Mas ela NAO entra no registro de modulos:
+// aquele registro guarda sistemas independentes, cada um com o proprio banco,
+// alcancados pela Fachada — a Agenda e parte do proprio portal. Registra-la
+// como modulo faria a Fachada tentar encaminhar /agenda para um servico que
+// nao existe.
+//
+// Por isso tambem o selo diz "Todo o grupo" em vez de um papel: nao ha papel,
+// todo mundo que entra no portal enxerga a agenda inteira.
+function cartaoAgenda() {
+  return '<a class="card modulo" href="/agenda">' +
+           '<h3>Agenda</h3>' +
+           '<p>Telefone, ramal, departamento e cargo de todo mundo do grupo</p>' +
+           '<span class="selo selo-off">Todo o grupo</span>' +
+         '</a>';
 }
 
 function esc(s) {

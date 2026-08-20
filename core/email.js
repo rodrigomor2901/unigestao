@@ -218,8 +218,15 @@ function htmlContaNova({ nome, email, senha, modulos }) {
   return moldura("Seu acesso está pronto", miolo);
 }
 
+// `para` permite mandar o aviso para um endereco DIFERENTE do login.
+//
+// Existe por causa das contas funcionais — recepcao, financeiro@,
+// contasapagar@ —, cujo login e uma caixa que ninguem abre. O e-mail de acesso
+// dessas contas chegou a um lugar onde ninguem ia ver, e a pessoa que de fato
+// usa a conta ficou sem a senha. O corpo continua mostrando o login correto;
+// so o destinatario muda.
 async function avisarContaNova(dados) {
-  return enviar(dados.email, "Seu acesso ao UniGestão", htmlContaNova(dados));
+  return enviar(dados.para || dados.email, "Seu acesso ao UniGestão", htmlContaNova(dados));
 }
 
 // ---------------------------------------------------------------------------
