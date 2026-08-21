@@ -106,8 +106,12 @@ async function carregar() {
   if (!r.ok) { location.href = '/'; return; }
   PESSOAS = (await r.json()).pessoas || [];
 
+  // Quem responde por tres areas conta nas tres — e por isso a soma dos
+  // filtros pode passar do total de pessoas, o que esta certo.
   var deps = {};
-  PESSOAS.forEach(function (p) { if (p.departamento) deps[p.departamento] = (deps[p.departamento] || 0) + 1; });
+  PESSOAS.forEach(function (p) {
+    (p.departamentos || []).forEach(function (d) { deps[d] = (deps[d] || 0) + 1; });
+  });
   var ordenados = Object.keys(deps).sort(function (a, b) { return deps[b] - deps[a] || a.localeCompare(b, 'pt-BR'); });
   document.getElementById('filtros').innerHTML =
     '<button data-d="" class="on">Todos</button>' +
@@ -131,11 +135,11 @@ function render() {
   var digitos = termo.replace(/\D/g, '');
 
   var achadas = PESSOAS.filter(function (p) {
-    if (DEPTO && p.departamento !== DEPTO) return false;
+    if (DEPTO && (p.departamentos || []).indexOf(DEPTO) < 0) return false;
     if (!termo) return true;
     if (digitos && (String(p.telefone).indexOf(digitos) >= 0 || norm(p.ramal).indexOf(digitos) >= 0)) return true;
     return norm(p.nome).indexOf(termo) >= 0
-        || norm(p.departamento).indexOf(termo) >= 0
+        || norm((p.departamentos || []).join(' ')).indexOf(termo) >= 0
         || norm(p.cargo).indexOf(termo) >= 0
         || norm(p.email).indexOf(termo) >= 0;
   });
@@ -164,13 +168,14 @@ function render() {
 
     // Quem ainda nao preencheu aparece do mesmo jeito, com o que se sabe. Some
     // da agenda seria pior: a pessoa existe e alguem pode precisar dela.
-    var faltando = (!p.departamento && !p.cargo)
+    var faltando = (!(p.departamentos || []).length && !p.cargo)
       ? '<div class="incompleto">cadastro ainda não preenchido</div>' : '';
 
     return '<div class="card pessoa">' + retrato +
       '<div class="dados">' +
         '<h3>' + esc(p.nome) + '</h3>' +
-        '<p class="cargo">' + esc([p.cargo, p.departamento].filter(Boolean).join(' · ')) + '</p>' +
+        '<p class="cargo">' +
+          esc([p.cargo].concat(p.departamentos || []).filter(Boolean).join(' · ')) + '</p>' +
         '<div class="contato">' + linhas.join('') + '</div>' +
         faltando +
       '</div></div>';

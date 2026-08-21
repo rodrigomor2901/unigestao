@@ -64,23 +64,71 @@ const ok = (c, m) => { console.log((c ? "  OK   " : "  FALHA") + "  " + m); if (
   ok(perfil.normalizar("Comércial") === perfil.normalizar("COMERCIAL"),
      "acento e maiuscula nao separam o mesmo departamento");
 
+  console.log("\n=== MAIS DE UM DEPARTAMENTO POR PESSOA ===");
+  // O caso real: gerente comercial que tambem responde por TI e por eventos.
+  // Antes o cadastro obrigava a escolher um, e as outras areas sumiam da busca.
+  const tres = perfil.validar({
+    ramal: "2010", cargo: "Gerente",
+    departamentos: ["Comercial", "Tecnologia da Informação", "Eventos"],
+  });
+  ok(tres.ok, "tres departamentos sao aceitos");
+  ok(tres.valores.departamentos.length === 3, "e os tres sao guardados");
+
+  ok(perfil.validar({ ramal: "2010", cargo: "Gerente", departamentos: [] }).ok === false,
+     "lista vazia -> recusado, continua sendo obrigatorio informar area");
+
+  // Compatibilidade: chamada antiga, com o campo no singular, tem que seguir
+  // funcionando — vira uma lista de um item.
+  const um = perfil.validar({ ramal: "2010", cargo: "Analista", departamento: "Comercial" });
+  ok(um.ok && um.valores.departamentos.length === 1 &&
+     um.valores.departamentos[0] === "Comercial",
+     "o campo antigo no singular vira lista de um");
+
+  const repetido = perfil.validar({
+    ramal: "2010", cargo: "Gerente",
+    departamentos: ["Operações", "operacoes", "OPERAÇÕES"],
+  });
+  ok(repetido.valores.departamentos.length === 1,
+     "a mesma area escrita de tres jeitos entra uma vez so");
+  ok(repetido.valores.departamentos[0] === "Operações",
+     "e vence a forma que a pessoa escolheu primeiro");
+
+  const demais = perfil.validar({
+    ramal: "2010", cargo: "Gerente",
+    departamentos: ["A1", "B2", "C3", "D4", "E5", "F6", "G7"],
+  });
+  ok(demais.valores.departamentos.length === perfil.DEPARTAMENTOS_MAX,
+     "o limite por pessoa e respeitado");
+
+  ok(perfil.completo({ ramal: "2010", cargo: "Gerente",
+                       departamentos: ["Comercial", "Eventos"] }) === true,
+     "cadastro com varias areas conta como completo");
+  // Quem foi cadastrado antes da mudanca ainda nao tem a lista preenchida.
+  // Ate reabrir o proprio cadastro, o nome tem que sair do campo antigo —
+  // senao essas pessoas sumiriam da agenda de um dia para o outro.
+  ok(perfil.departamentosDe({ departamento: "Financeiro" })[0] === "Financeiro",
+     "quem so tem o campo antigo continua com departamento");
+  ok(perfil.departamentosDe({ departamento: "Financeiro", departamentos: ["Jurídico"] })[0] === "Jurídico",
+     "e depois de salvar, vale a lista nova");
+
   console.log("\n=== SALVAR O PROPRIO PERFIL ===");
   const ana = await criar("agenda.ana@uniseter.com", "Ana Souza");
   const r1 = await fetch(`${CORE}/api/perfil`, {
     method: "POST", headers: { "Content-Type": "application/json", ...C(ana.token).headers },
     body: JSON.stringify({ telefone: "(19) 99888-0000", ramal: "2010",
-                           departamento: "Comercial", cargo: "Analista" }),
+                           departamentos: ["Comercial", "Eventos"], cargo: "Analista" }),
   });
   ok(r1.status === 200, "salva com os dados completos");
 
   const eu = await (await fetch(`${CORE}/api/eu`, C(ana.token))).json();
   ok(eu.usuario.telefone === "19998880000", "telefone volta so com digitos");
-  ok(eu.usuario.departamento === "Comercial", "departamento volta");
+  ok(eu.usuario.departamentos.join("|") === "Comercial|Eventos",
+     "os dois departamentos voltam, na ordem em que foram marcados");
   ok(eu.usuario.perfilCompleto === true, "perfil marcado como completo");
 
   const r2 = await fetch(`${CORE}/api/perfil`, {
     method: "POST", headers: { "Content-Type": "application/json", ...C(ana.token).headers },
-    body: JSON.stringify({ telefone: "", ramal: "", departamento: "Comercial", cargo: "Analista" }),
+    body: JSON.stringify({ telefone: "", ramal: "", departamentos: ["Comercial"], cargo: "Analista" }),
   });
   ok(r2.status === 400, "sem contato nenhum -> 400");
   ok((await r2.json()).erro.includes("PABX"), "e a mensagem explica o caso do PABX");
@@ -94,6 +142,12 @@ const ok = (c, m) => { console.log((c ? "  OK   " : "  FALHA") + "  " + m); if (
   const aAna = ag.pessoas.find((p) => p.nome === "Ana Souza");
   ok(aAna.telefoneFormatado === "(19) 99888-0000", "telefone ja vem formatado para a tela");
   ok(aAna.temFoto === false, "sem foto ainda");
+  ok(aAna.departamentos.length === 2, "a agenda mostra as duas areas dela");
+  // Bruno foi cadastrado direto no banco, so com o campo antigo. Ele e a prova
+  // de que quem nao reabriu o cadastro nao sumiu da agenda.
+  const oBruno = ag.pessoas.find((p) => p.nome === "Bruno Lima");
+  ok(oBruno.departamentos[0] === "Operações",
+     "quem so tem o campo antigo continua aparecendo com a area dele");
 
   // Quem nao preencheu continua aparecendo: a pessoa existe e alguem pode
   // precisar dela. Sumir da agenda seria pior do que aparecer incompleta.
@@ -105,6 +159,10 @@ const ok = (c, m) => { console.log((c ? "  OK   " : "  FALHA") + "  " + m); if (
   const deps = await (await fetch(`${CORE}/api/agenda/departamentos`, C(ana.token))).json();
   ok(deps.departamentos.some((d) => d.departamento === "Comercial"),
      "departamentos ja usados viram sugestao");
+  ok(deps.departamentos.some((d) => d.departamento === "Eventos"),
+     "area digitada por alguem vira sugestao para quem preencher depois");
+  ok((deps.departamentos.find((d) => d.departamento === "Operações") || {}).quantos >= 1,
+     "e quem so tem o campo antigo ainda conta na sugestao");
 
   const semLogin = await fetch(`${CORE}/api/agenda`);
   ok(semLogin.status === 401, "agenda exige login");
@@ -158,11 +216,11 @@ const ok = (c, m) => { console.log((c ? "  OK   " : "  FALHA") + "  " + m); if (
   console.log("\n=== QUANDO LIGAR, BARRA NO SERVIDOR ===");
   // Simula a exigencia ligada sem reiniciar o servico: a regra mora em
   // perfil.completo(), entao basta conferir que ela reprova quem falta dado.
-  ok(perfil.completo({ telefone: null, ramal: null, departamento: null, cargo: null }) === false,
+  ok(perfil.completo({ telefone: null, ramal: null, departamentos: [], cargo: null }) === false,
      "cadastro vazio reprova");
-  ok(perfil.completo({ ramal: "2010", departamento: "Comercial", cargo: null }) === false,
+  ok(perfil.completo({ ramal: "2010", departamentos: ["Comercial"], cargo: null }) === false,
      "faltando o cargo, reprova");
-  ok(perfil.completo({ ramal: "2010", departamento: "Comercial", cargo: "Analista" }) === true,
+  ok(perfil.completo({ ramal: "2010", departamentos: ["Comercial"], cargo: "Analista" }) === true,
      "com tudo, aprova");
 
   await pool.query("DELETE FROM usuarios WHERE email LIKE 'agenda.%@uniseter.com'");

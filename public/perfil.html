@@ -52,6 +52,31 @@
   .retrato .obs { font-size: 12.5px; color: var(--texto-fraco); }
   .btn { width: 100%; margin-top: 6px; }
   #arquivo { display: none; }
+
+  /* Departamentos: uma etiqueta por area, marcavel.
+     Lista suspensa nao serve mais — ela so deixa escolher um, e a pessoa que
+     responde por tres areas precisa ver as tres marcadas ao mesmo tempo. */
+  .deptos { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 12px; }
+  .deptos label {
+    display: flex; align-items: center; gap: 7px; cursor: pointer;
+    border: 1px solid var(--borda); background: var(--surface);
+    border-radius: 999px; padding: 6px 13px; font-size: 13.5px;
+  }
+  .deptos label:hover { border-color: var(--accent); }
+  .deptos label.on {
+    border-color: var(--accent); background: var(--accent-soft);
+    color: var(--accent); font-weight: 600;
+  }
+  .deptos input { margin: 0; }
+  .outro { display: flex; gap: 8px; align-items: center; }
+  .outro input { flex: 1; }
+  .outro button {
+    border: 1px solid var(--borda); background: var(--surface); color: var(--texto);
+    border-radius: 8px; padding: 9px 14px; font: inherit; font-size: 13.5px;
+    cursor: pointer; white-space: nowrap;
+  }
+  .outro button:hover { border-color: var(--accent); color: var(--accent); }
+  .rotulo { display: block; font-size: 13px; font-weight: 600; margin-bottom: 2px; }
 </style>
 </head>
 <body>
@@ -94,15 +119,21 @@
       Se você não tem celular corporativo, informe só o ramal do PABX — basta um dos dois.
     </p>
 
-    <div class="dupla">
-      <label class="campo"><span>Departamento</span>
-        <select id="departamento"></select></label>
-      <label class="campo"><span>Cargo</span>
-        <input id="cargo" placeholder="Analista" autocomplete="organization-title"></label>
+    <label class="campo"><span>Cargo</span>
+      <input id="cargo" placeholder="Analista" autocomplete="organization-title"></label>
+
+    <div style="margin-top:14px">
+      <span class="rotulo">Departamentos</span>
+      <p class="dica" style="margin: 0 0 4px">
+        Marque todas as áreas por que você responde — quem responde por mais de uma
+        aparece na busca de todas elas.
+      </p>
+      <div class="deptos" id="deptos"></div>
+      <div class="outro">
+        <input id="deptoOutro" placeholder="Outra área, se não estiver na lista" autocomplete="off">
+        <button type="button" id="btnOutro">Adicionar</button>
+      </div>
     </div>
-    <!-- So aparece se a pessoa escolher "Outro" na lista -->
-    <label class="campo" id="campoOutro" style="display:none"><span>Qual departamento?</span>
-      <input id="deptoOutro" placeholder="Digite o nome do departamento" autocomplete="off"></label>
 
     <button class="btn" id="salvar">Salvar</button>
   </div>
@@ -165,37 +196,83 @@ async function carregar() {
 
   var dep = await fetch('/api/agenda/departamentos');
   var lista = dep.ok ? ((await dep.json()).departamentos || []) : [];
-  montarLista(lista.map(function (x) { return x.departamento; }), EU.departamento || '');
+  montarLista(lista.map(function (x) { return x.departamento; }), EU.departamentos || []);
 }
 
-// A lista nao e fechada: "Outro" abre um campo para digitar, e o que for
-// digitado passa a aparecer na lista de quem preencher depois. Lista fechada
-// travaria quem nao se encaixa; campo livre puro produziria "Comercial",
-// "comercial" e "Com." na mesma agenda.
-function montarLista(nomes, atual) {
-  var sel = document.getElementById('departamento');
-  if (atual && nomes.indexOf(atual) < 0) nomes = nomes.concat([atual]);
-  sel.innerHTML =
-    '<option value="">Selecione…</option>' +
-    nomes.map(function (n) {
-      return '<option value="' + esc(n) + '"' + (n === atual ? ' selected' : '') + '>' +
-             esc(n) + '</option>';
-    }).join('') +
-    '<option value="__outro">Outro…</option>';
+// Tem que bater com DEPARTAMENTOS_MAX em core/perfil.js. O servidor e quem
+// decide de verdade — isto aqui e so para a pessoa ser avisada na hora de
+// marcar, em vez de descobrir o limite quando o salvar falhar.
+var MAX_DEPTOS = 5;
 
-  sel.addEventListener('change', function () {
-    var outro = this.value === '__outro';
-    document.getElementById('campoOutro').style.display = outro ? '' : 'none';
-    if (outro) document.getElementById('deptoOutro').focus();
-  });
+// A lista nao e fechada: quem nao se encaixa digita a propria area, e o que
+// for digitado passa a aparecer para quem preencher depois. Lista fechada
+// travaria essa pessoa; campo livre puro produziria "Comercial", "comercial"
+// e "Com." na mesma agenda.
+function montarLista(nomes, atuais) {
+  atuais = atuais || [];
+  atuais.forEach(function (a) { if (nomes.indexOf(a) < 0) nomes = nomes.concat([a]); });
+  document.getElementById('deptos').innerHTML = nomes.map(function (n) {
+    return etiqueta(n, atuais.indexOf(n) >= 0);
+  }).join('');
+  pintar();
 }
 
-function departamentoEscolhido() {
-  var sel = document.getElementById('departamento');
-  return sel.value === '__outro'
-    ? document.getElementById('deptoOutro').value
-    : sel.value;
+function etiqueta(nome, marcada) {
+  return '<label class="' + (marcada ? 'on' : '') + '">' +
+           '<input type="checkbox" value="' + esc(nome) + '"' + (marcada ? ' checked' : '') + '>' +
+           esc(nome) +
+         '</label>';
 }
+
+function caixas() {
+  return Array.prototype.slice.call(
+    document.querySelectorAll('#deptos input[type=checkbox]'));
+}
+
+function departamentosEscolhidos() {
+  return caixas().filter(function (c) { return c.checked; })
+                 .map(function (c) { return c.value; });
+}
+
+function pintar() {
+  caixas().forEach(function (c) { c.parentNode.classList.toggle('on', c.checked); });
+}
+
+// Compara sem acento e sem maiuscula para a area digitada de novo nao virar
+// uma etiqueta separada da que ja esta na lista.
+function norm(s) {
+  return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+}
+
+document.getElementById('deptos').addEventListener('change', function (ev) {
+  if (departamentosEscolhidos().length > MAX_DEPTOS) {
+    ev.target.checked = false;
+    document.getElementById('aviso').innerHTML =
+      '<div class="aviso aviso-erro">São no máximo ' + MAX_DEPTOS +
+      ' departamentos por pessoa.</div>';
+  }
+  pintar();
+});
+
+function adicionarOutro() {
+  var campo = document.getElementById('deptoOutro');
+  var nome = campo.value.trim().replace(/\s+/g, ' ');
+  if (nome.length < 2) { campo.focus(); return; }
+
+  var repetida = caixas().filter(function (c) { return norm(c.value) === norm(nome); })[0];
+  if (repetida) { repetida.checked = true; }
+  else { document.getElementById('deptos').insertAdjacentHTML('beforeend', etiqueta(nome, true)); }
+
+  campo.value = '';
+  pintar();
+}
+
+document.getElementById('btnOutro').addEventListener('click', adicionarOutro);
+// Enter no campo adiciona a area em vez de nao fazer nada — e o que a pessoa
+// espera depois de digitar.
+document.getElementById('deptoOutro').addEventListener('keydown', function (ev) {
+  if (ev.key === 'Enter') { ev.preventDefault(); adicionarOutro(); }
+});
 
 function formatar(d) {
   d = String(d || '');
@@ -219,7 +296,7 @@ document.getElementById('salvar').addEventListener('click', async function () {
       body: JSON.stringify({
         telefone: document.getElementById('telefone').value,
         ramal: document.getElementById('ramal').value,
-        departamento: departamentoEscolhido(),
+        departamentos: departamentosEscolhidos(),
         cargo: document.getElementById('cargo').value,
       }),
     });

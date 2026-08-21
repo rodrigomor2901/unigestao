@@ -210,3 +210,26 @@ CREATE TABLE IF NOT EXISTS aviso_edicao (
   texto_antes  TEXT   NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_edicao_aviso ON aviso_edicao (aviso_id, editado_em DESC);
+
+-- ------------------------------------------------------------
+-- AGENDA — mais de um departamento por pessoa
+-- ------------------------------------------------------------
+-- Uma pessoa pode responder por mais de uma area: gerente comercial que
+-- tambem responde por TI e por eventos, por exemplo. O campo unico obrigava
+-- a escolher um e sumia com os outros na busca da agenda.
+--
+-- `departamento` (singular) para de ser escrito. Ele nao e apagado aqui porque
+-- a carga abaixo roda no arranque do Core novo enquanto o antigo ainda atende:
+-- derrubar a coluna no meio dessa troca daria erro nas telas por alguns
+-- segundos. Entao ele fica, e some sozinho — quem salvar o proprio cadastro
+-- limpa o seu (ver POST /api/perfil). Enquanto sobra em alguem, e dali que o
+-- nome sai; ver departamentosDe() em core/perfil.js, o unico lugar que decide
+-- isso. Dois campos dizendo a mesma coisa so nao discordam quando so um manda.
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS departamentos TEXT[] NOT NULL DEFAULT '{}';
+
+UPDATE usuarios
+   SET departamentos = ARRAY[departamento]
+ WHERE departamento IS NOT NULL AND departamento <> ''
+   AND departamentos = '{}';
+
+CREATE INDEX IF NOT EXISTS idx_usuarios_departamentos ON usuarios USING GIN (departamentos);

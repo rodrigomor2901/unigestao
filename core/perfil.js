@@ -23,6 +23,14 @@ function exigindoPerfil() {
 const DEPARTAMENTOS_MIN = 2;
 const CARGO_MIN = 2;
 
+// Quantos departamentos uma pessoa pode responder ao mesmo tempo.
+//
+// O limite nao e tecnico: e para o campo continuar querendo dizer alguma coisa.
+// Quem marca dez areas na pratica nao e achavel por nenhuma delas, e o filtro
+// da agenda vira ruido. Cinco cobre com folga o caso real — gerente que
+// responde por comercial, TI e eventos.
+const DEPARTAMENTOS_MAX = 5;
+
 // Lista de partida dos departamentos.
 //
 // Ela existe porque campo livre puro produz "Comercial", "comercial" e "Com."
@@ -49,6 +57,34 @@ const DEPARTAMENTOS = [
   "Qualidade",
   "Segurança do Trabalho",
 ];
+
+// Aceita tanto uma lista quanto um texto unico, e devolve sempre uma lista.
+//
+// Uma pessoa pode responder por mais de uma area — o gerente comercial que
+// tambem responde por TI e por eventos e o caso que motivou isto. Antes o
+// cadastro obrigava a escolher uma, e as outras sumiam da busca da agenda.
+//
+// Aceitar texto solto nao e enfeite: e o que mantem funcionando qualquer
+// chamada antiga da API que ainda mande `departamento` no singular.
+//
+// A repeticao e removida comparando SEM acento e SEM maiuscula, senao
+// "Operações" e "operacoes" entrariam como duas areas diferentes na mesma
+// pessoa. Vence a primeira forma escrita — a que a pessoa escolheu na lista.
+function limparDepartamentos(entrada) {
+  const bruto = Array.isArray(entrada) ? entrada : [entrada];
+  const vistos = new Set();
+  const lista = [];
+  for (const item of bruto) {
+    const nome = limparTexto(item, 60);
+    if (nome.length < DEPARTAMENTOS_MIN) continue;
+    const chave = normalizar(nome);
+    if (vistos.has(chave)) continue;
+    vistos.add(chave);
+    lista.push(nome);
+    if (lista.length >= DEPARTAMENTOS_MAX) break;
+  }
+  return lista;
+}
 
 // Guarda so digitos e os separadores que as pessoas realmente usam. Sem isso
 // o mesmo numero entra como "(19) 3212-0000", "1932120000" e "19 3212 0000",
@@ -85,7 +121,9 @@ function validar(entrada) {
   const erros = [];
   const telefone = limparTelefone(entrada.telefone);
   const ramal = limparRamal(entrada.ramal);
-  const departamento = limparTexto(entrada.departamento, 60);
+  const departamentos = limparDepartamentos(
+    entrada.departamentos != null ? entrada.departamentos : entrada.departamento
+  );
   const cargo = limparTexto(entrada.cargo, 60);
 
   if (!telefone && !ramal) {
@@ -94,8 +132,8 @@ function validar(entrada) {
   if (telefone && (telefone.length < 8 || telefone.length > 13)) {
     erros.push("O telefone não parece completo. Use DDD + número.");
   }
-  if (departamento.length < DEPARTAMENTOS_MIN) {
-    erros.push("Informe o departamento.");
+  if (!departamentos.length) {
+    erros.push("Informe pelo menos um departamento.");
   }
   if (cargo.length < CARGO_MIN) {
     erros.push("Informe o cargo.");
@@ -104,7 +142,7 @@ function validar(entrada) {
   return {
     ok: erros.length === 0,
     erros,
-    valores: { telefone, ramal, departamento, cargo },
+    valores: { telefone, ramal, departamentos, cargo },
   };
 }
 
@@ -115,7 +153,21 @@ function validar(entrada) {
 function completo(u) {
   if (!u) return false;
   const temContato = Boolean((u.telefone || "").trim() || (u.ramal || "").trim());
-  return Boolean(temContato && (u.departamento || "").trim() && (u.cargo || "").trim());
+  return Boolean(temContato && departamentosDe(u).length && (u.cargo || "").trim());
+}
+
+// Le os departamentos de uma linha do banco.
+//
+// Existe para haver UM lugar que sabe de onde eles vem. Quem foi cadastrado
+// antes da mudanca ainda pode ter so o campo antigo no singular — e enquanto
+// essa pessoa nao abrir o proprio cadastro para salvar, e dali que o nome sai.
+function departamentosDe(u) {
+  if (!u) return [];
+  if (Array.isArray(u.departamentos) && u.departamentos.length) {
+    return u.departamentos.filter(Boolean);
+  }
+  const antigo = String(u.departamento || "").trim();
+  return antigo ? [antigo] : [];
 }
 
 // Compara ignorando acento e maiuscula, para "Comercial", "comercial" e
@@ -133,7 +185,8 @@ const FOTO_MAX_BYTES = 400 * 1024;
 const FOTO_TIPOS = ["image/jpeg", "image/png", "image/webp"];
 
 module.exports = {
-  exigindoPerfil, validar, completo, normalizar, DEPARTAMENTOS,
-  limparTelefone, limparRamal, limparTexto, formatarTelefone,
+  exigindoPerfil, validar, completo, normalizar, DEPARTAMENTOS, DEPARTAMENTOS_MAX,
+  limparTelefone, limparRamal, limparTexto, limparDepartamentos, departamentosDe,
+  formatarTelefone,
   FOTO_MAX_BYTES, FOTO_TIPOS,
 };

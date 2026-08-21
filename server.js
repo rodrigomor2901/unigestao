@@ -269,7 +269,7 @@ app.post("/api/logout", async (req, res, next) => {
 app.get("/api/eu", exigeLogin, async (req, res, next) => {
   try {
     const p = await db.query(
-      `SELECT telefone, ramal, departamento, cargo,
+      `SELECT telefone, ramal, departamento, departamentos, cargo,
               EXISTS (SELECT 1 FROM usuario_foto f WHERE f.usuario_id = u.id) AS tem_foto
          FROM usuarios u WHERE u.id = $1`,
       [req.usuario.id]
@@ -284,7 +284,7 @@ app.get("/api/eu", exigeLogin, async (req, res, next) => {
         senhaTemp: req.usuario.senha_temp,
         telefone: dados.telefone || "",
         ramal: dados.ramal || "",
-        departamento: dados.departamento || "",
+        departamentos: perfil.departamentosDe(dados),
         cargo: dados.cargo || "",
         temFoto: Boolean(dados.tem_foto),
         perfilCompleto: perfil.completo(dados),
@@ -312,13 +312,14 @@ app.post("/api/perfil", exigeLogin, async (req, res, next) => {
     const v = r.valores;
     await db.query(
       `UPDATE usuarios
-          SET telefone = $1, ramal = $2, departamento = $3, cargo = $4, perfil_em = NOW()
+          SET telefone = $1, ramal = $2, departamentos = $3::text[], cargo = $4,
+              departamento = NULL, perfil_em = NOW()
         WHERE id = $5`,
-      [v.telefone || null, v.ramal || null, v.departamento, v.cargo, req.usuario.id]
+      [v.telefone || null, v.ramal || null, v.departamentos, v.cargo, req.usuario.id]
     );
     await auth.auditar(req, "perfil_atualizado", {
       usuarioId: req.usuario.id, email: req.usuario.email,
-      detalhe: { departamento: v.departamento, cargo: v.cargo },
+      detalhe: { departamentos: v.departamentos, cargo: v.cargo },
     });
     res.json({ ok: true });
   } catch (e) {
@@ -371,7 +372,8 @@ app.delete("/api/perfil/foto", exigeLogin, async (req, res, next) => {
 app.get("/api/agenda", exigeLogin, async (req, res, next) => {
   try {
     const r = await db.query(
-      `SELECT u.id, u.nome, u.email, u.telefone, u.ramal, u.departamento, u.cargo,
+      `SELECT u.id, u.nome, u.email, u.telefone, u.ramal,
+              u.departamento, u.departamentos, u.cargo,
               EXISTS (SELECT 1 FROM usuario_foto f WHERE f.usuario_id = u.id) AS tem_foto
          FROM usuarios u
         WHERE u.ativo = TRUE
@@ -385,7 +387,7 @@ app.get("/api/agenda", exigeLogin, async (req, res, next) => {
         telefone: p.telefone || "",
         telefoneFormatado: perfil.formatarTelefone(p.telefone),
         ramal: p.ramal || "",
-        departamento: p.departamento || "",
+        departamentos: perfil.departamentosDe(p),
         cargo: p.cargo || "",
         temFoto: p.tem_foto,
       })),
@@ -400,10 +402,16 @@ app.get("/api/agenda", exigeLogin, async (req, res, next) => {
 app.get("/api/agenda/departamentos", exigeLogin, async (req, res, next) => {
   try {
     const r = await db.query(
-      `SELECT departamento, count(*)::int AS quantos
-         FROM usuarios
-        WHERE ativo = TRUE AND departamento IS NOT NULL AND departamento <> ''
-        GROUP BY departamento`
+      `SELECT departamento, count(*)::int AS quantos FROM (
+          SELECT unnest(departamentos) AS departamento FROM usuarios
+           WHERE ativo = TRUE AND cardinality(departamentos) > 0
+          UNION ALL
+          -- Quem ainda nao reabriu o cadastro depois da mudanca so tem o campo
+          -- antigo. Continua contando, senao a area sumiria das sugestoes.
+          SELECT departamento FROM usuarios
+           WHERE ativo = TRUE AND cardinality(departamentos) = 0
+             AND departamento IS NOT NULL AND departamento <> ''
+       ) t GROUP BY departamento`
     );
     // Junta a lista de partida com o que ja esta em uso. Um departamento
     // digitado por alguem vira opcao para quem preencher depois — e por isso
@@ -803,7 +811,7 @@ app.get("/api/interno/sessao", async (req, res, next) => {
     // formulario. Quem decide e o servidor; a interface apenas obedece.
     if (perfil.exigindoPerfil()) {
       const p = await db.query(
-        "SELECT telefone, ramal, departamento, cargo FROM usuarios WHERE id = $1",
+        "SELECT telefone, ramal, departamento, departamentos, cargo FROM usuarios WHERE id = $1",
         [usuario.id]
       );
       if (!perfil.completo(p.rows[0])) {
