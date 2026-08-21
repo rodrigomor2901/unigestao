@@ -43,9 +43,14 @@ function scriptDe(arquivo) {
 }
 
 const MODULOS = [
-  { nome: "Movimentação Operacional", descricao: "Extras", base: "/operacional", papelRotulo: "CCO" },
-  { nome: "CRM Comercial", descricao: "Pipeline", base: "/crm", papelRotulo: "Vendedor" },
+  { nome: "Movimentação Operacional", descricao: "Extras", base: "/operacional",
+    papelRotulo: "CCO", icone: "truck" },
+  { nome: "CRM Comercial", descricao: "Pipeline", base: "/crm",
+    papelRotulo: "Vendedor", icone: "briefcase" },
 ];
+
+// Quantos quadrados de icone existem no HTML desenhado.
+const quantosIcones = (html) => (html.match(/class="ic"/g) || []).length;
 
 async function rodarTela({ usuario, modulos, publicacoes = [] }) {
   const documento = criarDocumento();
@@ -85,6 +90,32 @@ async function rodarTela({ usuario, modulos, publicacoes = [] }) {
   ok(grade.includes("Agenda"), "o cartao da Agenda aparece");
   ok(grade.includes('href="/mural"') && grade.includes('href="/agenda"'),
      "os dois apontam para as paginas do portal");
+
+  console.log("\n=== CADA CARTAO TEM SEU ICONE ===");
+  // O nome do icone vem do registro de modulos (core/modulos.js). Ele existia
+  // ha tempos e nao era usado em lugar nenhum — se alguem o remover de la, e
+  // aqui que isso aparece, em vez de a tela ficar com quadrados vazios.
+  ok(quantosIcones(grade) === 4, "dois modulos mais Mural e Agenda: quatro icones");
+  ok(grade.includes("<svg viewBox=\"0 0 24 24\""), "desenhados como SVG na propria pagina");
+
+  // Plugar um sistema novo nao pode quebrar a tela inicial por causa de um
+  // icone que ninguem cadastrou.
+  const desconhecido = await rodarTela({
+    usuario: { nome: "Fulana", superAdmin: false, senhaTemp: false, exigirPerfil: false },
+    modulos: [{ nome: "Sistema Novo", descricao: "?", base: "/novo",
+                papelRotulo: "Admin", icone: "icone-que-nao-existe" }],
+  });
+  const gradeNova = desconhecido.getElementById("grade").innerHTML;
+  ok(quantosIcones(gradeNova) === 3, "icone desconhecido nao deixa o cartao sem quadrado");
+  ok(gradeNova.includes("Sistema Novo"), "e o modulo continua aparecendo normalmente");
+
+  // Modulo antigo, cadastrado antes de o campo existir, tambem nao pode falhar.
+  const semIcone = await rodarTela({
+    usuario: { nome: "Fulana", superAdmin: false, senhaTemp: false, exigirPerfil: false },
+    modulos: [{ nome: "Sem Icone", descricao: "?", base: "/x", papelRotulo: "Admin" }],
+  });
+  ok(quantosIcones(semIcone.getElementById("grade").innerHTML) === 3,
+     "modulo sem o campo `icone` tambem ganha o quadrado generico");
 
   console.log("\n=== SEM MODULO LIBERADO, A PESSOA NAO FICA NO VAZIO ===");
   const vazio = await rodarTela({

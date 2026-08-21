@@ -20,8 +20,13 @@
   /* O simbolo e o nome levam para a tela inicial. Sublinhado nao entra: uma
      marca sublinhada parece texto quebrado, e o cursor de mao ja avisa que
      e clicavel. */
+  /* Sem `gap` aqui: ele separaria tambem "Uni" de "Gestão", que sao dois
+     itens do flex (o texto solto e o <span> laranja), e a marca saía escrita
+     "Uni Gestão". O espaco que se quer e so depois do simbolo — por isso ele
+     e margem da imagem, e nao gap do conjunto. */
   .topo h1 a { color: inherit; text-decoration: none; display: flex;
-               align-items: center; gap: 10px; }
+               align-items: center; }
+  .topo h1 a img { margin-right: 10px; }
   .topo h1 a:hover { opacity: .85; }
 
   .topo a, .topo button {

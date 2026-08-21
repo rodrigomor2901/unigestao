@@ -24,8 +24,13 @@
   /* O simbolo e o nome levam para a tela inicial. Sublinhado nao entra: uma
      marca sublinhada parece texto quebrado, e o cursor de mao ja avisa que
      e clicavel. */
+  /* Sem `gap` aqui: ele separaria tambem "Uni" de "Gestão", que sao dois
+     itens do flex (o texto solto e o <span> laranja), e a marca saía escrita
+     "Uni Gestão". O espaco que se quer e so depois do simbolo — por isso ele
+     e margem da imagem, e nao gap do conjunto. */
   .topo h1 a { color: inherit; text-decoration: none; display: flex;
-               align-items: center; gap: 10px; }
+               align-items: center; }
+  .topo h1 a img { margin-right: 10px; }
   .topo h1 a:hover { opacity: .85; }
 
   .topo .quem { display: flex; align-items: center; gap: 14px; font-size: 14px; }
@@ -109,14 +114,41 @@
   .popup .pe { padding: 0 22px 20px; display: flex; gap: 10px; justify-content: flex-end; }
   .titulo { margin-bottom: 6px; font-size: 22px; }
   .sub { color: var(--texto-fraco); margin: 0 0 28px; }
-  .grade { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); }
+  /* Cartao mais largo que antes porque o icone ocupa uma faixa a esquerda:
+     com o minimo antigo (270px) o titulo de "Movimentação Operacional"
+     quebrava em duas linhas ao lado do icone. */
+  /* min(330px, 100%) e o que impede o cartao de estourar a tela do celular:
+     num aparelho de 360px sobram ~328px, e um minimo fixo de 330px passaria
+     do que cabe. Com o min(), a coluna encolhe junto com a tela. */
+  .grade { display: grid; gap: 16px;
+           grid-template-columns: repeat(auto-fill, minmax(min(330px, 100%), 1fr)); }
   .modulo {
-    display: block; padding: 20px; text-decoration: none; color: inherit;
+    display: flex; gap: 15px; align-items: flex-start;
+    padding: 18px 20px; text-decoration: none; color: inherit;
     transition: transform .12s, box-shadow .12s;
   }
   .modulo:hover { transform: translateY(-2px); box-shadow: 0 4px 14px rgba(16,24,40,.1); }
-  .modulo h3 { font-size: 16px; margin-bottom: 4px; color: var(--accent); }
-  .modulo p { margin: 0 0 12px; font-size: 13.5px; color: var(--texto-fraco); }
+  /* O icone entra num quadrado de fundo quente para o cartao ter um ponto de
+     entrada para o olho. O traco e o LARANJA, nao o amarelo da marca: amarelo
+     sobre branco quase nao se le. */
+  .modulo .ic {
+    width: 44px; height: 44px; border-radius: 11px; flex: none;
+    background: #FDF0E0; display: grid; place-items: center;
+  }
+  .modulo .ic svg {
+    width: 24px; height: 24px; stroke: var(--laranja); fill: none;
+    stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round;
+  }
+  /* min-width:0 para o texto poder encolher dentro do flex; sem isso um nome
+     comprido empurra o cartao para fora da coluna em vez de quebrar. */
+  .modulo .txt { min-width: 0; }
+  .modulo h3 { font-size: 16px; margin-bottom: 3px; color: var(--accent); }
+  .modulo p { margin: 0 0 10px; font-size: 13.5px; color: var(--texto-fraco); }
+  /* Mural e Agenda sao do proprio portal, nao sistemas com banco proprio. O
+     contorno tracejado marca essa diferenca sem precisar de rotulo extra —
+     e o mesmo recurso usado na arte de apresentacao do portal. */
+  .modulo.doPortal { border-style: dashed; border-color: #F0C98A; background: #FFFDF9; }
+  .modulo.doPortal .ic { background: #FBE7CB; }
   .vazio { padding: 34px; text-align: center; color: var(--texto-fraco); }
   .trocaSenha { max-width: 420px; padding: 28px; }
   .trocaSenha h3 { font-size: 18px; margin-bottom: 6px; }
@@ -192,9 +224,12 @@ async function carregar() {
 
   grade.innerHTML = d.modulos.map(function (m) {
     return '<a class="card modulo" href="' + esc(m.base) + '/">' +
-             '<h3>' + esc(m.nome) + '</h3>' +
-             '<p>' + esc(m.descricao || '') + '</p>' +
-             '<span class="selo selo-off">' + esc(m.papelRotulo || m.papel) + '</span>' +
+             icone(m.icone) +
+             '<div class="txt">' +
+               '<h3>' + esc(m.nome) + '</h3>' +
+               '<p>' + esc(m.descricao || '') + '</p>' +
+               '<span class="selo selo-off">' + esc(m.papelRotulo || m.papel) + '</span>' +
+             '</div>' +
            '</a>';
   }).join('') + cartaoMural() + cartaoAgenda();
 
@@ -301,19 +336,48 @@ async function mostrarPopup() {
 // O selo diz "Todo o grupo" em vez de um papel: nao ha papel, todo mundo que
 // entra no portal enxerga os dois.
 function cartaoMural() {
-  return '<a class="card modulo" href="/mural">' +
-           '<h3>Mural</h3>' +
-           '<p>Comunicados, mudanças e eventos do grupo</p>' +
-           '<span class="selo selo-off">Todo o grupo</span>' +
-         '</a>';
+  return '<a class="card modulo doPortal" href="/mural">' + icone('megafone') +
+           '<div class="txt">' +
+             '<h3>Mural</h3>' +
+             '<p>Comunicados, mudanças e eventos do grupo</p>' +
+             '<span class="selo selo-off">Todo o grupo</span>' +
+           '</div></a>';
 }
 
 function cartaoAgenda() {
-  return '<a class="card modulo" href="/agenda">' +
-           '<h3>Agenda</h3>' +
-           '<p>Telefone, ramal, departamento e cargo de todo mundo do grupo</p>' +
-           '<span class="selo selo-off">Todo o grupo</span>' +
-         '</a>';
+  return '<a class="card modulo doPortal" href="/agenda">' + icone('agenda') +
+           '<div class="txt">' +
+             '<h3>Agenda</h3>' +
+             '<p>Telefone, ramal, área e cargo de todo mundo do grupo</p>' +
+             '<span class="selo selo-off">Todo o grupo</span>' +
+           '</div></a>';
+}
+
+// ---------------------------------------------------------------------------
+// Icones dos cartoes
+// ---------------------------------------------------------------------------
+// O nome vem do proprio registro de modulos (core/modulos.js, campo `icone`),
+// que ja existia e nunca tinha sido usado na tela. Sao desenhos de traco, sem
+// preenchimento, para o cartao nao competir com o conteudo.
+//
+// Modulo com um `icone` que nao esteja aqui cai no quadrado generico em vez de
+// abrir um buraco no cartao — plugar um sistema novo nunca deve quebrar a tela
+// inicial por causa de um icone que faltou.
+var ICONES = {
+  truck:     '<path d="M3 7h11v9H3zM14 10h4l3 3v3h-7z"/><circle cx="7" cy="18" r="2"/><circle cx="17.5" cy="18" r="2"/>',
+  folder:    '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  calendar:  '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+  check:     '<path d="M4 12.5 9 17.5 20 6.5"/>',
+  briefcase: '<rect x="2.5" y="7" width="19" height="13" rx="2"/><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2M2.5 12h19"/>',
+  calculator:'<rect x="5" y="2.5" width="14" height="19" rx="2"/><path d="M8.5 7h7M8.5 11.5h2M13.5 11.5h2M8.5 16h2M13.5 16h2"/>',
+  megafone:  '<path d="M4 9v6h3l9 5V4L7 9zM19 9.5a4 4 0 0 1 0 5"/>',
+  agenda:    '<rect x="5" y="3" width="15" height="18" rx="2"/><path d="M5 8H3M5 12H3M5 16H3"/><circle cx="12.5" cy="10" r="2.3"/><path d="M9 17a3.5 3.5 0 0 1 7 0"/>',
+  padrao:    '<rect x="3.5" y="3.5" width="17" height="17" rx="3"/>',
+};
+
+function icone(nome) {
+  return '<div class="ic"><svg viewBox="0 0 24 24" aria-hidden="true">' +
+         (ICONES[nome] || ICONES.padrao) + '</svg></div>';
 }
 
 function esc(s) {

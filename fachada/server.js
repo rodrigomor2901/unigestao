@@ -279,8 +279,9 @@ const BARRA_CSS = `#ug-barra{position:sticky;top:0;z-index:9999;display:flex;ali
 padding:7px 16px;background:#26357A;color:#fff;font:14px/1.4 'DM Sans',system-ui,sans-serif}
 #ug-barra a{color:#fff;text-decoration:none;opacity:.9;cursor:pointer}
 #ug-barra a:hover{opacity:1;text-decoration:underline}
-#ug-barra .ug-marca{font-weight:600;display:flex;align-items:center;gap:8px}
-#ug-barra .ug-marca img{width:22px;height:22px}
+/* sem gap: ele separaria "Uni" de "Gestão" — ver public/inicio.html */
+#ug-barra .ug-marca{font-weight:600;display:flex;align-items:center}
+#ug-barra .ug-marca img{width:22px;height:22px;margin-right:8px}
 #ug-barra .ug-marca span{color:#F7B312}
 #ug-barra .ug-dir{margin-left:auto;display:flex;gap:14px;align-items:center;font-size:13px}
 
