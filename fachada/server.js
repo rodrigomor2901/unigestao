@@ -212,6 +212,27 @@ document.addEventListener('click',function(ev){
   a.setAttribute('href',BASE+bruto);
 },true);
 
+// Link criado e clicado por codigo, SEM ser posto na pagina:
+//   var a=document.createElement('a'); a.href='/api/x'; a.click();
+// E um jeito comum de disparar download. Nesse caso o evento nao sobe ate o
+// documento, entao o tratador de clique acima nunca o ve.
+//
+// Hoje os modulos usam esse padrao so com blob: (arquivo montado na memoria do
+// navegador), que nao precisa de prefixo — mas o dia em que um deles apontar
+// para um caminho do servidor, o download quebraria em silencio, e a causa
+// levaria horas para achar. Sao tres linhas para fechar o buraco.
+if (window.HTMLAnchorElement){
+  var _click=HTMLAnchorElement.prototype.click;
+  HTMLAnchorElement.prototype.click=function(){
+    var bruto=this.getAttribute&&this.getAttribute('href');
+    if(bruto&&bruto.charAt(0)==='/'&&bruto.indexOf('//')!==0&&
+       bruto.indexOf(BASE+'/')!==0&&bruto!==BASE){
+      this.setAttribute('href',BASE+bruto);
+    }
+    return _click.apply(this,arguments);
+  };
+}
+
 // window.open com caminho da raiz cai no mesmo buraco — e e como varios
 // sistemas abrem recibo, anexo e relatorio em outra aba.
 if(window.open){

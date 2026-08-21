@@ -45,9 +45,24 @@ function montarAmbiente(base) {
     };
     return el;
   };
+  // Ancora "solta": criada por codigo e nunca posta na pagina. O clique dela
+  // nao sobe ate o documento — por isso o shim precisa interceptar o proprio
+  // metodo click() do link.
+  function HTMLAnchorElement() {}
+  HTMLAnchorElement.prototype.click = function () { this._clicado = true; };
+  const criarAncoraSolta = (href) => {
+    const el = Object.create(HTMLAnchorElement.prototype);
+    el._href = href;
+    el._clicado = false;
+    el.getAttribute = (n) => (n === "href" ? el._href : null);
+    el.setAttribute = (n, v) => { if (n === "href") el._href = v; };
+    return el;
+  };
+
   const janela = {
     fetch: () => Promise.resolve({}),
     XMLHttpRequest: function () {},
+    HTMLAnchorElement,
     aberturas: [],
   };
   janela.XMLHttpRequest.prototype = { open() {} };
@@ -57,14 +72,15 @@ function montarAmbiente(base) {
     currentScript: script,
     addEventListener: (tipo, fn) => { (ouvintes[tipo] = ouvintes[tipo] || []).push(fn); },
   };
-  return { ouvintes, documento, janela, criarLink };
+  return { ouvintes, documento, janela, criarLink, criarAncoraSolta };
 }
 
 function instalar(base) {
   const amb = montarAmbiente(base);
-  const fn = new Function("document", "window", "XMLHttpRequest", "location",
-                          shimDaFachada() + "\nreturn window;");
-  fn(amb.documento, amb.janela, amb.janela.XMLHttpRequest, { origin: "https://portal" });
+  const fn = new Function("document", "window", "XMLHttpRequest", "HTMLAnchorElement",
+                          "location", shimDaFachada() + "\nreturn window;");
+  fn(amb.documento, amb.janela, amb.janela.XMLHttpRequest, amb.janela.HTMLAnchorElement,
+     { origin: "https://portal" });
   amb.clicar = (el) => amb.ouvintes.click.forEach((f) => f({ target: el }));
   return amb;
 }
@@ -105,6 +121,22 @@ function instalar(base) {
   const naBarra = a.criarLink("/", true);
   a.clicar(naBarra);
   ok(naBarra._href === "/", "os links da barra do UniGestao ficam intactos");
+
+  console.log("\n=== LINK CLICADO POR CODIGO, FORA DA PAGINA ===");
+  // var a=document.createElement('a'); a.href='/api/x'; a.click();
+  // O evento nao sobe ate o documento, entao o tratador de clique nao o ve —
+  // e preciso interceptar o proprio .click() do link.
+  const c = instalar(BASE);
+  const solto = c.criarAncoraSolta("/api/relatorio.csv");
+  solto.click();
+  ok(solto._href === "/crm/api/relatorio.csv",
+     "link criado por codigo tambem entra no modulo");
+  ok(solto._clicado === true, "e o clique original acontece do mesmo jeito");
+
+  const blob = c.criarAncoraSolta("blob:https://portal/abc-123");
+  blob.click();
+  ok(blob._href === "blob:https://portal/abc-123",
+     "arquivo montado na memoria do navegador nao e tocado — e o caso de hoje");
 
   console.log("\n=== window.open ===");
   const b = instalar(BASE);
