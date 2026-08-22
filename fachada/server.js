@@ -319,6 +319,13 @@ function menuModulos(base, lista) {
     return `<a href="/">◂ Todos os módulos</a>`;
   }
   const itens = lista.map((m) => {
+    // Sistema de terceiro sai do portal: abre em outra aba e leva o simbolo ↗
+    // para a pessoa saber disso ANTES de clicar. Sem a aba nova ela perderia o
+    // sistema em que estava, e a barra do portal nao existe do outro lado.
+    if (m.externo) {
+      return `<a href="${escapeHtml(m.externo)}" target="_blank" rel="noopener noreferrer">` +
+             `${escapeHtml(m.nome)} ↗</a>`;
+    }
     const aqui = m.base === base;
     return `<a href="${escapeHtml(m.base)}/"${aqui ? ' class="ug-aqui" aria-current="page"' : ""}>` +
            `${escapeHtml(m.nome)}${aqui ? " ·" : ""}</a>`;

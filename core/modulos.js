@@ -14,6 +14,7 @@
 //
 // `base`       — caminho publico pelo qual a Fachada expoe o modulo
 // `interno`    — endereco na rede privada do Railway (so a Fachada usa)
+// `externo`    — sistema de TERCEIRO, que abre no proprio endereco (ver abaixo)
 // `ativo`      — false = ainda nao plugado; some do menu e do Admin Geral
 // `papelAdmin` — como ESTE modulo chama o papel de administrador. O Core usa
 //                isso para o administrador geral, que enxerga todos os modulos
@@ -22,6 +23,22 @@
 //                o proprio administrador geral.
 // ============================================================================
 
+// ----------------------------------------------------------------------------
+// SISTEMA DE TERCEIRO (`externo`)
+// ----------------------------------------------------------------------------
+// Os seis sistemas do Grupo entram no portal de verdade: a Fachada os encaminha
+// e eles trocaram a autenticacao propria pela identidade do Core (ver
+// integracao/unigestao.js). Isso exige poder mexer no codigo deles.
+//
+// Um sistema de terceiro, hospedado na nuvem do fornecedor, nao permite nada
+// disso. Um modulo `externo` e a resposta honesta: ele aparece na tela inicial
+// junto com os outros e o Admin Geral decide quem enxerga o cartao, mas o
+// clique leva para o endereco do fornecedor, onde a pessoa usa o login de la.
+//
+// NAO e login unico, e nao finge ser. O que ele resolve e o resto: ninguem
+// precisa decorar o endereco, e quem nao usa aquele sistema nao ve o cartao.
+// O dia em que o fornecedor oferecer SSO, ou o dia em que a API dele virar uma
+// tela nossa, este registro muda e o cartao passa a apontar para dentro.
 const MODULOS = {
   operacional: {
     nome: "Movimentação Operacional",
@@ -106,6 +123,22 @@ const MODULOS = {
     papelAdmin: "administrador",
     ativo: true,
   },
+  nexti: {
+    nome: "Checklist da Operação",
+    descricao: "Checklists e roteiros da operação — abre no Nexti",
+    // Sem `base` e sem `interno`: a Fachada nao encaminha este. O registro dela
+    // (fachada/server.js) e outro e nao tem entrada para `nexti` — por isso
+    // /nexti nao vira rota, e e assim que tem que ser.
+    externo: "https://uniseter.nexti.com/",
+    icone: "checklist",
+    // Um papel so. Os papeis existem para o modulo saber o que a pessoa pode
+    // fazer la dentro, e aqui quem decide isso e o Nexti, pelo login dele.
+    // Inventar niveis daria a impressao de um controle que o portal nao tem.
+    papeis: ["acesso"],
+    rotulos: { acesso: "Acesso" },
+    papelAdmin: "acesso",
+    ativo: true,
+  },
   precificacao: {
     nome: "Precificação",
     descricao: "Motor de precificação de contratos",
@@ -133,6 +166,13 @@ function listar() {
 
 function existe(id) {
   return Boolean(MODULOS[id] && MODULOS[id].ativo);
+}
+
+// Sistema de terceiro: aparece na tela, mas nao e encaminhado nem recebe
+// identidade do Core. Quem pergunta isto e o codigo que decide entre "abrir
+// dentro do portal" e "abrir no endereco do fornecedor".
+function ehExterno(id) {
+  return Boolean(MODULOS[id] && MODULOS[id].externo);
 }
 
 function papelValido(id, papel) {
@@ -169,4 +209,4 @@ function get(id) {
   return MODULOS[id] || null;
 }
 
-module.exports = { MODULOS, listar, existe, papelValido, papelDeAdmin, rotuloDoPapel, get };
+module.exports = { MODULOS, listar, existe, ehExterno, papelValido, papelDeAdmin, rotuloDoPapel, get };

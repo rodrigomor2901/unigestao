@@ -21,6 +21,7 @@ const testes = [
   "tela-inicial.test.js",
   "destino-login.test.js",
   "shim-links.test.js",
+  "modulo-externo.test.js",
   "fachada.test.js",
   "modulo-operacional.test.js",
 ];

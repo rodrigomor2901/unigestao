@@ -60,6 +60,15 @@ function ok(c, m) { console.log((c ? "  OK   " : "  FALHA") + "  " + m); if (!c)
       headers: { "x-unigestao-token": token, "x-core-key": CHAVE },
     });
     const body = await res.json();
+
+    // Sistema de terceiro nao entra nesta conta. Ele nao recebe identidade do
+    // Core — nem para o administrador geral —, porque do outro lado nao ha um
+    // modulo nosso para confiar nela. Ver tests/modulo-externo.test.js.
+    if (modulos.ehExterno(m.id)) {
+      ok(res.status === 400, `${m.id}: e de terceiro, entao a sessao e recusada`);
+      continue;
+    }
+
     ok(res.status === 200 && body.papel === modulos.papelDeAdmin(m.id),
        `${m.id}: recebe "${body.papel}" (esperado "${modulos.papelDeAdmin(m.id)}")`);
   }

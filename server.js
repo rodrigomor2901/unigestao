@@ -742,7 +742,8 @@ async function modulosDoUsuario(usuario) {
   // Super admin enxerga todos os modulos ativos, sempre como 'admin'
   if (usuario.super_admin) {
     return disponiveis.map((m) => ({
-      id: m.id, nome: m.nome, descricao: m.descricao, base: m.base, icone: m.icone,
+      id: m.id, nome: m.nome, descricao: m.descricao, base: m.base,
+      externo: m.externo || null, icone: m.icone,
       papel: modulos.papelDeAdmin(m.id),
       papelRotulo: modulos.rotuloDoPapel(m.id, modulos.papelDeAdmin(m.id)),
     }));
@@ -754,7 +755,8 @@ async function modulosDoUsuario(usuario) {
   return disponiveis
     .filter((m) => papeis.has(m.id))
     .map((m) => ({
-      id: m.id, nome: m.nome, descricao: m.descricao, base: m.base, icone: m.icone,
+      id: m.id, nome: m.nome, descricao: m.descricao, base: m.base,
+      externo: m.externo || null, icone: m.icone,
       papel: papeis.get(m.id),
       papelRotulo: modulos.rotuloDoPapel(m.id, papeis.get(m.id)),
     }));
@@ -828,18 +830,27 @@ app.get("/api/interno/sessao", async (req, res, next) => {
     }
     if (!modulos.existe(moduloId)) return res.status(404).json({ erro: "Módulo desconhecido" });
 
+    // Sistema de terceiro nao recebe identidade: nao ha modulo nosso do outro
+    // lado para confiar nela. Se algum dia isto passar, sera porque alguem
+    // apontou a Fachada para um endereco de fora — e a chave interna estaria
+    // viajando para fora da rede privada. Melhor recusar aqui, de uma vez.
+    if (modulos.ehExterno(moduloId)) {
+      return res.status(400).json({ erro: "Este sistema não é acessado pelo portal" });
+    }
+
     // A lista do que a pessoa alcanca acompanha a resposta para a Fachada
     // montar o menu de troca de modulo na barra. Sem isso ela so sabe onde a
     // pessoa esta, e trocar de sistema exigiria voltar ao inicio a cada vez.
     const alcance = usuario.super_admin
-      ? modulos.listar().map((m) => ({ id: m.id, nome: m.nome, base: m.base }))
+      ? modulos.listar().map((m) => ({ id: m.id, nome: m.nome, base: m.base,
+                                       externo: m.externo || null }))
       : (await db.query(
           "SELECT modulo FROM usuario_modulos WHERE usuario_id = $1", [usuario.id]
         )).rows
           .filter((x) => modulos.existe(x.modulo))
           .map((x) => {
             const m = modulos.get(x.modulo);
-            return { id: x.modulo, nome: m.nome, base: m.base };
+            return { id: x.modulo, nome: m.nome, base: m.base, externo: m.externo || null };
           })
           .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
 
@@ -878,6 +889,7 @@ app.get("/api/admin/modulos", exigeSuperAdmin, (req, res) => {
   res.json(
     modulos.listar().map((m) => ({
       id: m.id, nome: m.nome, descricao: m.descricao, icone: m.icone,
+      externo: m.externo || null,
       // `valor` e o que o modulo entende e o que sera gravado; `rotulo` e so o
       // que a pessoa le. Nao trocar um pelo outro.
       papeis: m.papeis.map((p) => ({ valor: p, rotulo: modulos.rotuloDoPapel(m.id, p) })),

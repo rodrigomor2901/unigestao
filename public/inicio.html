@@ -149,6 +149,11 @@
      e o mesmo recurso usado na arte de apresentacao do portal. */
   .modulo.doPortal { border-style: dashed; border-color: #F0C98A; background: #FFFDF9; }
   .modulo.doPortal .ic { background: #FBE7CB; }
+  /* Sistema de terceiro: o icone fica cinza, nao laranja. A cor da marca e para
+     o que e nosso — e a seta ↗ avisa que o clique sai do portal. */
+  .modulo .fora { color: var(--texto-fraco); font-size: 13px; font-weight: 400; }
+  .modulo.foraDoPortal .ic { background: #EFEEEA; }
+  .modulo.foraDoPortal .ic svg { stroke: var(--texto-fraco); }
   .vazio { padding: 34px; text-align: center; color: var(--texto-fraco); }
   .trocaSenha { max-width: 420px; padding: 28px; }
   .trocaSenha h3 { font-size: 18px; margin-bottom: 6px; }
@@ -222,16 +227,7 @@ async function carregar() {
     ? 'Você tem acesso a 1 módulo.'
     : 'Você tem acesso a ' + d.modulos.length + ' módulos.';
 
-  grade.innerHTML = d.modulos.map(function (m) {
-    return '<a class="card modulo" href="' + esc(m.base) + '/">' +
-             icone(m.icone) +
-             '<div class="txt">' +
-               '<h3>' + esc(m.nome) + '</h3>' +
-               '<p>' + esc(m.descricao || '') + '</p>' +
-               '<span class="selo selo-off">' + esc(m.papelRotulo || m.papel) + '</span>' +
-             '</div>' +
-           '</a>';
-  }).join('') + cartaoMural() + cartaoAgenda();
+  grade.innerHTML = d.modulos.map(cartaoModulo).join('') + cartaoMural() + cartaoAgenda();
 
   carregarMural();
 }
@@ -335,6 +331,23 @@ async function mostrarPopup() {
 //
 // O selo diz "Todo o grupo" em vez de um papel: nao ha papel, todo mundo que
 // entra no portal enxerga os dois.
+// Um cartao de modulo. Sistema de terceiro (com `externo`) abre no endereco do
+// fornecedor, em outra aba: la nao existe a barra do portal, e sem aba nova a
+// pessoa perderia o portal de vista. A seta ↗ avisa disso antes do clique.
+function cartaoModulo(m) {
+  var fora = Boolean(m.externo);
+  return '<a class="card modulo' + (fora ? ' foraDoPortal' : '') + '" href="' +
+           esc(fora ? m.externo : m.base + '/') + '"' +
+           (fora ? ' target="_blank" rel="noopener noreferrer"' : '') + '>' +
+           icone(m.icone) +
+           '<div class="txt">' +
+             '<h3>' + esc(m.nome) + (fora ? ' <span class="fora">↗</span>' : '') + '</h3>' +
+             '<p>' + esc(m.descricao || '') + '</p>' +
+             '<span class="selo selo-off">' + esc(m.papelRotulo || m.papel) + '</span>' +
+           '</div>' +
+         '</a>';
+}
+
 function cartaoMural() {
   return '<a class="card modulo doPortal" href="/mural">' + icone('megafone') +
            '<div class="txt">' +
@@ -370,6 +383,7 @@ var ICONES = {
   check:     '<path d="M4 12.5 9 17.5 20 6.5"/>',
   briefcase: '<rect x="2.5" y="7" width="19" height="13" rx="2"/><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2M2.5 12h19"/>',
   calculator:'<rect x="5" y="2.5" width="14" height="19" rx="2"/><path d="M8.5 7h7M8.5 11.5h2M13.5 11.5h2M8.5 16h2M13.5 16h2"/>',
+  checklist: '<rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3h6v3H9zM8 12l2.5 2.5L16 9"/>',
   megafone:  '<path d="M4 9v6h3l9 5V4L7 9zM19 9.5a4 4 0 0 1 0 5"/>',
   agenda:    '<rect x="5" y="3" width="15" height="18" rx="2"/><path d="M5 8H3M5 12H3M5 16H3"/><circle cx="12.5" cy="10" r="2.3"/><path d="M9 17a3.5 3.5 0 0 1 7 0"/>',
   padrao:    '<rect x="3.5" y="3.5" width="17" height="17" rx="3"/>',
