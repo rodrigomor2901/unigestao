@@ -275,7 +275,37 @@ document.addEventListener('error',function(ev){
 // resolve.
 const MARCA_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="UniGestão"><defs><linearGradient id="ugGrad" gradientUnits="userSpaceOnUse" x1="0" y1="6" x2="0" y2="58"><stop offset="0" stop-color="#F7B312"/><stop offset=".55" stop-color="#F7B312"/><stop offset=".72" stop-color="#EC7807"/><stop offset="1" stop-color="#EC7807"/></linearGradient><mask id="ugCavidade"><rect width="64" height="64" fill="#fff"/><circle cx="53" cy="28.8" r="3.7" fill="#000"/></mask></defs><g fill="none" stroke="url(#ugGrad)"><path d="M11 6 V34 A21 21 0 0 0 53 34 V30" stroke-width="7"/><path d="M17.5 6 V34 A14.5 14.5 0 0 0 46.5 34 V30" stroke-width="3.2"/><path d="M24 6 V34 A8 8 0 0 0 40 34 V30" stroke-width="2.8"/></g><circle cx="53" cy="30" r="3" fill="#EC7807"/><g fill="#ffffff" mask="url(#ugCavidade)"><rect x="49.5" y="6" width="7" height="22.8" rx="3.5"/><rect x="44.9" y="6" width="3.2" height="22.8" rx="1.6"/><rect x="38.6" y="6" width="2.8" height="22.8" rx="1.4"/></g></svg>`;
 
-const BARRA_CSS = `#ug-barra{position:sticky;top:0;z-index:9999;display:flex;align-items:center;gap:14px;
+// A ALTURA DA BARRA NA PILHA (z-index) — 45, e nao um numero grande
+//
+// Com 9999 a barra pintava por cima dos modais dos modulos: no Precificacao o
+// cabecalho do "Nome do Cargo" ficava escondido atras dela. Modal e modal — ele
+// TEM que cobrir a barra do portal enquanto estiver aberto.
+//
+// 45 nao foi chutado. E o unico intervalo que serve para os seis sistemas ao
+// mesmo tempo, levantado no codigo de cada um:
+//
+//   fica ABAIXO de (para o modal cobrir a barra):
+//     Precificacao  50    modais (`fixed inset-0 z-50`, 26 telas)
+//     CRM           60    lista suspensa    80  avisos
+//     Documentos   100    caixas            200 aviso
+//     Extra        100
+//     Tarefas      900 · 950 · 998 · 999
+//     Eventos     1000 · 9999
+//
+//   fica ACIMA de (para a barra nao sumir sob o conteudo que rola):
+//     Documentos    20    cabecalho proprio, tambem grudado no topo
+//     Tarefas       20    lista de mencoes
+//     Extra         20
+//     CRM           30    lista de notificacoes
+//     Precificacao  40    barra de acoes de Disparo, tambem grudada no topo
+//
+// Ao plugar um sistema novo, conferir os z-index dele contra esta tabela.
+// tests/barra-modal.test.js guarda o limite de cima, que e o que quebrou.
+//
+// Efeito colateral aceito: o menu "Trocar de modulo" abre dentro da barra,
+// entao ele nao sobe acima de 45 por mais alto que seja o z-index dele. Se um
+// dia um modulo desenhar algo entre 45 e o menu, e aqui que se resolve.
+const BARRA_CSS = `#ug-barra{position:sticky;top:0;z-index:45;display:flex;align-items:center;gap:14px;
 padding:7px 16px;background:#26357A;color:#fff;font:14px/1.4 'DM Sans',system-ui,sans-serif}
 #ug-barra a{color:#fff;text-decoration:none;opacity:.9;cursor:pointer}
 #ug-barra a:hover{opacity:1;text-decoration:underline}
