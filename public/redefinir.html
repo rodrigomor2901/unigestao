@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UniGestão — Redefinir senha</title>
+<link rel="icon" href="/marca/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/core.css">
+<style>
+  body { display: grid; place-items: center; min-height: 100vh; padding: 20px; }
+  .caixa { width: 100%; max-width: 400px; padding: 32px; }
+  .marca { text-align: center; margin-bottom: 26px; }
+  .marca h1 { font-size: 24px; margin: 10px 0 2px; }
+  .marca h1 span { color: var(--laranja); }
+  .marca p { color: var(--texto-fraco); font-size: 13.5px; margin: 0; }
+  .titulo { font-size: 17px; margin-bottom: 6px; }
+  .sub { color: var(--texto-fraco); font-size: 13.5px; margin: 0 0 20px; line-height: 1.55; }
+  .btn { width: 100%; }
+  .voltar { display: block; width: 100%; text-align: center; margin-top: 14px;
+            background: none; border: 0; font: inherit; font-size: 13.5px;
+            color: var(--accent); cursor: pointer; text-decoration: underline; }
+  .etapa { display: none; }
+  .etapa.on { display: block; }
+</style>
+</head>
+<body>
+
+<div class="caixa card">
+  <div class="marca">
+    <img src="/marca/simbolo.svg" alt="" width="68" height="68">
+    <h1>Uni<span>Gestão</span></h1>
+    <p>Grupo Uniseter</p>
+  </div>
+
+  <div id="alerta"></div>
+
+  <!-- Enquanto o servidor confere se o link ainda vale -->
+  <div class="etapa on" id="etapaConferindo">
+    <p class="sub">Conferindo o link…</p>
+  </div>
+
+  <!-- Link bom: escolhe a senha nova -->
+  <form class="etapa" id="etapaSenha">
+    <h2 class="titulo">Escolha uma senha nova</h2>
+    <p class="sub">Ela substitui a anterior em todos os sistemas do portal.</p>
+    <label class="campo">
+      <span>Nova senha</span>
+      <input type="password" id="nova" autocomplete="new-password" placeholder="mínimo 8 caracteres" required>
+    </label>
+    <label class="campo">
+      <span>Repita a nova senha</span>
+      <input type="password" id="nova2" autocomplete="new-password" required>
+    </label>
+    <button class="btn" type="submit" id="btnSalvar">Salvar e entrar</button>
+  </form>
+
+  <!-- Link vencido, ja usado ou inventado -->
+  <div class="etapa" id="etapaInvalido">
+    <h2 class="titulo">Este link não vale mais</h2>
+    <p class="sub">
+      Links de redefinição valem por uma hora e só podem ser usados uma vez.
+      Peça um novo na tela de entrada.
+    </p>
+    <a class="btn" href="/" style="display:block;text-align:center;text-decoration:none">
+      Ir para a tela de entrada
+    </a>
+  </div>
+</div>
+
+<script>
+// O token vem no endereço do e-mail e nunca é mostrado na tela: exibi-lo só
+// aumentaria o número de lugares onde ele pode ser copiado por engano.
+var TOKEN = new URLSearchParams(location.search).get('token') || '';
+
+function mostrar(qual) {
+  ['etapaConferindo', 'etapaSenha', 'etapaInvalido'].forEach(function (id) {
+    document.getElementById(id).classList.toggle('on', id === qual);
+  });
+}
+
+function alerta(msg, tipo) {
+  document.getElementById('alerta').innerHTML = msg
+    ? '<div class="aviso aviso-' + tipo + '">' + msg.replace(/[&<>]/g, '') + '</div>' : '';
+}
+
+async function conferir() {
+  if (!TOKEN) return mostrar('etapaInvalido');
+  try {
+    var r = await fetch('/api/senha/redefinir/confere?token=' + encodeURIComponent(TOKEN));
+    var d = await r.json();
+    mostrar(d.valido ? 'etapaSenha' : 'etapaInvalido');
+    if (d.valido) document.getElementById('nova').focus();
+  } catch (e) {
+    mostrar('etapaInvalido');
+  }
+}
+
+document.getElementById('etapaSenha').addEventListener('submit', async function (ev) {
+  ev.preventDefault();
+  var btn = document.getElementById('btnSalvar');
+  var nova = document.getElementById('nova').value;
+  var nova2 = document.getElementById('nova2').value;
+  alerta('', 'erro');
+
+  // Conferido aqui só para a pessoa não descobrir o erro depois de esperar a
+  // ida ao servidor. Quem decide de verdade continua sendo o servidor.
+  if (nova.length < 8) return alerta('A senha precisa ter ao menos 8 caracteres.', 'erro');
+  if (nova !== nova2)  return alerta('As duas senhas não são iguais.', 'erro');
+
+  btn.disabled = true;
+  try {
+    var r = await fetch('/api/senha/redefinir', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: TOKEN, nova: nova }),
+    });
+    var d = await r.json().catch(function () { return {}; });
+    if (!r.ok) throw new Error(d.erro || 'Não foi possível redefinir a senha');
+    // Não entra sozinho: a senha nova é justamente o que a pessoa precisa
+    // digitar uma vez para não esquecer de novo — e quem tem 2FA ainda passa
+    // pelo código do aplicativo.
+    location.href = '/?senhaTrocada=1';
+  } catch (e) {
+    alerta(e.message, 'erro');
+    btn.disabled = false;
+  }
+});
+
+conferir();
+</script>
+</body>
+</html>

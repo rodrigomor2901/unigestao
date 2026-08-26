@@ -89,6 +89,13 @@ app.get("/admin", (req, res) => {
   res.sendFile(path.join(PUBLIC, "admin.html"));
 });
 
+// Pagina do link que chega por e-mail. Nao exige login — quem chega aqui e
+// justamente quem nao consegue entrar. O que protege e o token, conferido no
+// POST abaixo; a pagina em si nao mostra nada de ninguem.
+app.get("/redefinir", (req, res) => {
+  res.sendFile(path.join(PUBLIC, "redefinir.html"));
+});
+
 app.use(express.static(PUBLIC, { index: false }));
 
 // ---------------------------------------------------------------------------
@@ -256,6 +263,149 @@ app.post("/api/logout", async (req, res, next) => {
     if (req.usuario) await auth.auditar(req, "logout");
     await auth.encerrarSessao(token);
     auth.limparCookie(res);
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// ESQUECI MINHA SENHA
+// ---------------------------------------------------------------------------
+// Antes disto, quem perdia a senha dependia de achar um administrador. Agora o
+// caminho de volta passa pelo proprio e-mail corporativo da pessoa.
+//
+// Tres decisoes que valem ser explicadas:
+//
+// 1. A resposta e SEMPRE a mesma, exista o e-mail ou nao. Responder "esse
+//    e-mail nao esta cadastrado" entregaria a estranhos a lista de quem
+//    trabalha aqui, um e-mail por vez.
+//
+// 2. Guarda-se o hash do token, nunca o token. Ver core/schema.sql.
+//
+// 3. Ha um intervalo minimo entre pedidos. Nao e paranoia: a cota do SendGrid
+//    e de 100 e-mails por dia para o grupo TODO, e ja bateu em 95. Sem trava,
+//    um script apertando o botao esgota o dia e derruba junto os avisos de
+//    acesso novo e as notificacoes do Tarefas.
+
+const RESET_VALIDADE_MIN = 60;   // quanto tempo o link vale
+const RESET_INTERVALO_MIN = 15;  // minimo entre dois pedidos da mesma pessoa
+
+const hashDoToken = (t) => crypto.createHash("sha256").update(String(t)).digest("hex");
+
+app.post("/api/senha/esqueci", async (req, res, next) => {
+  // Mensagem unica, dita antes de qualquer consulta, para nao haver caminho de
+  // codigo que responda diferente por engano.
+  const resposta = {
+    ok: true,
+    mensagem: "Se esse e-mail estiver cadastrado, você vai receber as instruções em alguns minutos.",
+  };
+  try {
+    const ip = auth.ipDe(req);
+    if (await auth.ipBloqueado(ip)) {
+      return res.status(429).json({ erro: "Muitas tentativas. Tente novamente em alguns minutos." });
+    }
+    const email = String(req.body.email || "").toLowerCase().trim();
+    if (!email) return res.status(400).json({ erro: "Informe o e-mail" });
+
+    const r = await db.query(
+      "SELECT id, nome, email FROM usuarios WHERE LOWER(email) = $1 AND ativo = TRUE",
+      [email]
+    );
+    const u = r.rows[0];
+    if (!u) {
+      // Conta inexistente ou desativada: nada acontece, e a resposta e a mesma.
+      await auth.auditar(req, "senha_esqueci_desconhecido", { email });
+      return res.json(resposta);
+    }
+
+    const recente = await db.query(
+      `SELECT 1 FROM senha_reset
+        WHERE usuario_id = $1 AND criado_em > NOW() - ($2 || ' minutes')::interval
+        LIMIT 1`,
+      [u.id, String(RESET_INTERVALO_MIN)]
+    );
+    if (recente.rows[0]) {
+      // Ja mandamos ha pouco. Continua respondendo igual: quem pediu duas vezes
+      // seguidas so precisa olhar a caixa de entrada.
+      await auth.auditar(req, "senha_esqueci_repetido", { usuarioId: u.id, email: u.email });
+      return res.json(resposta);
+    }
+
+    const token = crypto.randomBytes(32).toString("hex");
+    await db.query(
+      `INSERT INTO senha_reset (token_hash, usuario_id, expira_em, ip)
+       VALUES ($1, $2, NOW() + ($3 || ' minutes')::interval, $4)`,
+      [hashDoToken(token), u.id, String(RESET_VALIDADE_MIN), ip]
+    );
+
+    const link = `${correio.URL_PORTAL}/redefinir?token=${token}`;
+    const envio = await correio.avisarRecuperarSenha({
+      nome: u.nome, email: u.email, link, minutos: RESET_VALIDADE_MIN,
+    });
+    await auth.auditar(req, "senha_esqueci_enviado", {
+      usuarioId: u.id, email: u.email, detalhe: { enviado: Boolean(envio && envio.ok) },
+    });
+    res.json(resposta);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// A tela do link chama isto antes de mostrar o formulario, so para dizer se o
+// link ainda vale. Nao devolve nome nem e-mail: quem esta com o link pode nao
+// ser o dono dele, e ate a senha ser trocada nao ha por que confirmar de quem
+// e a conta.
+app.get("/api/senha/redefinir/confere", async (req, res, next) => {
+  try {
+    const r = await db.query(
+      `SELECT 1 FROM senha_reset
+        WHERE token_hash = $1 AND usado_em IS NULL AND expira_em > NOW()`,
+      [hashDoToken(req.query.token || "")]
+    );
+    res.json({ valido: Boolean(r.rows[0]) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.post("/api/senha/redefinir", async (req, res, next) => {
+  try {
+    const nova = String(req.body.nova || "");
+    if (nova.length < 8) {
+      return res.status(400).json({ erro: "A nova senha precisa ter ao menos 8 caracteres" });
+    }
+
+    // O UPDATE ... RETURNING marca o token como usado e devolve de quem ele era
+    // no MESMO comando. Ler e depois marcar deixaria uma fresta entre as duas
+    // consultas em que o mesmo link funcionaria duas vezes.
+    const r = await db.query(
+      `UPDATE senha_reset SET usado_em = NOW()
+        WHERE token_hash = $1 AND usado_em IS NULL AND expira_em > NOW()
+        RETURNING usuario_id`,
+      [hashDoToken(req.body.token || "")]
+    );
+    const linha = r.rows[0];
+    if (!linha) {
+      return res.status(400).json({
+        erro: "Este link não vale mais. Peça um novo em “Esqueci minha senha”.",
+      });
+    }
+
+    await db.query(
+      "UPDATE usuarios SET senha = $1, senha_temp = FALSE WHERE id = $2",
+      [auth.gerarHash(nova), linha.usuario_id]
+    );
+    // Qualquer outro link pendente da mesma pessoa morre junto.
+    await db.query(
+      "UPDATE senha_reset SET usado_em = NOW() WHERE usuario_id = $1 AND usado_em IS NULL",
+      [linha.usuario_id]
+    );
+    // E as sessoes abertas caem. Se a senha foi trocada porque alguem entrou na
+    // conta, deixar a sessao dessa pessoa de pe tornaria a troca inutil.
+    await auth.encerrarSessoesDoUsuario(linha.usuario_id);
+
+    await auth.auditar(req, "senha_redefinida_pelo_link", { usuarioId: linha.usuario_id });
     res.json({ ok: true });
   } catch (e) {
     next(e);

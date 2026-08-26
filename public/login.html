@@ -59,6 +59,20 @@
       <input type="password" id="senha" autocomplete="current-password" required>
     </label>
     <button class="btn" type="submit" id="btnEntrar">Entrar</button>
+    <button type="button" class="voltar" onclick="mostrar('etapaEsqueci')">Esqueci minha senha</button>
+  </form>
+
+  <!-- Pedido de recuperação: só o e-mail -->
+  <form class="etapa" id="etapaEsqueci">
+    <p style="margin:0 0 18px;color:var(--texto-fraco);font-size:14px;line-height:1.55">
+      Informe seu e-mail corporativo. Mandamos um link para você escolher uma senha nova.
+    </p>
+    <label class="campo">
+      <span>E-mail</span>
+      <input type="email" id="emailEsqueci" autocomplete="username" required>
+    </label>
+    <button class="btn" type="submit" id="btnEsqueci">Enviar o link</button>
+    <button type="button" class="voltar" onclick="mostrar('etapaSenha')">Voltar</button>
   </form>
 
   <!-- Etapa 2: codigo do app autenticador -->
@@ -118,6 +132,16 @@ function mostrar(id) {
   document.getElementById(id).classList.add('on');
 }
 
+// Quem acabou de redefinir a senha volta para ca com ?senhaTrocada=1. Sem este
+// aviso a pessoa cai numa tela de login igual a de antes e fica sem saber se
+// deu certo.
+if (new URLSearchParams(location.search).get('senhaTrocada')) {
+  setTimeout(function () {
+    alerta('Senha alterada. Entre com a senha nova.', 'ok');
+    history.replaceState({}, '', '/');
+  }, 0);
+}
+
 function alerta(msg, tipo) {
   document.getElementById('alerta').innerHTML = msg
     ? '<div class="aviso aviso-' + (tipo || 'erro') + '">' + msg + '</div>'
@@ -152,6 +176,26 @@ function erroNoCodigo(e, campoId) {
   campo.value = '';
   campo.focus();
 }
+
+// A resposta e a MESMA exista o e-mail ou nao — e o servidor que garante isso
+// (ver /api/senha/esqueci). A tela nao tenta ser mais esperta: dizer "esse
+// e-mail nao existe" entregaria a lista de quem trabalha aqui, um por vez.
+document.getElementById('etapaEsqueci').addEventListener('submit', async function (ev) {
+  ev.preventDefault();
+  var btn = document.getElementById('btnEsqueci');
+  btn.disabled = true;
+  alerta('');
+  try {
+    var d = await api('/api/senha/esqueci', {
+      email: document.getElementById('emailEsqueci').value
+    });
+    alerta(d.mensagem, 'ok');
+    mostrar('etapaSenha');
+  } catch (e) {
+    alerta(e.message);
+  }
+  btn.disabled = false;
+});
 
 document.getElementById('etapaSenha').addEventListener('submit', async function (ev) {
   ev.preventDefault();

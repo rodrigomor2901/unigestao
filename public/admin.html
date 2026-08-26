@@ -359,8 +359,26 @@ function aplicarSuper() {
 document.getElementById('fSuper').addEventListener('change', aplicarSuper);
 
 function fechar() { document.getElementById('fundo').classList.remove('on'); }
+
+// Fechar clicando fora, mas so quando o clique COMECOU fora.
+//
+// So com o `click` a tela fechava ao escolher um papel na lista suspensa. A
+// lista de um <select> e desenhada pelo sistema operacional, por cima de tudo:
+// quando a pessoa clica numa opcao que cai fora da caixa do modal, o navegador
+// entrega o clique naquelas coordenadas — e ali embaixo esta o fundo. Do ponto
+// de vista do `click`, foi um clique fora, e a tela ia embora com o formulario
+// preenchido junto.
+//
+// Guardando onde o botao do mouse DESCEU, esse clique nunca e confundido com
+// "clicou fora": ele nao teve mousedown no fundo. E o clique de verdade no
+// fundo — que desce e sobe ali — continua fechando, como antes.
+var desceuNoFundo = false;
+document.getElementById('fundo').addEventListener('mousedown', function (e) {
+  desceuNoFundo = e.target === this;
+});
 document.getElementById('fundo').addEventListener('click', function (e) {
-  if (e.target === this) fechar();
+  if (e.target === this && desceuNoFundo) fechar();
+  desceuNoFundo = false;
 });
 
 function modulosSelecionados() {

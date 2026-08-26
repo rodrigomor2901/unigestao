@@ -31,7 +31,10 @@ const ARQUIVO = (process.env.EMAIL_ARQUIVO || "").trim();
 
 const REMETENTE_ENDERECO = (process.env.EMAIL_FROM || "naoresponda@uniseter.com.br").trim();
 const REMETENTE = "UniGestão <" + REMETENTE_ENDERECO + ">";
-const URL_PORTAL = (process.env.URL_PUBLICA || "https://unigestao.up.railway.app").replace(/\/+$/, "");
+// Endereco publico do portal. `botao(texto, destino)` aceita um destino
+// proprio — o link de recuperacao de senha vai para /redefinir?token=...
+const URL_PORTAL_PADRAO = (process.env.URL_PUBLICA || "https://unigestao.up.railway.app").replace(/\/+$/, "");
+const URL_PORTAL = URL_PORTAL_PADRAO;
 
 function configurado() {
   return Boolean(CHAVE || ARQUIVO);
@@ -147,10 +150,11 @@ function larguraBotaoOutlook(texto) {
   return Math.round(larguraBotao(texto) * 1.45);
 }
 
-function botao(texto) {
+function botao(texto, destino) {
   const rotulo = esc(texto);
   const larg = larguraBotao(texto);
   const largMso = larguraBotaoOutlook(texto);
+  const URL_PORTAL = destino || URL_PORTAL_PADRAO;
   return '<div style="margin:22px 0">' +
       '<!--[if mso]>' +
       '<v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" ' +
@@ -290,9 +294,43 @@ async function avisarSenhaNova(dados) {
   return enviar(dados.email, "Sua senha do UniGestão foi redefinida", htmlSenhaNova(dados));
 }
 
+// ---------------------------------------------------------------------------
+// E-mail 4 — quem esqueceu a senha e pediu o caminho de volta.
+//
+// NAO leva senha nenhuma dentro. Manda um link que vale por uma hora e uma vez
+// so; a senha nova quem escolhe e a propria pessoa, na tela. Senha viajando por
+// e-mail fica para sempre na caixa de entrada de quem a recebeu.
+//
+// O aviso do fim existe para o caso de nao ter sido a pessoa que pediu: se
+// alguem tentar entrar na conta dela, e esse e-mail que a avisa.
+// ---------------------------------------------------------------------------
+function htmlRecuperarSenha({ nome, link, minutos }) {
+  const primeiro = String(nome || "").trim().split(/\s+/)[0] || "";
+  const miolo =
+    '<p style="margin:0 0 16px;font-size:14px;color:#344054;line-height:1.6">' +
+      'Olá' + (primeiro ? ", " + esc(primeiro) : "") + '! Recebemos um pedido para ' +
+      'redefinir a senha do seu acesso ao <b>UniGestão</b>. Clique no botão abaixo ' +
+      'para escolher uma senha nova.' +
+    '</p>' +
+    botao("Escolher uma senha nova", link) +
+    '<p style="margin:20px 0 0;font-size:14px;color:#344054;line-height:1.6">' +
+      'O link vale por <b>' + esc(String(minutos)) + ' minutos</b> e só pode ser usado ' +
+      'uma vez.' +
+    '</p>' +
+    '<p style="margin:12px 0 0;font-size:14px;color:#344054;line-height:1.6">' +
+      'Se não foi você que pediu, ignore este e-mail — sua senha continua a mesma. ' +
+      'Se isso se repetir, avise o administrador do sistema.' +
+    '</p>';
+  return moldura("Redefinir sua senha", miolo);
+}
+
+async function avisarRecuperarSenha(dados) {
+  return enviar(dados.email, "Redefinir sua senha do UniGestão", htmlRecuperarSenha(dados));
+}
+
 module.exports = {
   configurado, modo, enviar,
-  avisarContaNova, avisarModuloNovo, avisarSenhaNova,
-  htmlContaNova, htmlModuloNovo, htmlSenhaNova,
+  avisarContaNova, avisarModuloNovo, avisarSenhaNova, avisarRecuperarSenha,
+  htmlContaNova, htmlModuloNovo, htmlSenhaNova, htmlRecuperarSenha,
   mascarar, URL_PORTAL, REMETENTE_ENDERECO,
 };

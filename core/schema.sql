@@ -233,3 +233,27 @@ UPDATE usuarios
    AND departamentos = '{}';
 
 CREATE INDEX IF NOT EXISTS idx_usuarios_departamentos ON usuarios USING GIN (departamentos);
+
+-- ------------------------------------------------------------
+-- RECUPERACAO DE SENHA
+-- ------------------------------------------------------------
+-- Quem esquece a senha hoje fica sem acesso ate achar um administrador. Isto
+-- da o caminho de volta pelo proprio e-mail da pessoa.
+--
+-- Guarda o HASH do token, nunca o token. O token cru existe em dois lugares e
+-- so por uma hora: no link do e-mail e na mao de quem o recebeu. Assim, um
+-- vazamento desta tabela nao permite redefinir a senha de ninguem.
+--
+-- `usado_em` e o que faz o link valer UMA vez. Sem isso, o link fica no
+-- historico do navegador e na caixa de entrada, e qualquer um que alcance
+-- aquele e-mail depois entra na conta quando quiser.
+CREATE TABLE IF NOT EXISTS senha_reset (
+  token_hash TEXT        PRIMARY KEY,
+  usuario_id TEXT        NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  criado_em  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expira_em  TIMESTAMPTZ NOT NULL,
+  usado_em   TIMESTAMPTZ,
+  ip         TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_senha_reset_usuario ON senha_reset (usuario_id, criado_em DESC);
+CREATE INDEX IF NOT EXISTS idx_senha_reset_expira  ON senha_reset (expira_em);
