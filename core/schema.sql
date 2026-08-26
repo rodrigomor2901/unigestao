@@ -257,3 +257,27 @@ CREATE TABLE IF NOT EXISTS senha_reset (
 );
 CREATE INDEX IF NOT EXISTS idx_senha_reset_usuario ON senha_reset (usuario_id, criado_em DESC);
 CREATE INDEX IF NOT EXISTS idx_senha_reset_expira  ON senha_reset (expira_em);
+
+-- ------------------------------------------------------------
+-- BLOQUEIO DE FORCA BRUTA — por CONTA, nao so por IP
+-- ------------------------------------------------------------
+-- A tabela `login_attempts` acima contava por IP. Num escritorio isso e um
+-- contador so para todo mundo: as 44 pessoas saem pelo mesmo endereco publico,
+-- e quem errasse a senha derrubava o acesso dos colegas junto. Foi o que
+-- aconteceu em 26/08/2026 — tres pessoas bloqueadas ao mesmo tempo por causa
+-- de erros de senha de duas delas.
+--
+-- Agora a chave e generica: 'conta:<e-mail>' ou 'ip:<endereco>'. Quem errar a
+-- propria senha trava a PROPRIA conta por alguns minutos; o IP continua tendo
+-- um teto, mas alto o bastante para um escritorio inteiro nunca esbarrar nele
+-- por acidente — ele existe contra script, nao contra gente com dedo pesado.
+--
+-- `login_attempts` fica sem uso, e nao e derrubada aqui: a carga roda no
+-- arranque do Core novo enquanto o antigo ainda atende e ainda escreve nela.
+CREATE TABLE IF NOT EXISTS login_tentativas (
+  chave         TEXT        PRIMARY KEY,
+  count         INT         NOT NULL DEFAULT 0,
+  first_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  blocked_until TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_login_tentativas_bloqueio ON login_tentativas (blocked_until);

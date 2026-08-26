@@ -20,7 +20,7 @@ const ok = (c, m) => { console.log((c ? "  OK   " : "  FALHA") + "  " + m); if (
 
 (async () => {
   const pool = new Pool({ connectionString: CONEXAO });
-  await pool.query("DELETE FROM login_attempts");
+  await pool.query("DELETE FROM login_tentativas");
   await pool.query("DELETE FROM avisos WHERE titulo LIKE 'MuralTeste%'");
   await pool.query("DELETE FROM usuarios WHERE email LIKE 'mural.%@uniseter.com'");
 

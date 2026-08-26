@@ -49,7 +49,7 @@ function ultimoLinkPara(email) {
 
 (async () => {
   const pool = new Pool({ connectionString: CONEXAO });
-  await pool.query("DELETE FROM login_attempts");
+  await pool.query("DELETE FROM login_tentativas");
   await pool.query("DELETE FROM usuarios WHERE email LIKE 'esq.%@uniseter.com'");
 
   const email = "esq.ana@uniseter.com";
@@ -137,7 +137,7 @@ function ultimoLinkPara(email) {
      "senha curta é recusada");
 
   await pool.query("DELETE FROM usuarios WHERE email LIKE 'esq.%@uniseter.com'");
-  await pool.query("DELETE FROM login_attempts");
+  await pool.query("DELETE FROM login_tentativas");
   await pool.end();
 
   console.log("\n" + (falhas === 0 ? "TODOS OS TESTES PASSARAM" : falhas + " TESTE(S) FALHARAM"));

@@ -41,7 +41,7 @@ async function esperar(url, tentativas = 40) {
   PORTA_FACHADA = await portaLivre();
 
   const poolCore = new Pool({ connectionString: BANCO_CORE });
-  await poolCore.query("DELETE FROM login_attempts");
+  await poolCore.query("DELETE FROM login_tentativas");
   await poolCore.query("DELETE FROM usuarios WHERE email LIKE 'oper.%@uniseter.com'");
 
   // ── sobe o modulo de verdade ──────────────────────────────────────────────
@@ -178,7 +178,7 @@ async function esperar(url, tentativas = 40) {
   ok(d2.user && d2.user.role === "supervisor", "papel novo refletido no modulo");
 
   await poolCore.query("DELETE FROM usuarios WHERE email LIKE 'oper.%@uniseter.com'");
-  await poolCore.query("DELETE FROM login_attempts");
+  await poolCore.query("DELETE FROM login_tentativas");
   await poolMod.query("DELETE FROM users WHERE data->>'email' LIKE 'oper.%@uniseter.com'");
   await poolCore.end();
   await poolMod.end();

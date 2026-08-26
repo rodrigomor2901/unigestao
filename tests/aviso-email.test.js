@@ -37,7 +37,7 @@ function limparCaixa() {
 (async () => {
   const pool = new Pool({ connectionString: "postgres://postgres:teste@localhost:55987/unigestao" });
   // Bloqueio por IP e estado global entre os arquivos de teste — ver permissao.test.js
-  await pool.query("DELETE FROM login_attempts");
+  await pool.query("DELETE FROM login_tentativas");
   await pool.query("DELETE FROM usuarios WHERE email LIKE 'aviso.%@uniseter.com'");
 
   const idAdm = "u" + crypto.randomBytes(9).toString("hex");

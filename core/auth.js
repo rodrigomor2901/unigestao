@@ -261,36 +261,97 @@ setInterval(() => {
 }, 60 * 60 * 1000).unref();
 
 // ============================================================================
-// BLOQUEIO DE FORCA BRUTA — 10 tentativas por IP a cada 15 minutos
+// BLOQUEIO DE FORCA BRUTA — por CONTA, com o IP so como teto
 // ============================================================================
+//
+// A versao anterior contava por IP e tinha DOIS defeitos, os dois vistos em
+// producao no dia 26/08/2026:
+//
+// 1. UM CONTADOR PARA O ESCRITORIO INTEIRO. As 44 pessoas saem pelo mesmo
+//    endereco publico, entao quem errava a senha gastava as tentativas de
+//    todo mundo. Tres pessoas ficaram sem entrar por causa dos erros de duas.
+//
+// 2. O BLOQUEIO OLHAVA O CONTADOR VELHO. Quando a janela de 15 minutos vencia,
+//    `count` voltava para 1 — mas a decisao de bloquear era tomada com o valor
+//    ANTERIOR. Um contador parado em 9 fazia a PRIMEIRA tentativa errada depois
+//    do intervalo bloquear na hora. Foi assim que a Lais levou bloqueio com uma
+//    unica senha errada, com o contador marcando 1.
+//
+// Agora a chave e 'conta:<e-mail>' ou 'ip:<endereco>', e cada uma tem o seu
+// limite. Errar a propria senha trava a propria conta por 15 minutos; o teto
+// por IP existe contra script, e e alto o bastante para um escritorio inteiro
+// nunca esbarrar nele sem querer.
+//
+// O limite por conta abre a porta para alguem travar a conta de um colega de
+// proposito, errando a senha dele. E o preco conhecido dessa escolha — e por
+// isso o bloqueio e curto e nao exige ninguem para desfazer. A alternativa
+// (contar so por IP) ja se provou pior: derruba o escritorio inteiro.
 
-const MAX_TENTATIVAS = 10;
+const MAX_POR_CONTA = 8;
+const MAX_POR_IP = 60;
 const JANELA_MIN = 15;
 
-async function ipBloqueado(ip) {
+const chaveConta = (email) => "conta:" + String(email || "").toLowerCase().trim();
+const chaveIp = (ip) => "ip:" + String(ip || "");
+
+// Devolve { ate, motivo } se houver bloqueio valendo, ou null.
+async function bloqueado(ip, email) {
+  const chaves = [chaveIp(ip)];
+  if (email) chaves.push(chaveConta(email));
   const r = await db.query(
-    "SELECT blocked_until FROM login_attempts WHERE ip = $1 AND blocked_until > NOW()",
-    [ip]
+    `SELECT chave, blocked_until FROM login_tentativas
+      WHERE chave = ANY($1) AND blocked_until > NOW()
+      ORDER BY blocked_until DESC LIMIT 1`,
+    [chaves]
   );
-  return r.rows[0] ? r.rows[0].blocked_until : null;
+  if (!r.rows[0]) return null;
+  return {
+    ate: r.rows[0].blocked_until,
+    motivo: r.rows[0].chave.startsWith("conta:") ? "conta" : "ip",
+  };
 }
 
-async function registrarFalha(ip) {
+// Compat: quem so tem o IP em mao (a recuperacao de senha, por exemplo).
+async function ipBloqueado(ip) {
+  const b = await bloqueado(ip, null);
+  return b ? b.ate : null;
+}
+
+// A MESMA expressao decide o contador novo e o bloqueio.
+//
+// Era exatamente aqui que estava o defeito 2: o count era recalculado e o
+// bloqueio olhava `count + 1` do valor guardado. Repetir a expressao inteira
+// dentro do CASE nao e bonito, mas garante que os dois falam do mesmo numero.
+//
+// `blocked_until` tambem deixou de ser zerado quando a condicao e falsa: antes,
+// a tentativa seguinte apagava um bloqueio que estava valendo.
+async function marcar(chave, limite) {
+  const novoCount =
+    `CASE WHEN login_tentativas.first_at < NOW() - INTERVAL '${JANELA_MIN} minutes'
+          THEN 1 ELSE login_tentativas.count + 1 END`;
   await db.query(
-    `INSERT INTO login_attempts (ip, count, first_at) VALUES ($1, 1, NOW())
-     ON CONFLICT (ip) DO UPDATE SET
-       count = CASE WHEN login_attempts.first_at < NOW() - INTERVAL '${JANELA_MIN} minutes'
-                    THEN 1 ELSE login_attempts.count + 1 END,
-       first_at = CASE WHEN login_attempts.first_at < NOW() - INTERVAL '${JANELA_MIN} minutes'
-                       THEN NOW() ELSE login_attempts.first_at END,
-       blocked_until = CASE WHEN login_attempts.count + 1 >= ${MAX_TENTATIVAS}
-                            THEN NOW() + INTERVAL '${JANELA_MIN} minutes' ELSE NULL END`,
-    [ip]
+    `INSERT INTO login_tentativas (chave, count, first_at) VALUES ($1, 1, NOW())
+     ON CONFLICT (chave) DO UPDATE SET
+       count = ${novoCount},
+       first_at = CASE WHEN login_tentativas.first_at < NOW() - INTERVAL '${JANELA_MIN} minutes'
+                       THEN NOW() ELSE login_tentativas.first_at END,
+       blocked_until = CASE WHEN (${novoCount}) >= ${limite}
+                            THEN NOW() + INTERVAL '${JANELA_MIN} minutes'
+                            ELSE login_tentativas.blocked_until END`,
+    [chave]
   );
 }
 
-async function limparFalhas(ip) {
-  await db.query("DELETE FROM login_attempts WHERE ip = $1", [ip]);
+async function registrarFalha(ip, email) {
+  if (email) await marcar(chaveConta(email), MAX_POR_CONTA);
+  await marcar(chaveIp(ip), MAX_POR_IP);
+}
+
+// Entrou: o contador da CONTA zera. O do IP nao — senao bastaria uma entrada
+// bem-sucedida qualquer para limpar o teto que protege contra script.
+async function limparFalhas(ip, email) {
+  if (!email) return;
+  await db.query("DELETE FROM login_tentativas WHERE chave = $1", [chaveConta(email)]);
 }
 
 // ============================================================================
@@ -328,6 +389,7 @@ module.exports = {
   MAX_TENTATIVAS_2FA,
   criarSessao, lerSessao, encerrarSessao, encerrarSessoesDoUsuario,
   definirCookie, limparCookie, lerToken, COOKIE,
-  ipBloqueado, registrarFalha, limparFalhas,
+  bloqueado, ipBloqueado, registrarFalha, limparFalhas,
+  MAX_POR_CONTA, MAX_POR_IP, JANELA_MIN,
   auditar, ipDe,
 };

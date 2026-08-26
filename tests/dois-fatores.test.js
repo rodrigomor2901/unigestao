@@ -41,7 +41,7 @@ async function post(rota, corpo) {
   // O bloqueio por IP e estado global e vale para todos os testes. Este arquivo
   // gera muitos codigos errados de proposito, entao zera antes E depois — senao
   // o arquivo seguinte esbarra no limite de 10 tentativas e falha sem motivo.
-  await pool.query("DELETE FROM login_attempts");
+  await pool.query("DELETE FROM login_tentativas");
   await pool.query("DELETE FROM usuarios WHERE email = 'dois.fatores@uniseter.com'");
 
   const segredo = auth.gerarSegredoTOTP();
@@ -100,7 +100,7 @@ async function post(rota, corpo) {
   ok(limpou.rows.length === 0, "pendencia apagada depois do login concluido");
 
   // O bloqueio por IP conta os codigos errados; limpa para nao atrapalhar os outros testes
-  await pool.query("DELETE FROM login_attempts");
+  await pool.query("DELETE FROM login_tentativas");
   await pool.query("DELETE FROM usuarios WHERE email = 'dois.fatores@uniseter.com'");
   await pool.end();
 

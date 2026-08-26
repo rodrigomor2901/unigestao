@@ -18,7 +18,7 @@ function ok(c, m) { console.log((c ? "  OK   " : "  FALHA") + "  " + m); if (!c)
 
 (async () => {
   const pool = new Pool({ connectionString: CONEXAO });
-  await pool.query("DELETE FROM login_attempts");
+  await pool.query("DELETE FROM login_tentativas");
   await pool.query("DELETE FROM usuarios WHERE email = 'super.teste@uniseter.com'");
 
   const id = "u" + crypto.randomBytes(9).toString("hex");
@@ -81,7 +81,7 @@ function ok(c, m) { console.log((c ? "  OK   " : "  FALHA") + "  " + m); if (!c)
   }
 
   await pool.query("DELETE FROM usuarios WHERE email = 'super.teste@uniseter.com'");
-  await pool.query("DELETE FROM login_attempts");
+  await pool.query("DELETE FROM login_tentativas");
   await pool.end();
 
   console.log("\n" + (falhas === 0 ? "TODOS OS TESTES PASSARAM" : falhas + " TESTE(S) FALHARAM"));

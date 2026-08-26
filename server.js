@@ -105,16 +105,23 @@ app.use(express.static(PUBLIC, { index: false }));
 app.post("/api/login", async (req, res, next) => {
   try {
     const ip = auth.ipDe(req);
-    const bloqueado = await auth.ipBloqueado(ip);
-    if (bloqueado) {
-      return res.status(429).json({
-        erro: "Muitas tentativas. Tente novamente em alguns minutos.",
-      });
-    }
-
     const email = String(req.body.email || "").toLowerCase().trim();
     const senha = String(req.body.senha || "");
     if (!email || !senha) return res.status(400).json({ erro: "Informe e-mail e senha" });
+
+    // A conferencia do bloqueio vem DEPOIS de ler o e-mail, porque agora ela
+    // pergunta pela conta e nao so pelo endereco de rede. A mensagem diz de
+    // qual dos dois se trata: "sua conta" e algo que a pessoa resolve sozinha
+    // esperando; "deste local" e o teto do escritorio, que quase nunca aparece
+    // e, se aparecer, e sinal de que algo esta tentando adivinhar senhas.
+    const trava = await auth.bloqueado(ip, email);
+    if (trava) {
+      return res.status(429).json({
+        erro: trava.motivo === "conta"
+          ? "Muitas tentativas nesta conta. Tente novamente em alguns minutos, ou use “Esqueci minha senha”."
+          : "Muitas tentativas a partir deste local. Tente novamente em alguns minutos.",
+      });
+    }
 
     const r = await db.query(
       "SELECT * FROM usuarios WHERE LOWER(email) = $1 AND ativo = TRUE",
@@ -125,7 +132,7 @@ app.post("/api/login", async (req, res, next) => {
     const conferiu = u ? await auth.verificarSenha(senha, u.senha) : { ok: false };
 
     if (!u || !conferiu.ok) {
-      await auth.registrarFalha(ip);
+      await auth.registrarFalha(ip, email);
       await auth.auditar(req, "login_falhou", { email, detalhe: { motivo: u ? "senha" : "email" } });
       // Senha em formato legado inseguro (Gestao de Eventos): orienta a redefinir
       if (conferiu.legadoInseguro) {
@@ -137,7 +144,7 @@ app.post("/api/login", async (req, res, next) => {
       return res.status(401).json({ erro: "E-mail ou senha inválidos" });
     }
 
-    await auth.limparFalhas(ip);
+    await auth.limparFalhas(ip, email);
 
     // Regrava a senha no formato novo quando veio de um sistema antigo
     if (conferiu.precisaRegravar) {
@@ -173,7 +180,7 @@ app.post("/api/login/2fa", async (req, res, next) => {
 
     if (!auth.verificarTOTP(u.totp_secret, req.body.codigo)) {
       const restam = await auth.registrarTentativa2FA(tempToken);
-      await auth.registrarFalha(auth.ipDe(req));
+      await auth.registrarFalha(auth.ipDe(req), u.email);
       await auth.auditar(req, "login_2fa_falhou", { usuarioId: u.id, email: u.email });
       return res.status(401).json({ erro: mensagemCodigoInvalido(restam), recomecar: restam === 0 });
     }
