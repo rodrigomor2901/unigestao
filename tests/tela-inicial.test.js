@@ -19,9 +19,10 @@ const ok = (c, m) => { console.log((c ? "  OK   " : "  FALHA") + "  " + m); if (
 function criarDocumento() {
   const elementos = new Map();
   const novo = (id) => ({
-    id, innerHTML: "", textContent: "", style: {}, value: "",
+    id, innerHTML: "", textContent: "", style: {}, value: "", dataset: {},
     classList: { toggle() {}, add() {}, remove() {} },
     addEventListener() {}, querySelectorAll: () => [], remove() {},
+    insertAdjacentHTML() {}, setAttribute() {}, getAttribute: () => null,
   });
   return {
     elementos,
@@ -42,10 +43,12 @@ function scriptDe(arquivo) {
   return m.map((x) => x[1]).join("\n");
 }
 
+// Com `id`: e o que a API devolve de verdade (ver modulosDoUsuario em
+// server.js), e e a chave que a tela usa para guardar a ordem dos cartoes.
 const MODULOS = [
-  { nome: "Movimentação Operacional", descricao: "Extras", base: "/operacional",
-    papelRotulo: "CCO", icone: "truck" },
-  { nome: "CRM Comercial", descricao: "Pipeline", base: "/crm",
+  { id: "operacional", nome: "Movimentação Operacional", descricao: "Extras",
+    base: "/operacional", papelRotulo: "CCO", icone: "truck" },
+  { id: "crm", nome: "CRM Comercial", descricao: "Pipeline", base: "/crm",
     papelRotulo: "Vendedor", icone: "briefcase" },
 ];
 
@@ -116,6 +119,49 @@ async function rodarTela({ usuario, modulos, publicacoes = [] }) {
   });
   ok(quantosIcones(semIcone.getElementById("grade").innerHTML) === 3,
      "modulo sem o campo `icone` tambem ganha o quadrado generico");
+
+  console.log("\n=== A ORDEM SALVA PELA PESSOA E RESPEITADA ===");
+  // A ordem e uma PREFERENCIA, nunca um filtro. O erro caro aqui seria usar a
+  // lista salva para decidir o que mostrar: quem ganhasse um modulo novo nao o
+  // veria, e ninguem entenderia por que.
+  const ordenado = await rodarTela({
+    usuario: { nome: "Fulana", superAdmin: false, senhaTemp: false, exigirPerfil: false,
+               ordemModulos: ["portal:agenda", "crm"] },
+    modulos: MODULOS,
+  });
+  const g = ordenado.getElementById("grade").innerHTML;
+  const posDe = (t) => g.indexOf(t);
+  ok(posDe("Agenda") < posDe("CRM Comercial"),
+     "a Agenda, salva em primeiro, vem antes do CRM");
+  ok(posDe("CRM Comercial") < posDe("Movimentação Operacional"),
+     "o CRM, salvo em segundo, vem antes do que nao foi arrastado");
+  ok(posDe("Movimentação Operacional") > 0,
+     "e o modulo fora da lista salva NAO some — so vai para o fim");
+  ok(posDe("Mural") > 0, "o Mural, tambem fora da lista, continua na tela");
+
+  // Cada cartao precisa levar a chave, senao nao ha o que salvar depois.
+  ok(g.includes('data-chave="crm"'), "cada cartao carrega a chave que sera salva");
+  ok(g.includes('data-chave="portal:mural"'),
+     "inclusive as telas do proprio portal, com chave propria");
+
+  // Chave que nao existe mais (modulo removido da pessoa) nao pode quebrar nada.
+  const comLixo = await rodarTela({
+    usuario: { nome: "Fulana", superAdmin: false, senhaTemp: false, exigirPerfil: false,
+               ordemModulos: ["modulo-que-nao-existe-mais", "crm"] },
+    modulos: MODULOS,
+  });
+  const g2 = comLixo.getElementById("grade").innerHTML;
+  ok(g2.includes("CRM Comercial") && g2.includes("Movimentação Operacional"),
+     "chave orfa na ordem salva e ignorada, e a tela desenha normalmente");
+
+  // Sem ordem salva (todo mundo, no primeiro acesso) nada muda.
+  const semOrdem = await rodarTela({
+    usuario: { nome: "Fulana", superAdmin: false, senhaTemp: false, exigirPerfil: false },
+    modulos: MODULOS,
+  });
+  const g3 = semOrdem.getElementById("grade").innerHTML;
+  ok(g3.indexOf("Movimentação Operacional") < g3.indexOf("CRM Comercial"),
+     "sem ordem salva, vale a ordem natural do registro de modulos");
 
   console.log("\n=== SEM MODULO LIBERADO, A PESSOA NAO FICA NO VAZIO ===");
   const vazio = await rodarTela({

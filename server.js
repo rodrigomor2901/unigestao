@@ -436,7 +436,7 @@ app.post("/api/senha/redefinir", async (req, res, next) => {
 app.get("/api/eu", exigeLogin, async (req, res, next) => {
   try {
     const p = await db.query(
-      `SELECT telefone, ramal, departamento, departamentos, cargo,
+      `SELECT telefone, ramal, departamento, departamentos, cargo, modulos_ordem,
               EXISTS (SELECT 1 FROM usuario_foto f WHERE f.usuario_id = u.id) AS tem_foto
          FROM usuarios u WHERE u.id = $1`,
       [req.usuario.id]
@@ -457,6 +457,9 @@ app.get("/api/eu", exigeLogin, async (req, res, next) => {
         perfilCompleto: perfil.completo(dados),
         podePublicarMural: mural.podePublicar(req.usuario),
         podeVerChecklists: checklists.podeVer(req.usuario),
+        // A ordem em que a pessoa arrastou os cartoes. Lista vazia = ordem
+        // padrao; a tela nao precisa saber a diferenca.
+        ordemModulos: dados.modulos_ordem || [],
         // A tela so barra quando as duas coisas valem: a exigencia esta ligada
         // E falta dado. Assim o mesmo codigo serve para antes e depois de a
         // regra entrar em vigor, sem if espalhado pela interface.
@@ -464,6 +467,37 @@ app.get("/api/eu", exigeLogin, async (req, res, next) => {
       },
       modulos: await modulosDoUsuario(req.usuario),
     });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// A ordem dos cartoes na tela inicial, arrastada pela propria pessoa.
+//
+// Guarda CHAVES, nao posicoes. A lista e uma PREFERENCIA e nunca um filtro:
+// quem desenha a tela usa isto so para ordenar o que a pessoa realmente
+// alcanca. Modulo concedido depois nao esta na lista e mesmo assim aparece, no
+// fim — se fosse filtro, o cartao novo sumiria e ninguem entenderia por que.
+//
+// Nao ha validacao contra a lista de modulos de proposito: chave desconhecida
+// aqui e inofensiva (a tela ignora), e validar obrigaria esta rota a conhecer
+// tambem as telas do proprio portal (mural, agenda, checklists), que nao sao
+// modulos. O teto de tamanho existe so para o campo nao virar deposito.
+app.post("/api/eu/ordem-modulos", exigeLogin, async (req, res, next) => {
+  try {
+    const bruta = Array.isArray(req.body.ordem) ? req.body.ordem : [];
+    const vistas = new Set();
+    const ordem = [];
+    for (const item of bruta) {
+      const chave = String(item || "").trim().slice(0, 60);
+      if (!chave || vistas.has(chave)) continue;
+      vistas.add(chave);
+      ordem.push(chave);
+      if (ordem.length >= 60) break;
+    }
+    await db.query("UPDATE usuarios SET modulos_ordem = $1::text[] WHERE id = $2",
+                   [ordem, req.usuario.id]);
+    res.json({ ok: true, ordem });
   } catch (e) {
     next(e);
   }

@@ -154,6 +154,29 @@
   .modulo .fora { color: var(--texto-fraco); font-size: 13px; font-weight: 400; }
   .modulo.foraDoPortal .ic { background: #EFEEEA; }
   .modulo.foraDoPortal .ic svg { stroke: var(--texto-fraco); }
+  /* Arrastar para reordenar.
+     touch-action:none nos cartoes e o que permite arrastar com o dedo: sem
+     isso o navegador entende o movimento como rolagem da pagina e o arrasto
+     nunca comeca. */
+  .grade .modulo { touch-action: none; }
+  .modulo.arrastando {
+    opacity: .9; box-shadow: 0 10px 26px rgba(16,24,40,.18);
+    transform: scale(1.02); z-index: 5; position: relative; pointer-events: none;
+  }
+  .modulo.alvo { outline: 2px dashed var(--laranja); outline-offset: 2px; }
+  /* Some no celular: la o toque longo ja abre o arrasto, e o icone roubaria
+     espaco de um cartao que ja e estreito. */
+  .modulo .pegar {
+    position: absolute; top: 8px; right: 10px; color: var(--borda);
+    font-size: 15px; line-height: 1; letter-spacing: -2px; user-select: none;
+  }
+  .modulo { position: relative; }
+  .modulo:hover .pegar { color: var(--texto-fraco); }
+  @media (max-width: 640px) { .modulo .pegar { display: none; } }
+
+  .dicaOrdem { font-size: 12.5px; color: var(--texto-fraco); margin: -18px 0 16px; }
+  .dicaOrdem b { color: var(--ok); font-weight: 600; }
+
   .vazio { padding: 34px; text-align: center; color: var(--texto-fraco); }
   .trocaSenha { max-width: 420px; padding: 28px; }
   .trocaSenha h3 { font-size: 18px; margin-bottom: 6px; }
@@ -180,6 +203,10 @@
     <div>
       <h2 class="titulo">Seus módulos</h2>
       <p class="sub" id="sub">Carregando…</p>
+      <p class="dicaOrdem" id="dicaOrdem" style="display:none">
+        Arraste os cartões para deixar na frente o que você mais usa.
+        <span id="ordemSalva"></span>
+      </p>
       <div class="grade" id="grade"></div>
     </div>
     <!-- O mural so aparece quando ha o que mostrar: painel vazio na tela toda
@@ -227,9 +254,39 @@ async function carregar() {
     ? 'Você tem acesso a 1 módulo.'
     : 'Você tem acesso a ' + d.modulos.length + ' módulos.';
 
-  grade.innerHTML = d.modulos.map(cartaoModulo).join('') +
-                    cartaoMural() + cartaoAgenda() +
-                    (d.usuario.podeVerChecklists ? cartaoChecklists() : '');
+  // Ordena pelo arranjo que a pessoa salvou. Quem nao esta na lista vai para o
+  // fim, e nao some: a ordem e preferencia, nunca filtro. Modulo concedido
+  // depois tem que aparecer, mesmo sem nunca ter sido arrastado.
+  var cartoes = d.modulos.map(function (m) {
+    return { chave: m.id, html: cartaoModulo(m) };
+  }).concat([
+    { chave: 'portal:mural', html: cartaoMural() },
+    { chave: 'portal:agenda', html: cartaoAgenda() },
+  ]);
+  if (d.usuario.podeVerChecklists) {
+    cartoes.push({ chave: 'portal:checklists', html: cartaoChecklists() });
+  }
+
+  var ordem = d.usuario.ordemModulos || [];
+  var posicao = {};
+  ordem.forEach(function (c, i) { posicao[c] = i; });
+  cartoes.sort(function (a, b) {
+    var pa = posicao[a.chave], pb = posicao[b.chave];
+    if (pa === undefined && pb === undefined) return 0;   // mantém a ordem natural
+    if (pa === undefined) return 1;                        // novidade vai para o fim
+    if (pb === undefined) return -1;
+    return pa - pb;
+  });
+
+  grade.innerHTML = cartoes.map(function (c) {
+    return c.html.replace('<a class="card modulo',
+      '<a data-chave="' + esc(c.chave) + '" class="card modulo');
+  }).join('');
+  grade.querySelectorAll('.modulo').forEach(function (el) {
+    el.insertAdjacentHTML('afterbegin', '<span class="pegar" title="Arraste para mover">⠿</span>');
+  });
+  if (cartoes.length > 1) document.getElementById('dicaOrdem').style.display = '';
+  ligarArrasto();
 
   carregarMural();
 }
@@ -405,6 +462,116 @@ var ICONES = {
 function icone(nome) {
   return '<div class="ic"><svg viewBox="0 0 24 24" aria-hidden="true">' +
          (ICONES[nome] || ICONES.padrao) + '</svg></div>';
+}
+
+// ---------------------------------------------------------------------------
+// ARRASTAR PARA REORDENAR
+// ---------------------------------------------------------------------------
+// Feito com eventos de ponteiro, e nao com o drag-and-drop nativo do HTML: o
+// nativo simplesmente nao existe no celular, e a tela inicial e usada muito no
+// telefone.
+//
+// Dois cuidados que fazem a diferenca entre util e irritante:
+//
+//   1. Os cartoes sao LINKS. Sem um limiar de movimento, todo arrasto acabaria
+//      abrindo o modulo. So vira arrasto depois de andar alguns pixels — e o
+//      clique seguinte e cancelado se houve arrasto.
+//
+//   2. `touch-action: none` no CSS. Sem isso o navegador trata o movimento do
+//      dedo como rolagem e o arrasto nunca acontece no celular.
+var LIMIAR_PX = 6;
+var arrasto = null;
+
+function ligarArrasto() {
+  document.getElementById('grade').querySelectorAll('.modulo').forEach(function (el) {
+    el.addEventListener('pointerdown', comecar);
+    // Se houve arrasto, o clique que vem depois nao pode abrir o modulo.
+    el.addEventListener('click', function (ev) {
+      if (el.dataset.arrastou === '1') { ev.preventDefault(); el.dataset.arrastou = ''; }
+    });
+  });
+}
+
+function comecar(ev) {
+  if (ev.button !== undefined && ev.button !== 0) return;   // so botao principal
+  var el = ev.currentTarget;
+  arrasto = { el: el, x0: ev.clientX, y0: ev.clientY, ativo: false };
+  el.setPointerCapture && el.setPointerCapture(ev.pointerId);
+  el.addEventListener('pointermove', mover);
+  el.addEventListener('pointerup', soltar);
+  el.addEventListener('pointercancel', soltar);
+}
+
+function mover(ev) {
+  if (!arrasto) return;
+  var dx = ev.clientX - arrasto.x0, dy = ev.clientY - arrasto.y0;
+  if (!arrasto.ativo) {
+    if (Math.abs(dx) + Math.abs(dy) < LIMIAR_PX) return;    // ainda pode ser clique
+    arrasto.ativo = true;
+    arrasto.el.classList.add('arrastando');
+    arrasto.el.dataset.arrastou = '1';
+  }
+  arrasto.el.style.transform = 'translate(' + dx + 'px,' + dy + 'px) scale(1.02)';
+
+  // Onde ele cairia: o cartao cujo centro esta mais perto do ponteiro.
+  var alvo = cartaoSob(ev.clientX, ev.clientY);
+  document.querySelectorAll('.modulo.alvo').forEach(function (x) { x.classList.remove('alvo'); });
+  if (alvo && alvo !== arrasto.el) alvo.classList.add('alvo');
+}
+
+function cartaoSob(x, y) {
+  var perto = null, menor = Infinity;
+  document.getElementById('grade').querySelectorAll('.modulo').forEach(function (el) {
+    if (el === arrasto.el) return;
+    var r = el.getBoundingClientRect();
+    var d = Math.abs(x - (r.left + r.width / 2)) + Math.abs(y - (r.top + r.height / 2));
+    if (d < menor) { menor = d; perto = el; }
+  });
+  // Longe de qualquer cartao, nao ha alvo: soltar no vazio nao deve mover nada.
+  return menor < 400 ? perto : null;
+}
+
+function soltar(ev) {
+  if (!arrasto) return;
+  var el = arrasto.el;
+  el.removeEventListener('pointermove', mover);
+  el.removeEventListener('pointerup', soltar);
+  el.removeEventListener('pointercancel', soltar);
+  el.style.transform = '';
+  el.classList.remove('arrastando');
+
+  var alvo = arrasto.ativo ? cartaoSob(ev.clientX, ev.clientY) : null;
+  document.querySelectorAll('.modulo.alvo').forEach(function (x) { x.classList.remove('alvo'); });
+  arrasto = null;
+
+  if (!alvo || alvo === el) return;
+  var grade = document.getElementById('grade');
+  var todos = [].slice.call(grade.querySelectorAll('.modulo'));
+  // Antes ou depois do alvo, conforme a direcao do movimento.
+  if (todos.indexOf(el) < todos.indexOf(alvo)) alvo.after(el);
+  else alvo.before(el);
+  salvarOrdem();
+}
+
+async function salvarOrdem() {
+  var chaves = [].slice.call(document.getElementById('grade').querySelectorAll('.modulo'))
+    .map(function (el) { return el.getAttribute('data-chave'); })
+    .filter(Boolean);
+  var aviso = document.getElementById('ordemSalva');
+  try {
+    var r = await fetch('/api/eu/ordem-modulos', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ordem: chaves }),
+    });
+    if (!r.ok) throw new Error();
+    // O aviso e curto de proposito: confirma e some, sem virar ruido.
+    aviso.innerHTML = '<b>Ordem salva.</b>';
+    setTimeout(function () { aviso.innerHTML = ''; }, 2500);
+  } catch (e) {
+    // Falhou: a tela mostra a ordem nova, mas o servidor tem a antiga. Dizer
+    // isso e melhor do que deixar a pessoa achar que salvou.
+    aviso.textContent = 'Não consegui salvar a ordem — ela volta ao recarregar.';
+  }
 }
 
 function esc(s) {

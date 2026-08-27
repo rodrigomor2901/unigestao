@@ -335,3 +335,16 @@ CREATE TABLE IF NOT EXISTS nexti_sync (
 -- Quem enxerga o painel. Mesmo padrao de `mural_autor`: marcador por pessoa,
 -- concedido no Admin Geral. Administrador geral ve sempre.
 ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS checklists_ver BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- ------------------------------------------------------------
+-- ORDEM DOS CARTOES NA TELA INICIAL
+-- ------------------------------------------------------------
+-- Cada pessoa arrasta os cartoes e poe na frente o que usa todo dia. Guardado
+-- no cadastro, e nao no navegador: quem entra do computador e do celular
+-- espera a mesma ordem nos dois, e limpar o cache nao pode desfazer o arranjo.
+--
+-- Guarda CHAVES, nao posicoes: ["crm", "eventos", "portal:mural", ...]. Assim
+-- a lista e so uma PREFERENCIA, nunca um filtro — modulo que a pessoa ganhar
+-- depois nao esta aqui e mesmo assim aparece, no fim. Ordem por posicao faria
+-- o cartao novo empurrar todos os outros ou, pior, sumir.
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS modulos_ordem TEXT[] NOT NULL DEFAULT '{}';
