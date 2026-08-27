@@ -44,6 +44,14 @@ function subirNextiFalso(comportamento = {}) {
 
     if (url.pathname === "/security/oauth/token") {
       if (comportamento.recusarLogin) return responder(401, { error: "invalid_client" });
+      // O Nexti de verdade EXIGE Basic e responde 401 a query string, com
+      // `WWW-Authenticate: Basic realm="oauth2/client"`. O de mentira faz
+      // igual, senao o teste passaria com um cliente que na pratica nao entra.
+      if (!/^Basic /.test(req.headers.authorization || "")) {
+        res.writeHead(401, { "Content-Type": "application/json",
+                             "WWW-Authenticate": 'Basic realm="oauth2/client"' });
+        return res.end(JSON.stringify({ error: "Unauthorized" }));
+      }
       return responder(200, { access_token: "tok-" + (comportamento.tokens = (comportamento.tokens || 0) + 1),
                               expires_in: comportamento.expiraEm || 3600 });
     }
@@ -143,6 +151,30 @@ function clienteApontadoPara(url, extras = {}) {
     ok(erro && erro.causa === "limite", "o 429 vira um erro com causa reconhecível");
     const tentativas = f.chamadas.filter((c) => c.caminho === "/workplaces/all").length;
     ok(tentativas === 1, "e ele NÃO tenta de novo — quem pediu para parar, parou");
+    await f.parar();
+  }
+
+  console.log("\n=== O LOGIN VAI POR HTTP BASIC, NAO POR QUERY STRING ===");
+  {
+    // A documentacao do Nexti manda as credenciais na query string. Isso da
+    // 401: o servidor responde `WWW-Authenticate: Basic realm="oauth2/client"`
+    // e quer o cabecalho, como manda o proprio OAuth2. Conferido contra a API
+    // de producao em 26/08/2026 — a documentacao deles esta desatualizada.
+    //
+    // Este bloco existe para ninguem "consertar" de volta seguindo a
+    // documentacao e derrubar a integracao inteira.
+    const f = await subirNextiFalso();
+    const n = clienteApontadoPara(f.url, { id: "meu-id", segredo: "meu-segredo", pausa: 0 });
+    await n.postos();
+    const login = f.chamadas.find((c) => c.caminho === "/security/oauth/token");
+    ok(/^Basic /.test(login.auth), "as credenciais vao no cabecalho Authorization: Basic");
+    const esperado = "Basic " + Buffer.from("meu-id:meu-segredo").toString("base64");
+    ok(login.auth === esperado, "com id e segredo codificados como o padrao manda");
+
+    // Segredo em query string vaza para log de servidor, de proxy e de CDN.
+    // Cabecalho nao. Esta garantia vale por si, independente do 401.
+    ok(!login.busca.includes("meu-segredo") && !login.busca.includes("client_secret"),
+       "e o segredo NAO viaja na URL — la ele acabaria escrito em log");
     await f.parar();
   }
 

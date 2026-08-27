@@ -92,10 +92,27 @@ async function pegarToken(forcar = false) {
   const agora = Date.now();
   if (!forcar && tokenAtual && agora < tokenExpiraEm) return tokenAtual;
 
-  const url = `${BASE}/security/oauth/token?grant_type=client_credentials` +
-              `&client_id=${encodeURIComponent(CLIENT_ID)}` +
-              `&client_secret=${encodeURIComponent(CLIENT_SECRET)}`;
-  const r = await fetch(url, { method: "POST" });
+  // HTTP Basic, e NAO query string.
+  //
+  // A documentacao do Nexti manda assim:
+  //   /security/oauth/token?grant_type=client_credentials&client_id=&client_secret=
+  // e isso responde 401. O servidor devolve `WWW-Authenticate: Basic
+  // realm="oauth2/client"`, ou seja: quer as credenciais no cabecalho, como
+  // manda o proprio OAuth2 (RFC 6749 §2.3.1). A assinatura da URL
+  // (/security/oauth/token) e de Spring Security OAuth, que exige Basic por
+  // padrao — a documentacao deles descreve o que era, nao o que e.
+  //
+  // Conferido contra a API de producao em 26/08/2026: query string da 401,
+  // Basic da 200. Ver scripts/nexti-login.js, que testa as duas formas.
+  const basico = Buffer.from(`${CLIENT_ID.trim()}:${CLIENT_SECRET.trim()}`).toString("base64");
+  const r = await fetch(`${BASE}/security/oauth/token`, {
+    method: "POST",
+    headers: {
+      Authorization: "Basic " + basico,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: "grant_type=client_credentials",
+  });
   if (!r.ok) throw new Error(`Nexti recusou a autenticacao (HTTP ${r.status})`);
   const d = await r.json();
   if (!d.access_token) throw new Error("Nexti nao devolveu access_token");
