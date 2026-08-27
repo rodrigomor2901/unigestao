@@ -281,3 +281,57 @@ CREATE TABLE IF NOT EXISTS login_tentativas (
   blocked_until TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS idx_login_tentativas_bloqueio ON login_tentativas (blocked_until);
+
+-- ------------------------------------------------------------
+-- CHECKLISTS DA OPERACAO (Nexti Control)
+-- ------------------------------------------------------------
+-- Copia local das visitas que o Nexti ja concluiu. Nao e o sistema de origem:
+-- se esta tabela sumir, uma sincronizacao reconstroi tudo.
+--
+-- Ela existe por dois motivos praticos:
+--   1. a consulta ao Nexti e por DIA (uma chamada por dia). Montar um mes na
+--      hora seriam 30 chamadas por pessoa que abrisse a tela.
+--   2. a tela precisa cruzar periodos e agrupar por supervisor e por cliente,
+--      o que a API nao faz — quem faz e o SQL, aqui.
+--
+-- `id` e o id da tarefa no Nexti, e nao um id nosso: e o que faz a
+-- sincronizacao poder rodar de novo no mesmo dia sem duplicar nada.
+--
+-- Os nomes (supervisor, posto, cliente) ficam gravados junto, e nao so os ids.
+-- Nao e desnormalizacao por preguica: o Nexti pode renomear um posto, e o
+-- historico tem que continuar contando o que estava escrito na epoca. Alem
+-- disso evita depender de outra chamada so para exibir a lista.
+CREATE TABLE IF NOT EXISTS nexti_visita (
+  id              BIGINT      PRIMARY KEY,
+  dia             DATE        NOT NULL,
+  posto_id        BIGINT,
+  posto_nome      TEXT,
+  cliente_nome    TEXT,
+  supervisor_id   BIGINT,
+  supervisor_nome TEXT,
+  checklist_nome  TEXT,
+  inicio_em       TIMESTAMPTZ,
+  fim_em          TIMESTAMPTZ,
+  minutos         INT,
+  atualizado_em   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_nexti_visita_dia   ON nexti_visita (dia DESC);
+CREATE INDEX IF NOT EXISTS idx_nexti_visita_sup   ON nexti_visita (supervisor_id, dia DESC);
+CREATE INDEX IF NOT EXISTS idx_nexti_visita_posto ON nexti_visita (posto_id, dia DESC);
+
+-- Quando cada dia foi sincronizado pela ultima vez.
+--
+-- E o que permite a tela dizer "atualizado as 10:42" e, principalmente, dizer
+-- quando NAO conseguiu atualizar. Dado velho com aviso e util; dado velho
+-- calado e pior do que nao ter painel, porque a pessoa decide achando que esta
+-- vendo o agora.
+CREATE TABLE IF NOT EXISTS nexti_sync (
+  dia             DATE        PRIMARY KEY,
+  sincronizado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  quantas         INT         NOT NULL DEFAULT 0,
+  erro            TEXT
+);
+
+-- Quem enxerga o painel. Mesmo padrao de `mural_autor`: marcador por pessoa,
+-- concedido no Admin Geral. Administrador geral ve sempre.
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS checklists_ver BOOLEAN NOT NULL DEFAULT FALSE;

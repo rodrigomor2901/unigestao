@@ -227,7 +227,9 @@ async function carregar() {
     ? 'Você tem acesso a 1 módulo.'
     : 'Você tem acesso a ' + d.modulos.length + ' módulos.';
 
-  grade.innerHTML = d.modulos.map(cartaoModulo).join('') + cartaoMural() + cartaoAgenda();
+  grade.innerHTML = d.modulos.map(cartaoModulo).join('') +
+                    cartaoMural() + cartaoAgenda() +
+                    (d.usuario.podeVerChecklists ? cartaoChecklists() : '');
 
   carregarMural();
 }
@@ -346,6 +348,17 @@ function cartaoModulo(m) {
              '<span class="selo selo-off">' + esc(m.papelRotulo || m.papel) + '</span>' +
            '</div>' +
          '</a>';
+}
+
+// So aparece para quem foi marcado no Admin Geral (e para o administrador
+// geral). Cartao de tela que a pessoa nao pode abrir e so frustracao.
+function cartaoChecklists() {
+  return '<a class="card modulo doPortal" href="/checklists">' + icone('checklist') +
+           '<div class="txt">' +
+             '<h3>Checklists da Operação</h3>' +
+             '<p>Visitas dos supervisores — quem fez, onde e quanto tempo</p>' +
+             '<span class="selo selo-off">Acompanhamento</span>' +
+           '</div></a>';
 }
 
 function cartaoMural() {

@@ -149,6 +149,14 @@
     </label>
 
     <label class="modItem" style="grid-template-columns:22px 1fr;padding-left:2px">
+      <input type="checkbox" id="fChecklists">
+      <span>
+        <label for="fChecklists">Pode ver o painel de checklists</label>
+        <small>Acompanha as visitas dos supervisores no Nexti. O administrador geral já pode.</small>
+      </span>
+    </label>
+
+    <label class="modItem" style="grid-template-columns:22px 1fr;padding-left:2px">
       <input type="checkbox" id="fAtivo" checked>
       <span>
         <label for="fAtivo">Acesso ativo</label>
@@ -294,6 +302,7 @@ function abrir(id) {
   document.getElementById('lblSenha').textContent = editando ? 'Nova senha (opcional)' : 'Senha inicial';
   document.getElementById('fSuper').checked = editando ? editando.super_admin : false;
   document.getElementById('fMural').checked = editando ? !!editando.mural_autor : false;
+  document.getElementById('fChecklists').checked = editando ? !!editando.checklists_ver : false;
   document.getElementById('fAtivo').checked = editando ? editando.ativo : true;
   // Sem envio configurado a caixa nao pode ficar marcada prometendo algo que
   // nao vai acontecer — o administrador precisa saber que tem que passar a
@@ -411,6 +420,7 @@ async function salvar() {
       email: document.getElementById('fEmail').value,
       superAdmin: document.getElementById('fSuper').checked,
       muralAutor: document.getElementById('fMural').checked,
+      checklistsVer: document.getElementById('fChecklists').checked,
       ativo: document.getElementById('fAtivo').checked,
       avisar: document.getElementById('fAvisar').checked,
       modulos: modulosSelecionados()

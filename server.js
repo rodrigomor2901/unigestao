@@ -23,6 +23,7 @@ const modulos = require("./core/modulos");
 const correio = require("./core/email");
 const perfil = require("./core/perfil");
 const mural = require("./core/mural");
+const checklists = require("./core/checklists");
 
 const app = express();
 app.set("trust proxy", 1);
@@ -92,6 +93,12 @@ app.get("/admin", (req, res) => {
 // Pagina do link que chega por e-mail. Nao exige login — quem chega aqui e
 // justamente quem nao consegue entrar. O que protege e o token, conferido no
 // POST abaixo; a pagina em si nao mostra nada de ninguem.
+app.get("/checklists", (req, res) => {
+  if (!req.usuario) return paraOLogin(res, "/checklists");
+  if (!checklists.podeVer(req.usuario)) return res.redirect("/");
+  res.sendFile(path.join(PUBLIC, "checklists.html"));
+});
+
 app.get("/redefinir", (req, res) => {
   res.sendFile(path.join(PUBLIC, "redefinir.html"));
 });
@@ -446,6 +453,7 @@ app.get("/api/eu", exigeLogin, async (req, res, next) => {
         temFoto: Boolean(dados.tem_foto),
         perfilCompleto: perfil.completo(dados),
         podePublicarMural: mural.podePublicar(req.usuario),
+        podeVerChecklists: checklists.podeVer(req.usuario),
         // A tela so barra quando as duas coisas valem: a exigencia esta ligada
         // E falta dado. Assim o mesmo codigo serve para antes e depois de a
         // regra entrar em vigor, sem if espalhado pela interface.
@@ -517,6 +525,63 @@ app.delete("/api/perfil/foto", exigeLogin, async (req, res, next) => {
   try {
     await db.query("DELETE FROM usuario_foto WHERE usuario_id = $1", [req.usuario.id]);
     res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PAINEL DE CHECKLISTS DA OPERACAO
+// ---------------------------------------------------------------------------
+// A leitura do Nexti acontece AQUI, no pedido da tela, e nao numa rotina de
+// fundo. Foi decisao do Rodrigo, e a razao e boa: sem limite de chamadas
+// documentado pelo fornecedor, gastar chamada quando ninguem esta olhando e
+// risco sem retorno. Como o cache guarda por dia, a segunda pessoa a abrir a
+// tela nos 15 minutos seguintes nao gera chamada nenhuma.
+
+function exigeVerChecklists(req, res, next) {
+  if (!req.usuario) return res.status(401).json({ erro: "Faça login" });
+  if (!checklists.podeVer(req.usuario)) {
+    return res.status(403).json({ erro: "Você não tem acesso ao painel de checklists" });
+  }
+  next();
+}
+
+// Intervalo pedido pela tela, com limite. 92 dias cobre um trimestre; mais que
+// isso, numa primeira carga, seriam mais de cem chamadas seguidas ao Nexti.
+function intervaloPedido(req) {
+  const hoje = new Date();
+  const lerDia = (v) => {
+    const m = String(v || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return null;
+    const d = new Date(+m[1], +m[2] - 1, +m[3]);
+    return isNaN(d.getTime()) ? null : d;
+  };
+  let ate = lerDia(req.query.ate) || hoje;
+  let de = lerDia(req.query.de) || ate;
+  if (de > ate) { const t = de; de = ate; ate = t; }
+  const maximo = 92;
+  const dias = Math.round((ate - de) / 86400000);
+  if (dias > maximo) de = new Date(ate.getTime() - maximo * 86400000);
+  if (ate > hoje) ate = hoje;
+  return { de, ate };
+}
+
+app.get("/api/checklists/painel", exigeVerChecklists, async (req, res, next) => {
+  try {
+    const { de, ate } = intervaloPedido(req);
+    // `atualizar=1` so vem do botao. Abrir a tela nao forca busca: o cache
+    // decide sozinho o que esta velho.
+    let sincronia = null;
+    if (req.query.atualizar === "1") {
+      sincronia = await checklists.sincronizar(de, ate);
+    }
+    const [dados, estado, costume] = await Promise.all([
+      checklists.painel(de, ate),
+      checklists.frescor(de, ate),
+      checklists.costumeDeHoje(),
+    ]);
+    res.json({ ...dados, estado, costume, sincronia });
   } catch (e) {
     next(e);
   }
@@ -1065,7 +1130,7 @@ app.get("/api/admin/usuarios", exigeSuperAdmin, async (req, res, next) => {
     }
     const r = await db.query(
       `SELECT u.id, u.nome, u.email, u.ativo, u.super_admin, u.totp_ativo,
-              u.senha_temp, u.ultimo_login, u.mural_autor,
+              u.senha_temp, u.ultimo_login, u.mural_autor, u.checklists_ver,
               COALESCE(json_agg(json_build_object('modulo', m.modulo, 'papel', m.papel))
                        FILTER (WHERE m.modulo IS NOT NULL), '[]') AS modulos
          FROM usuarios u
@@ -1092,10 +1157,10 @@ app.post("/api/admin/usuarios", exigeSuperAdmin, async (req, res, next) => {
 
     const id = "u" + crypto.randomBytes(9).toString("hex");
     await db.query(
-      `INSERT INTO usuarios (id, nome, email, senha, senha_temp, super_admin, mural_autor)
-       VALUES ($1,$2,$3,$4,TRUE,$5,$6)`,
+      `INSERT INTO usuarios (id, nome, email, senha, senha_temp, super_admin, mural_autor, checklists_ver)
+       VALUES ($1,$2,$3,$4,TRUE,$5,$6,$7)`,
       [id, nome, email, auth.gerarHash(senha), Boolean(req.body.superAdmin),
-       Boolean(req.body.muralAutor)]
+       Boolean(req.body.muralAutor), Boolean(req.body.checklistsVer)]
     );
     await salvarModulos(id, req.body.modulos);
     await auth.auditar(req, "usuario_criado", { alvo: id, detalhe: { email, nome } });
@@ -1127,6 +1192,7 @@ app.patch("/api/admin/usuarios/:id", exigeSuperAdmin, async (req, res, next) => 
     if (req.body.ativo !== undefined) set("ativo", Boolean(req.body.ativo));
     if (req.body.superAdmin !== undefined) set("super_admin", Boolean(req.body.superAdmin));
     if (req.body.muralAutor !== undefined) set("mural_autor", Boolean(req.body.muralAutor));
+    if (req.body.checklistsVer !== undefined) set("checklists_ver", Boolean(req.body.checklistsVer));
     if (req.body.senha) {
       if (String(req.body.senha).length < 8)
         return res.status(400).json({ erro: "A senha precisa ter ao menos 8 caracteres" });

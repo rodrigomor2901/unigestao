@@ -26,6 +26,7 @@ const testes = [
   "modulo-externo.test.js",
   "barra-modal.test.js",
   "nexti.test.js",
+  "checklists.test.js",
   "fachada.test.js",
   "modulo-operacional.test.js",
 ];

@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UniGestão — Checklists da Operação</title>
+<link rel="icon" href="/marca/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/core.css">
+<style>
+  .topo {
+    background: var(--accent); color: #fff; padding: 14px 24px;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  }
+  .topo h1 { font-size: 19px; display: flex; align-items: center; gap: 10px; }
+  .topo h1 img { width: 30px; height: 30px; }
+  .topo h1 span { color: var(--laranja); }
+  .topo h1 a { color: inherit; text-decoration: none; display: flex; align-items: center; }
+  .topo h1 a img { margin-right: 10px; }
+  .topo h1 a:hover { opacity: .85; }
+  .topo .quem { display: flex; align-items: center; gap: 14px; font-size: 14px; }
+  .topo a { color: #fff; font-size: 14px; text-decoration: underline; }
+
+  main { max-width: 1240px; margin: 0 auto; padding: 26px 24px 60px; }
+  .titulo { font-size: 22px; margin-bottom: 4px; }
+  .sub { color: var(--texto-fraco); font-size: 14.5px; margin: 0 0 18px; line-height: 1.5; }
+
+  .barraTopo { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+  .periodos { display: flex; }
+  .periodos button {
+    border: 1px solid var(--borda); background: var(--surface); color: var(--texto);
+    padding: 8px 15px; font: inherit; font-size: 13.5px; cursor: pointer;
+  }
+  .periodos button:first-child { border-radius: 7px 0 0 7px; }
+  .periodos button:last-child { border-radius: 0 7px 7px 0; }
+  .periodos button + button { border-left: 0; }
+  .periodos button.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .estado { margin-left: auto; display: flex; align-items: center; gap: 10px; font-size: 13px;
+            color: var(--texto-fraco); }
+  .estado.ruim { color: var(--erro); font-weight: 500; }
+  .btnAtualizar {
+    border: 1px solid var(--borda); background: var(--surface); color: var(--texto);
+    border-radius: 7px; padding: 8px 14px; font: inherit; font-size: 13.5px; cursor: pointer;
+  }
+  .btnAtualizar:hover { border-color: var(--accent); color: var(--accent); }
+  .btnAtualizar:disabled { opacity: .55; cursor: progress; }
+
+  .numeros { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+             gap: 14px; margin-bottom: 20px; }
+  .num { padding: 16px 18px; }
+  .num .rot { font-size: 12px; color: var(--texto-fraco); font-weight: 600;
+              text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
+  .num .v { font-size: 30px; font-weight: 700; line-height: 1; }
+  .num .pe { font-size: 12.5px; color: var(--texto-fraco); margin-top: 6px; }
+
+  .colunas { display: grid; grid-template-columns: 1fr 380px; gap: 18px; align-items: start; }
+  @media (max-width: 1000px) { .colunas { grid-template-columns: 1fr; } }
+
+  .card h2 { font-size: 15px; padding: 14px 18px; border-bottom: 1px solid var(--borda);
+             display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .card h2 small { font-weight: 400; color: var(--texto-fraco); font-size: 12.5px; }
+  .card + .card { margin-top: 18px; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th { font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em;
+       color: var(--texto-fraco); text-align: left; padding: 9px 18px;
+       border-bottom: 1px solid var(--borda); font-weight: 600; }
+  th.n, td.n { text-align: right; }
+  td { padding: 11px 18px; border-bottom: 1px solid #f3f2ef; font-size: 14px; }
+  tbody tr:last-child td { border-bottom: 0; }
+  td b { font-weight: 600; }
+  td small { display: block; color: var(--texto-fraco); font-size: 12.5px; margin-top: 2px; }
+  .vazio { padding: 30px; text-align: center; color: var(--texto-fraco); font-size: 14px; }
+
+  /* costume do dia */
+  .hoje .linha { padding: 12px 18px; border-bottom: 1px solid #f3f2ef;
+                 display: flex; align-items: center; gap: 12px; }
+  .hoje .linha:last-of-type { border-bottom: 0; }
+  .hoje .nome { flex: 1; min-width: 0; font-size: 13.5px; }
+  .hoje .nome small { display: block; color: var(--texto-fraco); font-size: 12px; }
+  .hoje .placar { font-size: 15px; font-weight: 700; white-space: nowrap; }
+  .hoje .placar span { font-weight: 400; color: var(--texto-fraco); font-size: 13px; }
+  .hoje .atras .placar { color: var(--laranja); }
+  .hoje .emdia .placar { color: var(--ok); }
+  .explica { padding: 12px 18px; font-size: 12.5px; color: var(--texto-fraco);
+             line-height: 1.5; border-top: 1px solid var(--borda); background: #fbfaf8; }
+
+  .grafico { display: flex; align-items: flex-end; gap: 5px; height: 90px; padding: 16px 18px 0; }
+  .grafico div { flex: 1; height: 100%; background: var(--accent-soft);
+                 border-radius: 3px 3px 0 0; position: relative; }
+  .grafico div i { position: absolute; bottom: 0; left: 0; right: 0;
+                   background: var(--accent); border-radius: 3px 3px 0 0; display: block; }
+  .grafico + .rotulos { display: flex; gap: 5px; padding: 6px 18px 16px; }
+  .rotulos span { flex: 1; text-align: center; font-size: 10.5px; color: var(--texto-fraco);
+                  overflow: hidden; white-space: nowrap; }
+
+  .aviso-fonte { margin-top: 18px; font-size: 12.5px; color: var(--texto-fraco);
+                 line-height: 1.6; padding: 14px 18px; }
+</style>
+</head>
+<body>
+
+<header class="topo">
+  <h1><a href="/" title="Ir para a tela inicial"><img src="/marca/simbolo-claro.svg" alt="" width="30" height="30">Uni<span>Gestão</span></a></h1>
+  <div class="quem">
+    <a href="/mural">Mural</a>
+    <a href="/agenda">Agenda</a>
+    <a href="/">Meus módulos</a>
+  </div>
+</header>
+
+<main>
+  <h2 class="titulo">Checklists da Operação</h2>
+  <p class="sub">As visitas registradas no Nexti — quem fez, onde e quanto tempo ficou.</p>
+
+  <div class="barraTopo">
+    <div class="periodos" id="periodos">
+      <button data-dias="0" class="on">Hoje</button>
+      <button data-dias="7">7 dias</button>
+      <button data-dias="30">30 dias</button>
+      <button data-dias="90">90 dias</button>
+    </div>
+    <div class="estado" id="estado"></div>
+    <button class="btnAtualizar" id="btnAtualizar">Atualizar</button>
+  </div>
+
+  <div class="numeros" id="numeros"></div>
+
+  <div class="colunas">
+    <div>
+      <div class="card">
+        <h2>Por supervisor <small id="subSup"></small></h2>
+        <div id="tabelaSup"></div>
+      </div>
+      <div class="card">
+        <h2>Por cliente <small id="subCli"></small></h2>
+        <div id="tabelaCli"></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card hoje">
+        <h2>O dia de hoje <small id="subHoje"></small></h2>
+        <div id="listaHoje"></div>
+        <div class="explica">
+          O “costume” é a mediana das visitas de cada supervisor <b>neste dia da semana</b>,
+          nas últimas seis semanas. Não é meta cadastrada: é o próprio ritmo da pessoa.
+        </div>
+      </div>
+      <div class="card">
+        <h2>Visitas por dia</h2>
+        <div id="grafico"></div>
+      </div>
+      <div class="card">
+        <h2>Por checklist</h2>
+        <div id="tabelaChk"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card aviso-fonte">
+    <b>Sobre o que este painel mostra.</b> A API do Nexti entrega apenas as visitas
+    <b>concluídas</b> — conferido contra o relatório deles, 422 de um lado e 422 do outro
+    no mesmo período. As visitas <b>não realizadas</b> só existem no relatório
+    “Relação de visitas”, que sai por download, e por isso não aparecem aqui.
+    Enquanto isso, este painel cobre o que o relatório não cobre: o <b>dia de hoje</b>,
+    enquanto ainda dá para agir.
+  </div>
+</main>
+
+<script>
+var DIAS = 0;
+var carregando = false;
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+function p2(n) { return String(n).padStart(2, '0'); }
+function iso(d) { return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()); }
+function nQuando(s) {
+  if (!s) return '—';
+  var d = new Date(s), min = Math.round((Date.now() - d) / 60000);
+  if (min < 1) return 'agora';
+  if (min < 60) return 'há ' + min + ' min';
+  return 'às ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
+}
+function dataCurta(s) {
+  var m = String(s).match(/(\d{4})-(\d{2})-(\d{2})/);
+  return m ? m[3] + '/' + m[2] : String(s);
+}
+function diasDesde(s) {
+  var m = String(s).match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return null;
+  var d = new Date(+m[1], +m[2] - 1, +m[3]);
+  return Math.round((new Date().setHours(0,0,0,0) - d) / 86400000);
+}
+
+async function carregar(forcarAtualizacao) {
+  if (carregando) return;
+  carregando = true;
+  var btn = document.getElementById('btnAtualizar');
+  btn.disabled = true;
+  if (forcarAtualizacao) btn.textContent = 'Buscando no Nexti…';
+
+  var ate = new Date();
+  var de = new Date();
+  de.setDate(de.getDate() - DIAS);
+
+  try {
+    var url = '/api/checklists/painel?de=' + iso(de) + '&ate=' + iso(ate) +
+              (forcarAtualizacao ? '&atualizar=1' : '');
+    var r = await fetch(url);
+    if (!r.ok) throw new Error((await r.json().catch(function(){return{};})).erro || 'Não foi possível carregar');
+    desenhar(await r.json());
+  } catch (e) {
+    document.getElementById('estado').className = 'estado ruim';
+    document.getElementById('estado').textContent = e.message;
+  }
+  btn.disabled = false;
+  btn.textContent = 'Atualizar';
+  carregando = false;
+}
+
+function desenhar(d) {
+  // ---- estado: quando atualizou, e o que falhou ----------------------------
+  // Dado velho com aviso é útil; dado velho calado faz a pessoa decidir
+  // achando que está vendo o agora.
+  var e = d.estado || {};
+  var est = document.getElementById('estado');
+  if (!e.configurado) {
+    est.className = 'estado ruim';
+    est.textContent = 'Sem credencial do Nexti configurada.';
+  } else if (e.diasComErro) {
+    est.className = 'estado ruim';
+    est.textContent = 'Não foi possível atualizar ' + e.diasComErro + ' dia(s). ' +
+                      (e.exemploDeErro || '');
+  } else if (e.ultimaAtualizacao) {
+    est.className = 'estado';
+    est.textContent = 'Atualizado ' + nQuando(e.ultimaAtualizacao);
+  } else {
+    est.className = 'estado';
+    est.textContent = 'Nunca buscado — clique em Atualizar';
+  }
+
+  // ---- números -------------------------------------------------------------
+  var t = d.totais || {};
+  var media = t.media_min ? Math.round(t.media_min) : null;
+  document.getElementById('numeros').innerHTML =
+    cartao('Visitas concluídas', t.visitas || 0, DIAS === 0 ? 'hoje' : 'no período') +
+    cartao('Supervisores', t.supervisores || 0, 'com registro') +
+    cartao('Clientes', t.clientes || 0, (t.postos || 0) + ' postos') +
+    cartao('Tempo médio', media != null ? media + ' min' : '—', 'em posto');
+
+  // ---- por supervisor ------------------------------------------------------
+  var sup = d.supervisores || [];
+  document.getElementById('subSup').textContent = sup.length + (sup.length === 1 ? ' pessoa' : ' pessoas');
+  document.getElementById('tabelaSup').innerHTML = sup.length ? (
+    '<table><thead><tr><th>Supervisor</th><th class="n">Visitas</th>' +
+    '<th class="n">Postos</th><th class="n">Dias</th><th class="n">Tempo médio</th>' +
+    '</tr></thead><tbody>' +
+    sup.map(function (s) {
+      return '<tr><td><b>' + esc(s.supervisor_nome || ('#' + s.supervisor_id)) + '</b>' +
+        '<small>última em ' + dataCurta(s.ultima) + '</small></td>' +
+        '<td class="n">' + s.visitas + '</td>' +
+        '<td class="n">' + s.postos + '</td>' +
+        '<td class="n">' + s.dias + '</td>' +
+        '<td class="n">' + (s.media_min ? Math.round(s.media_min) + ' min' : '—') + '</td></tr>';
+    }).join('') + '</tbody></table>'
+  ) : '<div class="vazio">Nenhuma visita registrada no período.</div>';
+
+  // ---- por cliente ---------------------------------------------------------
+  var cli = d.clientes || [];
+  document.getElementById('subCli').textContent = cli.length + ' no período';
+  document.getElementById('tabelaCli').innerHTML = cli.length ? (
+    '<table><thead><tr><th>Cliente</th><th class="n">Visitas</th>' +
+    '<th class="n">Postos</th><th class="n">Última</th></tr></thead><tbody>' +
+    cli.slice(0, 40).map(function (c) {
+      var dias = diasDesde(c.ultima);
+      return '<tr><td>' + esc(c.cliente_nome) + '</td>' +
+        '<td class="n">' + c.visitas + '</td>' +
+        '<td class="n">' + c.postos + '</td>' +
+        '<td class="n">' + (dias === 0 ? 'hoje' : dias === 1 ? 'ontem' : 'há ' + dias + 'd') +
+        '</td></tr>';
+    }).join('') + '</tbody></table>' +
+    (cli.length > 40 ? '<div class="explica">Mostrando os 40 com mais visitas, de ' + cli.length + '.</div>' : '')
+  ) : '<div class="vazio">Nada no período.</div>';
+
+  // ---- o dia de hoje -------------------------------------------------------
+  var c = d.costume || [];
+  var atrasados = c.filter(function (x) { return x.hoje < x.costume; }).length;
+  document.getElementById('subHoje').textContent =
+    c.length ? (atrasados ? atrasados + ' abaixo do costume' : 'todos em dia') : '';
+  document.getElementById('listaHoje').innerHTML = c.length ? c.map(function (x) {
+    var atras = x.hoje < x.costume;
+    return '<div class="linha ' + (atras ? 'atras' : 'emdia') + '">' +
+      '<span class="nome">' + esc(x.supervisorNome || ('#' + x.supervisorId)) +
+        '<small>costuma ' + x.costume + ' neste dia da semana</small></span>' +
+      '<span class="placar">' + x.hoje + ' <span>/ ' + x.costume + '</span></span></div>';
+  }).join('') : '<div class="vazio">Ainda não há histórico suficiente para comparar.</div>';
+
+  // ---- visitas por dia -----------------------------------------------------
+  var pd = d.porDia || [];
+  var maior = pd.reduce(function (a, x) { return Math.max(a, x.visitas); }, 1);
+  document.getElementById('grafico').outerHTML =
+    '<div class="grafico" id="grafico">' +
+      (pd.length ? pd.map(function (x) {
+        return '<div title="' + dataCurta(x.dia) + ': ' + x.visitas + '"><i style="height:' +
+          Math.round(100 * x.visitas / maior) + '%"></i></div>';
+      }).join('') : '') +
+    '</div>' +
+    '<div class="rotulos">' + pd.map(function (x, i) {
+      return '<span>' + (pd.length <= 14 || i % Math.ceil(pd.length / 10) === 0 ? dataCurta(x.dia) : '') + '</span>';
+    }).join('') + '</div>';
+
+  // ---- por checklist -------------------------------------------------------
+  var chk = d.checklists || [];
+  document.getElementById('tabelaChk').innerHTML = chk.length ? (
+    '<table><tbody>' + chk.map(function (x) {
+      return '<tr><td>' + esc(x.nome) + '</td><td class="n">' + x.visitas + '</td></tr>';
+    }).join('') + '</tbody></table>'
+  ) : '<div class="vazio">Nada no período.</div>';
+}
+
+function cartao(rotulo, valor, pe) {
+  return '<div class="card num"><div class="rot">' + esc(rotulo) + '</div>' +
+         '<div class="v">' + esc(valor) + '</div>' +
+         '<div class="pe">' + esc(pe) + '</div></div>';
+}
+
+document.getElementById('periodos').addEventListener('click', function (ev) {
+  var b = ev.target.closest('button');
+  if (!b) return;
+  DIAS = Number(b.getAttribute('data-dias'));
+  this.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
+  carregar(false);
+});
+
+document.getElementById('btnAtualizar').addEventListener('click', function () { carregar(true); });
+
+carregar(false);
+</script>
+</body>
+</html>
