@@ -155,6 +155,51 @@ function subirNexti(porDia) {
   ok(comHistorico[0].hoje - comHistorico[0].costume <= 0,
      "quem está mais atrás do próprio costume aparece primeiro");
 
+  console.log("\n=== O NUMERO SO APARECE NA BARRA SE COUBER NELA ===");
+  // A regra nao e "acima de N dias esconde": a largura util muda com a tela,
+  // entao um limite fixo em dias acertaria num tamanho e erraria em todos os
+  // outros. A pagina mede a barra ja desenhada e decide com o que viu.
+  {
+    const fs = require("fs");
+    const path = require("path");
+    const html = fs.readFileSync(
+      path.join(__dirname, "..", "public", "checklists.html"), "utf8");
+    const script = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)]
+      .map((m) => m[1]).join("\n");
+
+    // Devolve o valor com que a pagina chamou classList.toggle('apertado', ...):
+    // true = escondeu os numeros, false = mostrou, null = nao decidiu nada.
+    const medir = (larguraDaBarra) => {
+      let apertado = null;
+      const barras = {
+        firstElementChild: { getBoundingClientRect: () => ({ width: larguraDaBarra }) },
+        classList: { toggle(_, valor) { apertado = valor; } },
+      };
+      const solto = () => ({
+        innerHTML: "", textContent: "", style: {},
+        classList: { toggle() {}, add() {}, remove() {} },
+        addEventListener() {}, querySelectorAll: () => [],
+      });
+      const doc = {
+        getElementById: (id) => (id === "barras" ? barras : solto()),
+        querySelectorAll: () => [], querySelector: () => solto(), addEventListener() {},
+      };
+      const p = new Function("document", "fetch", "location", "window",
+        script + "\nreturn { esconderNumerosSeNaoCoubem };")(
+        doc, async () => ({ ok: true, json: async () => ({}) }),
+        { href: "/" }, { location: {}, addEventListener() {} });
+      p.esconderNumerosSeNaoCoubem(2);   // numeros de dois digitos, como "26"
+      return apertado;
+    };
+
+    ok(medir(76) === false, "barra larga: o numero aparece");
+    ok(medir(30) === false, "barra media: ainda aparece");
+    ok(medir(9) === true, "barra estreita: o numero some em vez de virar borrao");
+    ok(medir(2) === true, "90 dias no celular: some tambem");
+    ok(medir(0) === null,
+       "sem layout ainda (largura zero), nao decide nada — nem mostra nem esconde");
+  }
+
   console.log("\n=== A TELA SABE QUANDO O DADO FALHOU ===");
   await falso.parar();
   const ontem = new Date(hoje); ontem.setDate(ontem.getDate() - 1);
@@ -233,9 +278,12 @@ function subirNexti(porDia) {
     };
     // O script termina chamando carregar(); devolvemos as funcoes para inspecao.
     const rodar = new Function("document", "fetch", "location", "window",
-      script + "\nreturn { botaoAbrir, montarDetalhe, fecharDetalhe };");
+      script + "\nreturn { botaoAbrir, montarDetalhe, fecharDetalhe, esconderNumerosSeNaoCoubem };");
+    // A janela de mentira precisa de addEventListener: a de verdade tem, e a
+    // pagina escuta o resize para refazer a conta dos numeros do grafico.
+    const janela = { location: {}, addEventListener() {} };
     const pagina = rodar(documento, async () => ({ ok: true, json: async () => ({}) }),
-                         { href: "/" }, { location: {} });
+                         { href: "/" }, janela);
 
     const botao = pagina.botaoAbrir(27, "supervisor", 17, "GUSTAVO");
     ok(botao.includes('data-tipo="supervisor"'), "o numero vira botao com o tipo do filtro");

@@ -46,7 +46,9 @@
   .btnAtualizar:hover { border-color: var(--accent); color: var(--accent); }
   .btnAtualizar:disabled { opacity: .55; cursor: progress; }
 
-  .numeros { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  /* 150px, e nao 180: no celular (390px de tela, 342 uteis) duas colunas de 180
+     nao cabiam e empurravam a pagina inteira para o lado. */
+  .numeros { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
              gap: 14px; margin-bottom: 20px; }
   .num { padding: 16px 18px; }
   .num .rot { font-size: 12px; color: var(--texto-fraco); font-weight: 600;
@@ -55,6 +57,11 @@
   .num .pe { font-size: 12.5px; color: var(--texto-fraco); margin-top: 6px; }
 
   .colunas { display: grid; grid-template-columns: 1fr 380px; gap: 18px; align-items: start; }
+  /* min-width:0 e o que faz a coluna poder encolher. Sem isso, a largura minima
+     da tabela (416px, por causa das cinco colunas) empurrava a grade inteira
+     para fora da tela do celular, e o overflow das tabelas nunca entrava em
+     acao porque nada precisava rolar. */
+  .colunas > * { min-width: 0; }
   @media (max-width: 1000px) { .colunas { grid-template-columns: 1fr; } }
 
   .card h2 { font-size: 15px; padding: 14px 18px; border-bottom: 1px solid var(--borda);
@@ -62,6 +69,9 @@
   .card h2 small { font-weight: 400; color: var(--texto-fraco); font-size: 12.5px; }
   .card + .card { margin-top: 18px; }
 
+  /* As tabelas tem cinco colunas e nao cabem na largura de um celular. Quem rola
+     e a tabela, dentro do card — a pagina fica parada. */
+  #tabelaSup, #tabelaCli, #tabelaChk, #detalheCorpo { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; }
   th { font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em;
        color: var(--texto-fraco); text-align: left; padding: 9px 18px;
@@ -86,9 +96,30 @@
   .explica { padding: 12px 18px; font-size: 12.5px; color: var(--texto-fraco);
              line-height: 1.5; border-top: 1px solid var(--borda); background: #fbfaf8; }
 
-  .grafico { display: flex; align-items: flex-end; gap: 5px; height: 104px; padding: 16px 18px 0; }
-  .grafico div { flex: 1; height: 100%; background: var(--accent-soft);
-                 border-radius: 3px 3px 0 0; position: relative; }
+  .cardGrafico { margin-bottom: 18px; }
+  /* A faixa livre para os numeros e o padding de cima, nao um desconto na altura
+     das barras: assim, quando os numeros somem, a mesma altura vira barra em vez
+     de sobrar como espaco vazio. */
+  .grafico { display: flex; align-items: flex-end; justify-content: space-between;
+             gap: 5px; height: 150px; box-sizing: border-box; padding: 26px 18px 0;
+             border-bottom: 1px solid var(--borda); }
+  .grafico.apertado { padding-top: 10px; }
+  /* Muitos dias: o vao entre as barras vira desperdicio da largura que a
+     propria barra precisa para caber o numero. As datas usam o mesmo vao — se
+     ficassem com o vao largo, a fileira de datas e que passaria a esticar a
+     pagina para o lado no celular. */
+  .grafico.denso, .grafico + .rotulos.denso { gap: 2px; }
+  @media (max-width: 700px) {
+    .grafico.denso, .grafico + .rotulos.denso { gap: 1px; }
+  }
+  /* Teto de largura: com poucos dias (a semana), barras esticadas na largura
+     inteira viravam blocos enormes. Elas param de crescer e o espaco que sobra
+     vira respiro entre elas. Os rotulos seguem a mesma regra para nao sair do
+     lugar da barra. */
+  /* A coluna e so a area de clique/tooltip: fica TRANSPARENTE de proposito. Com
+     um trilho claro atras, a parte vazia acima da barra parecia meta nao
+     atingida — e aqui nao existe meta cadastrada, so o que aconteceu. */
+  .grafico div { flex: 1 1 0; max-width: 76px; height: 100%; position: relative; }
   .grafico div i { position: absolute; bottom: 0; left: 0; right: 0;
                    background: var(--accent); border-radius: 3px 3px 0 0; display: block; }
   /* O numero fica ACIMA da barra, nao dentro: dentro ele sumiria nas barras
@@ -97,15 +128,22 @@
   .grafico div b { position: absolute; left: 0; right: 0; text-align: center;
                    font-size: 11px; font-weight: 700; color: var(--accent);
                    line-height: 1; }
-  /* Em periodo longo as barras ficam estreitas e os numeros se atropelam.
-     Melhor nenhum numero do que numeros ilegiveis grudados. */
+  /* Barra mais estreita que o proprio numero: os numeros se atropelam, e melhor
+     nenhum numero do que numeros ilegiveis grudados. Quem poe esta classe e a
+     medicao depois de renderizar — ver esconderNumerosSeNaoCoubem(). */
   .grafico.apertado div b { display: none; }
-  .grafico + .rotulos { display: flex; gap: 5px; padding: 6px 18px 16px; }
+  .grafico + .rotulos { display: flex; justify-content: space-between; gap: 5px;
+                        padding: 6px 18px 16px; }
   /* overflow VISIVEL de proposito. Cada rotulo ocupa a largura de UMA barra, e
      "27/08" nao cabe nela quando o periodo e longo — com overflow:hidden a data
      saia cortada ("2ı", "3'"). Como so uma barra a cada N recebe rotulo, as
      vizinhas estao vazias e o texto tem para onde transbordar. */
-  .rotulos span { flex: 1; text-align: center; font-size: 10.5px; color: var(--texto-fraco);
+  /* min-width:0 junto com o texto que transborda: sem ele, a largura minima de
+     cada data (uns 30px) somava e esticava a pagina para o lado no celular. Com
+     ele, cada rotulo ocupa a largura da barra e a data extravasa para os
+     vizinhos, que estao vazios. */
+  .rotulos span { flex: 1 1 0; min-width: 0; max-width: 76px; text-align: center;
+                  font-size: 10.5px; color: var(--texto-fraco);
                   overflow: visible; white-space: nowrap; }
 
   .aviso-fonte { margin-top: 18px; font-size: 12.5px; color: var(--texto-fraco);
@@ -164,6 +202,15 @@
 
   <div class="numeros" id="numeros"></div>
 
+  <!-- Largura inteira, e antes das tabelas, de proposito: e o unico bloco que
+       PIORA quando o periodo cresce. Espremido nos 380px da coluna da direita,
+       90 dias viravam risquinhos sem numero; aqui cada barra tem o triplo da
+       largura, e os numeros continuam cabendo por muito mais tempo. -->
+  <div class="card cardGrafico">
+    <h2>Visitas por dia <small id="subGrafico"></small></h2>
+    <div id="grafico"></div>
+  </div>
+
   <div class="colunas">
     <div>
       <div class="card">
@@ -184,10 +231,6 @@
           O “costume” é a mediana das visitas de cada supervisor <b>neste dia da semana</b>,
           nas últimas seis semanas. Não é meta cadastrada: é o próprio ritmo da pessoa.
         </div>
-      </div>
-      <div class="card">
-        <h2>Visitas por dia</h2>
-        <div id="grafico"></div>
       </div>
       <div class="card">
         <h2>Por checklist</h2>
@@ -350,11 +393,15 @@ function desenhar(d) {
   // ---- visitas por dia -----------------------------------------------------
   var pd = d.porDia || [];
   var maior = pd.reduce(function (a, x) { return Math.max(a, x.visitas); }, 1);
-  // 82% deixa a faixa de cima livre para o numero da barra mais alta.
-  var alturaDe = function (v) { return Math.round(82 * v / maior); };
-  var apertado = pd.length > 14;
-  document.getElementById('grafico').outerHTML =
-    '<div class="grafico' + (apertado ? ' apertado' : '') + '" id="grafico">' +
+  var alturaDe = function (v) { return Math.round(100 * v / maior); };
+  digitosDoGrafico = String(maior).length;
+  document.getElementById('subGrafico').textContent =
+    pd.length ? pd.length + (pd.length === 1 ? ' dia' : ' dias') : '';
+  // innerHTML, nao outerHTML: #grafico e o recipiente e permanece. Com
+  // outerHTML, cada troca de periodo trocava as barras mas deixava a fileira de
+  // datas anterior para tras, empilhando uma fileira a cada clique.
+  document.getElementById('grafico').innerHTML =
+    '<div class="grafico' + (pd.length > 40 ? ' denso' : '') + '" id="barras">' +
       (pd.length ? pd.map(function (x) {
         var h = alturaDe(x.visitas);
         return '<div title="' + dataCurta(x.dia) + ': ' + x.visitas + '">' +
@@ -363,9 +410,10 @@ function desenhar(d) {
                '</div>';
       }).join('') : '') +
     '</div>' +
-    '<div class="rotulos">' + pd.map(function (x, i) {
-      return '<span>' + (pd.length <= 14 || i % Math.ceil(pd.length / 10) === 0 ? dataCurta(x.dia) : '') + '</span>';
+    '<div class="rotulos' + (pd.length > 40 ? ' denso' : '') + '">' + pd.map(function (x, i) {
+      return '<span>' + (pd.length <= 20 || i % Math.ceil(pd.length / 14) === 0 ? dataCurta(x.dia) : '') + '</span>';
     }).join('') + '</div>';
+  esconderNumerosSeNaoCoubem();
 
   // ---- por checklist -------------------------------------------------------
   var chk = d.checklists || [];
@@ -375,6 +423,26 @@ function desenhar(d) {
     }).join('') + '</tbody></table>'
   ) : '<div class="vazio">Nada no período.</div>';
 }
+
+// Quantos digitos tem o maior numero do grafico — e ele que decide se cabe.
+var digitosDoGrafico = 1;
+
+// Mostra ou esconde os numeros das barras MEDINDO a barra, em vez de chutar por
+// quantidade de dias. A largura util depende da tela (celular, janela estreita)
+// — um limite fixo em "N dias" acertaria num tamanho e erraria em todos os
+// outros. A regra fica simples: se o numero nao cabe na barra, ele sai.
+function esconderNumerosSeNaoCoubem(digitos) {
+  var g = document.getElementById('barras');
+  var barra = g && g.firstElementChild;
+  if (!barra) return;
+  var larg = barra.getBoundingClientRect().width;
+  if (!larg) return;                                  // ainda sem layout: deixa como esta
+  var precisa = (digitos || digitosDoGrafico) * 6.5 + 5;  // ~6,5px por digito a 11px, com folga
+  g.classList.toggle('apertado', larg < precisa);
+}
+
+// Mudar a largura da janela muda a conta: o que cabia deixa de caber.
+window.addEventListener('resize', function () { esconderNumerosSeNaoCoubem(); });
 
 // `valor` pode vir pronto em HTML (o botao que abre o detalhe). Os outros dois
 // continuam escapados: rotulo e rodape sao texto.
