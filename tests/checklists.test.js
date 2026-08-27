@@ -188,6 +188,20 @@ function subirNexti(porDia) {
   const semLogin = await fetch(`${CORE}/api/checklists/painel`);
   ok(semLogin.status === 401, "e sem login, 401");
 
+  // A PAGINA, e nao so a API.
+  //
+  // A primeira versao chamava paraOLogin() aqui — funcao que existe na Fachada
+  // e NAO no Core. Sintaxe valida, deploy limpo, e 500 na cara de quem abrisse
+  // o endereco. So a producao mostrou. Agora e o teste que mostra.
+  const paginaSemLogin = await fetch(`${CORE}/checklists`, { redirect: "manual" });
+  ok(paginaSemLogin.status < 400,
+     `a pagina sem login redireciona em vez de estourar (veio ${paginaSemLogin.status})`);
+  const paginaSemPermissao = await fetch(`${CORE}/checklists`, {
+    headers: { cookie: "unigestao_sessao=" + cookie }, redirect: "manual",
+  });
+  ok(paginaSemPermissao.status < 400,
+     `e sem a marcacao, tambem redireciona (veio ${paginaSemPermissao.status})`);
+
   await pool.query("DELETE FROM usuarios WHERE email = $1", [email]);
   await pool.query("DELETE FROM nexti_visita");
   await pool.query("DELETE FROM nexti_sync");

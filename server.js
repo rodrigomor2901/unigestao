@@ -90,15 +90,18 @@ app.get("/admin", (req, res) => {
   res.sendFile(path.join(PUBLIC, "admin.html"));
 });
 
-// Pagina do link que chega por e-mail. Nao exige login — quem chega aqui e
-// justamente quem nao consegue entrar. O que protege e o token, conferido no
-// POST abaixo; a pagina em si nao mostra nada de ninguem.
+// Painel de checklists. Duas portas: precisa estar logado E ter a marcacao.
+// Quem nao tem volta para a tela inicial em vez de ver um 403 — a pessoa nao
+// fez nada errado, so nao tem esse acesso.
 app.get("/checklists", (req, res) => {
-  if (!req.usuario) return paraOLogin(res, "/checklists");
+  if (!req.usuario) return res.redirect("/");
   if (!checklists.podeVer(req.usuario)) return res.redirect("/");
   res.sendFile(path.join(PUBLIC, "checklists.html"));
 });
 
+// Pagina do link que chega por e-mail. Nao exige login — quem chega aqui e
+// justamente quem nao consegue entrar. O que protege e o token, conferido no
+// POST abaixo; a pagina em si nao mostra nada de ninguem.
 app.get("/redefinir", (req, res) => {
   res.sendFile(path.join(PUBLIC, "redefinir.html"));
 });
