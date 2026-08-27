@@ -86,14 +86,27 @@
   .explica { padding: 12px 18px; font-size: 12.5px; color: var(--texto-fraco);
              line-height: 1.5; border-top: 1px solid var(--borda); background: #fbfaf8; }
 
-  .grafico { display: flex; align-items: flex-end; gap: 5px; height: 90px; padding: 16px 18px 0; }
+  .grafico { display: flex; align-items: flex-end; gap: 5px; height: 104px; padding: 16px 18px 0; }
   .grafico div { flex: 1; height: 100%; background: var(--accent-soft);
                  border-radius: 3px 3px 0 0; position: relative; }
   .grafico div i { position: absolute; bottom: 0; left: 0; right: 0;
                    background: var(--accent); border-radius: 3px 3px 0 0; display: block; }
+  /* O numero fica ACIMA da barra, nao dentro: dentro ele sumiria nas barras
+     baixas, que sao justamente os dias que interessa enxergar. Por isso as
+     barras vao no maximo a 82% da altura — o resto e o espaco do numero. */
+  .grafico div b { position: absolute; left: 0; right: 0; text-align: center;
+                   font-size: 11px; font-weight: 700; color: var(--accent);
+                   line-height: 1; }
+  /* Em periodo longo as barras ficam estreitas e os numeros se atropelam.
+     Melhor nenhum numero do que numeros ilegiveis grudados. */
+  .grafico.apertado div b { display: none; }
   .grafico + .rotulos { display: flex; gap: 5px; padding: 6px 18px 16px; }
+  /* overflow VISIVEL de proposito. Cada rotulo ocupa a largura de UMA barra, e
+     "27/08" nao cabe nela quando o periodo e longo — com overflow:hidden a data
+     saia cortada ("2ı", "3'"). Como so uma barra a cada N recebe rotulo, as
+     vizinhas estao vazias e o texto tem para onde transbordar. */
   .rotulos span { flex: 1; text-align: center; font-size: 10.5px; color: var(--texto-fraco);
-                  overflow: hidden; white-space: nowrap; }
+                  overflow: visible; white-space: nowrap; }
 
   .aviso-fonte { margin-top: 18px; font-size: 12.5px; color: var(--texto-fraco);
                  line-height: 1.6; padding: 14px 18px; }
@@ -337,11 +350,17 @@ function desenhar(d) {
   // ---- visitas por dia -----------------------------------------------------
   var pd = d.porDia || [];
   var maior = pd.reduce(function (a, x) { return Math.max(a, x.visitas); }, 1);
+  // 82% deixa a faixa de cima livre para o numero da barra mais alta.
+  var alturaDe = function (v) { return Math.round(82 * v / maior); };
+  var apertado = pd.length > 14;
   document.getElementById('grafico').outerHTML =
-    '<div class="grafico" id="grafico">' +
+    '<div class="grafico' + (apertado ? ' apertado' : '') + '" id="grafico">' +
       (pd.length ? pd.map(function (x) {
-        return '<div title="' + dataCurta(x.dia) + ': ' + x.visitas + '"><i style="height:' +
-          Math.round(100 * x.visitas / maior) + '%"></i></div>';
+        var h = alturaDe(x.visitas);
+        return '<div title="' + dataCurta(x.dia) + ': ' + x.visitas + '">' +
+                 '<b style="bottom:calc(' + h + '% + 4px)">' + x.visitas + '</b>' +
+                 '<i style="height:' + h + '%"></i>' +
+               '</div>';
       }).join('') : '') +
     '</div>' +
     '<div class="rotulos">' + pd.map(function (x, i) {
