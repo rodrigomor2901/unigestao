@@ -258,6 +258,51 @@ async function painel(de, ate) {
   };
 }
 
+// As visitas uma a uma, para a tabela que abre ao clicar num numero da tela.
+//
+// Todo numero de painel deve ter um caminho ate as linhas que o formaram. Sem
+// isso, quem discorda do total nao tem como conferir — e um painel em que nao
+// da para conferir vira um painel em que nao se confia.
+//
+// O limite de 500 nao e paginacao disfarcada: e o teto do que faz sentido ler
+// numa tabela de tela. Quando bate, a resposta diz `truncado: true` e a tela
+// avisa, em vez de mostrar uma lista cortada como se fosse completa.
+const LIMITE_DETALHE = 500;
+
+async function visitas(de, ate, filtro = {}) {
+  const cond = ["dia BETWEEN $1 AND $2"];
+  const args = [diaISO(de), diaISO(ate)];
+  if (filtro.supervisorId) {
+    args.push(filtro.supervisorId);
+    cond.push(`supervisor_id = $${args.length}`);
+  }
+  if (filtro.cliente) {
+    args.push(filtro.cliente);
+    cond.push(`cliente_nome = $${args.length}`);
+  }
+  if (filtro.dia) {
+    args.push(filtro.dia);
+    cond.push(`dia = $${args.length}`);
+  }
+
+  const onde = cond.join(" AND ");
+  const total = await db.query(`SELECT count(*)::int AS n FROM nexti_visita WHERE ${onde}`, args);
+  args.push(LIMITE_DETALHE);
+  const r = await db.query(
+    `SELECT id, dia, posto_nome, cliente_nome, supervisor_nome, checklist_nome,
+            inicio_em, fim_em, minutos
+       FROM nexti_visita WHERE ${onde}
+      ORDER BY dia DESC, inicio_em DESC NULLS LAST
+      LIMIT $${args.length}`,
+    args
+  );
+  return {
+    total: total.rows[0].n,
+    truncado: total.rows[0].n > LIMITE_DETALHE,
+    linhas: r.rows,
+  };
+}
+
 // O "costume" de cada supervisor no dia da semana de hoje.
 //
 // E o coracao do painel do dia: sem agendamento vindo do Nexti, a unica
@@ -342,7 +387,8 @@ function podeVer(u) {
 }
 
 module.exports = {
-  sincronizar, painel, costumeDeHoje, frescor, podeVer,
+  sincronizar, painel, visitas, costumeDeHoje, frescor, podeVer,
+  LIMITE_DETALHE,
   daTarefa, clienteDoPosto, dataDaEtapa, diasParaSincronizar,
   FRESCOR_HOJE_MIN, FRESCOR_RECENTE_H, SEMANAS_DE_COSTUME,
 };

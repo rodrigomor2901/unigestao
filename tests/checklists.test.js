@@ -202,6 +202,96 @@ function subirNexti(porDia) {
   ok(paginaSemPermissao.status < 400,
      `e sem a marcacao, tambem redireciona (veio ${paginaSemPermissao.status})`);
 
+  console.log("\n=== CLICAR NUM NUMERO ABRE AS LINHAS QUE O FORMARAM ===");
+  // Todo total do painel tem que ter caminho ate as visitas que o compoem.
+  // Painel em que nao da para conferir de onde veio o numero e painel em que
+  // nao se confia.
+  //
+  // Aqui roda o script DA PAGINA de verdade, com um documento de mentira —
+  // mesmo padrao de tests/tela-inicial.test.js. Testar a string do HTML pega o
+  // que quebra calado: um data-attribute com nome trocado nao da erro nenhum,
+  // so deixa de filtrar.
+  {
+    const fs = require("fs");
+    const path = require("path");
+    const html = fs.readFileSync(
+      path.join(__dirname, "..", "public", "checklists.html"), "utf8");
+    const script = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)]
+      .map((m) => m[1]).join("\n");
+
+    const elemento = () => ({
+      innerHTML: "", textContent: "", style: {}, className: "",
+      classList: { toggle() {}, add() {}, remove() {} },
+      addEventListener() {}, querySelectorAll: () => [], closest: () => null,
+      getAttribute: () => null, setAttribute() {}, scrollIntoView() {},
+    });
+    const documento = {
+      getElementById: () => elemento(),
+      querySelectorAll: () => [],
+      querySelector: () => elemento(),
+      addEventListener() {},
+    };
+    // O script termina chamando carregar(); devolvemos as funcoes para inspecao.
+    const rodar = new Function("document", "fetch", "location", "window",
+      script + "\nreturn { botaoAbrir, montarDetalhe, fecharDetalhe };");
+    const pagina = rodar(documento, async () => ({ ok: true, json: async () => ({}) }),
+                         { href: "/" }, { location: {} });
+
+    const botao = pagina.botaoAbrir(27, "supervisor", 17, "GUSTAVO");
+    ok(botao.includes('data-tipo="supervisor"'), "o numero vira botao com o tipo do filtro");
+    ok(botao.includes('data-chave="17"'), "carregando a chave que sera filtrada");
+    ok(botao.includes(">27<"), "e mostrando o proprio numero");
+
+    // Zero nao vira botao: abrir uma lista vazia so frustra.
+    ok(pagina.botaoAbrir(0, "supervisor", 17, "X") === "0",
+       "zero NAO vira botao — nao ha lista para abrir");
+
+    const tabela = pagina.montarDetalhe({
+      total: 2, truncado: false,
+      linhas: [
+        { id: 1, dia: "2026-08-27", posto_nome: "KABUM - LIMEIRA - PORTARIA",
+          cliente_nome: "KABUM - LIMEIRA", supervisor_nome: "GUSTAVO",
+          checklist_nome: "VISITA DE ROTINA",
+          inicio_em: "2026-08-27T09:00:00", fim_em: "2026-08-27T09:33:00", minutos: 33 },
+        { id: 2, dia: "2026-08-26", posto_nome: "TOULON - ASG", cliente_nome: "TOULON",
+          supervisor_nome: "GUSTAVO", checklist_nome: null,
+          inicio_em: null, fim_em: null, minutos: null },
+      ],
+    });
+    ok(tabela.includes("KABUM - LIMEIRA - PORTARIA"), "a tabela lista o posto visitado");
+    ok(tabela.includes("GUSTAVO"),
+       "sem filtro por pessoa, a coluna do supervisor aparece");
+
+    // Filtrando por supervisor, repetir o nome dele em toda linha so rouba a
+    // largura do posto, que e o que interessa ali.
+    const soDele = pagina.montarDetalhe({
+      total: 1, truncado: false,
+      linhas: [{ id: 1, dia: "2026-08-27", posto_nome: "KABUM - LIMEIRA - PORTARIA",
+                 supervisor_nome: "GUSTAVO", checklist_nome: "VISITA DE ROTINA",
+                 inicio_em: null, fim_em: null, minutos: 30 }],
+    }, "supervisor");
+    ok(!soDele.includes("GUSTAVO"),
+       "filtrando por supervisor, a coluna dele some — seria a mesma em toda linha");
+    ok(soDele.includes("KABUM - LIMEIRA - PORTARIA"), "e o posto continua la");
+    ok(tabela.includes("33 min"), "com o tempo em posto");
+    ok(tabela.includes("VISITA DE ROTINA"), "e o checklist");
+    ok(tabela.includes("(sem nome)"),
+       "checklist sem nome aparece como '(sem nome)', nao em branco");
+    ok(tabela.includes("&gt;") === false || !tabela.includes("<script"),
+       "o conteudo vindo do Nexti e escapado");
+
+    const vazia = pagina.montarDetalhe({ total: 0, truncado: false, linhas: [] });
+    ok(vazia.includes("Nenhuma visita"), "lista vazia diz que esta vazia");
+
+    const cortada = pagina.montarDetalhe({
+      total: 900, truncado: true,
+      linhas: [{ id: 1, dia: "2026-08-27", posto_nome: "X", supervisor_nome: "Y",
+                 checklist_nome: "Z", inicio_em: null, fim_em: null, minutos: null }],
+    });
+    ok(cortada.includes("de 900"),
+       "quando corta, a tela AVISA quantas ficaram de fora  <-- lista cortada calada engana");
+  }
+
   await pool.query("DELETE FROM usuarios WHERE email = $1", [email]);
   await pool.query("DELETE FROM nexti_visita");
   await pool.query("DELETE FROM nexti_sync");

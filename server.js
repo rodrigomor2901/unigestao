@@ -590,6 +590,25 @@ app.get("/api/checklists/painel", exigeVerChecklists, async (req, res, next) => 
   }
 });
 
+// As linhas por tras de um numero do painel.
+//
+// Todo total da tela tem um caminho ate as visitas que o formaram: clicar no
+// numero abre a lista. Painel em que nao da para conferir de onde veio o numero
+// e painel em que nao se confia.
+app.get("/api/checklists/visitas", exigeVerChecklists, async (req, res, next) => {
+  try {
+    const { de, ate } = intervaloPedido(req);
+    const dados = await checklists.visitas(de, ate, {
+      supervisorId: req.query.supervisor ? Number(req.query.supervisor) : null,
+      cliente: req.query.cliente || null,
+      dia: /^\d{4}-\d{2}-\d{2}$/.test(req.query.dia || "") ? req.query.dia : null,
+    });
+    res.json(dados);
+  } catch (e) {
+    next(e);
+  }
+});
+
 // ---------------------------------------------------------------------------
 // AGENDA — todo mundo do grupo pode consultar
 // ---------------------------------------------------------------------------

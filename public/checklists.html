@@ -97,6 +97,30 @@
 
   .aviso-fonte { margin-top: 18px; font-size: 12.5px; color: var(--texto-fraco);
                  line-height: 1.6; padding: 14px 18px; }
+
+  /* Numero clicavel: leva as linhas que formaram aquele total.
+     Sublinhado pontilhado em vez de cor de link — a tabela ficaria colorida
+     demais se cada numero virasse azul. */
+  .abre {
+    background: none; border: 0; padding: 0; font: inherit; font-size: inherit;
+    color: var(--accent); cursor: pointer;
+    border-bottom: 1px dotted var(--accent); line-height: 1.1;
+  }
+  .abre:hover { color: var(--accent-dark); border-bottom-style: solid; }
+  tr.escolhida { background: var(--accent-soft); }
+
+  /* Tabela de detalhe, no fim da tela */
+  #detalhe { margin-top: 18px; scroll-margin-top: 16px; }
+  #detalhe h2 .fechar {
+    background: none; border: 0; font: inherit; font-size: 13px;
+    color: var(--texto-fraco); cursor: pointer; text-decoration: underline;
+  }
+  #detalhe .rolagem { max-height: 460px; overflow: auto; }
+  #detalhe thead th { position: sticky; top: 0; background: var(--surface); z-index: 1; }
+  #detalhe td { font-size: 13.5px; }
+  #detalhe .hora { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  #detalhe .corte { padding: 10px 18px; font-size: 12.5px; color: var(--erro);
+                    border-top: 1px solid var(--borda); background: #fdf6f5; }
 </style>
 </head>
 <body>
@@ -157,6 +181,12 @@
         <div id="tabelaChk"></div>
       </div>
     </div>
+  </div>
+
+  <div class="card" id="detalhe" style="display:none">
+    <h2><span id="detalheTitulo"></span>
+        <button class="fechar" onclick="fecharDetalhe()">fechar</button></h2>
+    <div id="detalheCorpo"></div>
   </div>
 
   <div class="card aviso-fonte">
@@ -249,7 +279,9 @@ function desenhar(d) {
   var t = d.totais || {};
   var media = t.media_min ? Math.round(t.media_min) : null;
   document.getElementById('numeros').innerHTML =
-    cartao('Visitas concluídas', t.visitas || 0, DIAS === 0 ? 'hoje' : 'no período') +
+    cartao('Visitas concluídas',
+           botaoAbrir(t.visitas || 0, 'tudo', null, 'todas as visitas'),
+           DIAS === 0 ? 'hoje' : 'no período') +
     cartao('Supervisores', t.supervisores || 0, 'com registro') +
     cartao('Clientes', t.clientes || 0, (t.postos || 0) + ' postos') +
     cartao('Tempo médio', media != null ? media + ' min' : '—', 'em posto');
@@ -264,7 +296,8 @@ function desenhar(d) {
     sup.map(function (s) {
       return '<tr><td><b>' + esc(s.supervisor_nome || ('#' + s.supervisor_id)) + '</b>' +
         '<small>última em ' + dataCurta(s.ultima) + '</small></td>' +
-        '<td class="n">' + s.visitas + '</td>' +
+        '<td class="n">' + botaoAbrir(s.visitas, 'supervisor', s.supervisor_id,
+                                      s.supervisor_nome || ('#' + s.supervisor_id)) + '</td>' +
         '<td class="n">' + s.postos + '</td>' +
         '<td class="n">' + s.dias + '</td>' +
         '<td class="n">' + (s.media_min ? Math.round(s.media_min) + ' min' : '—') + '</td></tr>';
@@ -280,7 +313,7 @@ function desenhar(d) {
     cli.slice(0, 40).map(function (c) {
       var dias = diasDesde(c.ultima);
       return '<tr><td>' + esc(c.cliente_nome) + '</td>' +
-        '<td class="n">' + c.visitas + '</td>' +
+        '<td class="n">' + botaoAbrir(c.visitas, 'cliente', c.cliente_nome, c.cliente_nome) + '</td>' +
         '<td class="n">' + c.postos + '</td>' +
         '<td class="n">' + (dias === 0 ? 'hoje' : dias === 1 ? 'ontem' : 'há ' + dias + 'd') +
         '</td></tr>';
@@ -324,17 +357,112 @@ function desenhar(d) {
   ) : '<div class="vazio">Nada no período.</div>';
 }
 
-function cartao(rotulo, valor, pe) {
+// `valor` pode vir pronto em HTML (o botao que abre o detalhe). Os outros dois
+// continuam escapados: rotulo e rodape sao texto.
+function cartao(rotulo, valorHtml, pe) {
   return '<div class="card num"><div class="rot">' + esc(rotulo) + '</div>' +
-         '<div class="v">' + esc(valor) + '</div>' +
+         '<div class="v">' + valorHtml + '</div>' +
          '<div class="pe">' + esc(pe) + '</div></div>';
 }
+
+// ---------------------------------------------------------------------------
+// A tabela do fim: as visitas por tras de um numero
+// ---------------------------------------------------------------------------
+// Zero nao vira botao: clicar para abrir uma lista vazia so frustra.
+function botaoAbrir(quantas, tipo, chave, rotulo) {
+  if (!quantas) return String(quantas);
+  return '<button class="abre" data-tipo="' + esc(tipo) + '"' +
+         (chave == null ? '' : ' data-chave="' + esc(chave) + '"') +
+         ' data-rotulo="' + esc(rotulo) + '">' + quantas + '</button>';
+}
+
+function fecharDetalhe() {
+  document.getElementById('detalhe').style.display = 'none';
+  document.querySelectorAll('tr.escolhida').forEach(function (tr) {
+    tr.classList.remove('escolhida');
+  });
+}
+
+async function abrirDetalhe(tipo, chave, rotulo, linhaClicada) {
+  var caixa = document.getElementById('detalhe');
+  var corpo = document.getElementById('detalheCorpo');
+  document.getElementById('detalheTitulo').textContent = 'Visitas — ' + rotulo;
+  corpo.innerHTML = '<div class="vazio">Carregando…</div>';
+  caixa.style.display = '';
+
+  document.querySelectorAll('tr.escolhida').forEach(function (tr) { tr.classList.remove('escolhida'); });
+  if (linhaClicada) linhaClicada.classList.add('escolhida');
+  caixa.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  var ate = new Date(), de = new Date();
+  de.setDate(de.getDate() - DIAS);
+  var q = '/api/checklists/visitas?de=' + iso(de) + '&ate=' + iso(ate);
+  if (tipo === 'supervisor') q += '&supervisor=' + encodeURIComponent(chave);
+  if (tipo === 'cliente') q += '&cliente=' + encodeURIComponent(chave);
+
+  try {
+    var r = await fetch(q);
+    if (!r.ok) throw new Error('Não foi possível carregar as visitas');
+    var d = await r.json();
+    corpo.innerHTML = montarDetalhe(d, tipo);
+  } catch (e) {
+    corpo.innerHTML = '<div class="vazio">' + esc(e.message) + '</div>';
+  }
+}
+
+function montarDetalhe(d, tipo) {
+  if (!d.linhas || !d.linhas.length) {
+    return '<div class="vazio">Nenhuma visita encontrada.</div>';
+  }
+  var hora = function (s) {
+    if (!s) return '—';
+    var x = new Date(s);
+    return p2(x.getHours()) + ':' + p2(x.getMinutes());
+  };
+  // Filtrando por supervisor, a coluna dele repetiria o mesmo nome em todas as
+  // linhas — e o nome é comprido, roubando a largura do posto, que é o que
+  // interessa ali. Some. O mesmo vale para o cliente.
+  var mostraSupervisor = tipo !== 'supervisor';
+
+  return '<div class="rolagem"><table><thead><tr>' +
+      '<th>Data</th><th>Início</th><th>Fim</th><th class="n">Tempo</th>' +
+      (mostraSupervisor ? '<th>Supervisor</th>' : '') +
+      '<th>Posto</th><th>Checklist</th>' +
+    '</tr></thead><tbody>' +
+    d.linhas.map(function (v) {
+      return '<tr>' +
+        '<td class="hora">' + dataCurta(v.dia) + '</td>' +
+        '<td class="hora">' + hora(v.inicio_em) + '</td>' +
+        '<td class="hora">' + hora(v.fim_em) + '</td>' +
+        '<td class="n hora">' + (v.minutos != null ? v.minutos + ' min' : '—') + '</td>' +
+        (mostraSupervisor ? '<td>' + esc(v.supervisor_nome || '—') + '</td>' : '') +
+        '<td>' + esc(v.posto_nome || '—') + '</td>' +
+        '<td>' + esc(v.checklist_nome || '(sem nome)') + '</td>' +
+      '</tr>';
+    }).join('') + '</tbody></table></div>' +
+    (d.truncado
+      ? '<div class="corte">Mostrando as ' + d.linhas.length + ' mais recentes de ' +
+        d.total + '. Escolha um período menor para ver todas.</div>'
+      : '');
+}
+
+// Um ouvinte só, no documento: as tabelas são redesenhadas a cada consulta, e
+// ouvinte preso a botão morreria junto com o HTML antigo.
+document.addEventListener('click', function (ev) {
+  var b = ev.target.closest && ev.target.closest('.abre');
+  if (!b) return;
+  abrirDetalhe(b.getAttribute('data-tipo'), b.getAttribute('data-chave'),
+               b.getAttribute('data-rotulo'), b.closest('tr'));
+});
 
 document.getElementById('periodos').addEventListener('click', function (ev) {
   var b = ev.target.closest('button');
   if (!b) return;
   DIAS = Number(b.getAttribute('data-dias'));
   this.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
+  // A lista aberta era do periodo anterior; deixa-la na tela mostraria linhas
+  // que nao batem mais com os numeros de cima.
+  fecharDetalhe();
   carregar(false);
 });
 
