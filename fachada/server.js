@@ -455,21 +455,27 @@ function ipDoCliente(req) {
   return partes[partes.length - PROXIES_NA_FRENTE];
 }
 
-// Uma linha, uma vez por processo, para conferir o formato que a Railway
-// entrega sem guardar endereco de ninguem: quantos valores vieram na lista e de
-// onde saiu o endereco escolhido. Se algum dia a lista passar a ter mais de um
-// salto de infraestrutura, e aqui que se ve.
-let jaContou = false;
+// Algumas linhas, nas primeiras requisicoes de cada processo, para conferir o
+// FORMATO que a Railway entrega — quantos saltos vem na frente. Sem isso o
+// numero de proxies seria chute, e chutar para menos reabre o furo.
+//
+// Nenhum endereco e escrito: so a quantidade e o tipo de cada valor (publico ou
+// privado). Tipo basta para ler a estrutura da lista e nao identifica ninguem.
+const PRIVADO = /^(10\.|127\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|::1|::ffff:(10\.|127\.|192\.168\.)|f[cd])/i;
+let aContar = 5;
 function contarUmaVez(req) {
-  if (jaContou) return;
-  jaContou = true;
+  if (aContar <= 0) return;
+  aContar--;
   const bruto = req.headers["x-forwarded-for"];
-  const n = bruto ? String(bruto).split(",").filter((x) => x.trim()).length : 0;
-  console.log(`[fachada] x-forwarded-for com ${n} valor(es); ` +
-              `proxies na frente: ${PROXIES_NA_FRENTE}; origem do IP: ` +
-              (PROXIES_NA_FRENTE && n >= PROXIES_NA_FRENTE
-                ? `valor ${PROXIES_NA_FRENTE} contado da direita`
-                : "conexao direta"));
+  const partes = bruto
+    ? String(bruto).split(",").map((x) => x.trim()).filter(Boolean)
+    : [];
+  const tipos = partes.map((x) => (PRIVADO.test(x) ? "privado" : "publico")).join(" | ");
+  const daConexao = (req.socket && req.socket.remoteAddress) || "";
+  console.log(`[fachada] x-forwarded-for: ${partes.length} valor(es) [${tipos}]; ` +
+              `conexao: ${PRIVADO.test(daConexao) ? "privada" : "publica"}; ` +
+              `ultimo == conexao? ${partes.length && partes[partes.length - 1] === daConexao}; ` +
+              `proxies na frente: ${PROXIES_NA_FRENTE}`);
 }
 
 function encaminhar(req, res, destino, caminho, extras, injetar) {
