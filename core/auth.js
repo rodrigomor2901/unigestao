@@ -376,9 +376,31 @@ async function auditar(req, acao, dados = {}) {
   }
 }
 
+// Em quem o Express pode acreditar ao ler o X-Forwarded-For (usado la no
+// server.js, e conferido no teste). Faixa de endereco, nao contagem de saltos:
+// contagem confia em quem quer que esteja do outro lado da conexao; faixa so
+// aceita o cabecalho quando o vizinho e a rede privada da Railway — onde
+// unicamente a Fachada alcanca o Core — ou a propria maquina, em
+// desenvolvimento e nos testes.
+const PROXY_CONFIAVEL = ["loopback", "linklocal", "uniquelocal"];
+
+// De onde sai o endereco de rede que conta tentativa e assina a auditoria.
+//
+// Este trecho JA FOI o defeito. Ele lia o X-Forwarded-For e pegava o PRIMEIRO
+// valor — que e justamente o pedaco que o cliente escreve. Bastava mandar um
+// endereco diferente a cada tentativa para o teto por local (MAX_POR_IP) nunca
+// fechar, e para a auditoria guardar um endereco inventado.
+//
+// Agora quem decide e o Express, com o `trust proxy` configurado em server.js:
+// ele so aceita o X-Forwarded-For quando o vizinho da conexao e confiavel (a
+// rede privada da Railway, onde so a Fachada alcanca o Core) e, mesmo assim, so
+// o valor da DIREITA — o que o proxy acrescentou, e nao o que o cliente enviou.
+// Fora dai, sobra o endereco real da conexao.
+//
+// A Fachada, que e a porta publica, ainda reescreve o cabecalho antes de
+// repassar: o que o cliente escreveu nunca chega aqui.
 function ipDe(req) {
-  const f = req.headers["x-forwarded-for"];
-  if (f) return String(f).split(",")[0].trim();
+  if (req.ip) return req.ip;
   return req.socket ? req.socket.remoteAddress : null;
 }
 
@@ -391,5 +413,5 @@ module.exports = {
   definirCookie, limparCookie, lerToken, COOKIE,
   bloqueado, ipBloqueado, registrarFalha, limparFalhas,
   MAX_POR_CONTA, MAX_POR_IP, JANELA_MIN,
-  auditar, ipDe,
+  auditar, ipDe, PROXY_CONFIAVEL,
 };

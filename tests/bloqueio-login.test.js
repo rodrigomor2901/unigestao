@@ -95,6 +95,44 @@ const tentar = (email, senha) => fetch(`${CORE}/api/login`, {
     "SELECT count FROM login_tentativas WHERE chave LIKE 'ip:%'");
   ok(ip.rows.length >= 1, "as tentativas erradas continuam somando no contador do local");
 
+  console.log("\n=== O ENDERECO DE REDE NAO PODE SER ESCOLHIDO POR QUEM CHAMA ===");
+  // Achado do teste de seguranca: ipDe lia o X-Forwarded-For e ficava com o
+  // PRIMEIRO valor — o pedaco que quem chama escreve. Com isso o teto por local
+  // (MAX_POR_IP) nunca fechava: bastava mandar um endereco novo a cada
+  // tentativa. E a auditoria guardava endereco inventado, que e pior: da a
+  // impressao de que se sabe de onde veio o ataque.
+  //
+  // Duas travas, testadas separadamente:
+  //   1. ipDe usa o endereco que o Express apurou, nunca o texto cru;
+  //   2. o Express so acredita no cabecalho quando o vizinho da conexao esta
+  //      numa faixa privada — a rede interna da Railway, onde so a Fachada
+  //      chega ao Core.
+  const forjado = {
+    ip: "203.0.113.9",                                  // o que o Express apurou
+    headers: { "x-forwarded-for": "1.2.3.4, 203.0.113.9" }, // 1.2.3.4 e invencao
+    socket: { remoteAddress: "::1" },
+  };
+  ok(auth.ipDe(forjado) === "203.0.113.9",
+     "vale o endereco apurado pelo Express, nao o que veio escrito na frente");
+  ok(auth.ipDe(forjado) !== "1.2.3.4",
+     "o valor da esquerda do X-Forwarded-For e ignorado  <-- era o furo");
+
+  const semExpress = { headers: { "x-forwarded-for": "1.2.3.4" },
+                       socket: { remoteAddress: "10.0.0.7" } };
+  ok(auth.ipDe(semExpress) === "10.0.0.7",
+     "fora do Express, sobra o endereco real da conexao — nunca o cabecalho");
+
+  // A lista de vizinhos confiaveis e a mesma que o server.js entrega ao
+  // Express; aqui ela e submetida ao mesmo juiz que o Express usa.
+  const confia = require("proxy-addr").compile(auth.PROXY_CONFIAVEL);
+  ok(confia("fd12::3", 0) === true,
+     "a rede privada da Railway e confiavel — e por onde a Fachada fala");
+  ok(confia("127.0.0.1", 0) === true, "a propria maquina tambem (dev e testes)");
+  ok(confia("203.0.113.9", 0) === false,
+     "um endereco publico NAO e confiavel: se o Core for exposto, o cabecalho de fora nao vale");
+  ok(!auth.PROXY_CONFIAVEL.some((x) => typeof x === "number"),
+     "a confianca e por faixa de endereco, nao por contagem de saltos");
+
   console.log("\n=== QUEM ENTRA LIMPA SO A PROPRIA CONTA ===");
   // Se entrar limpasse tambem o contador do local, bastaria uma entrada valida
   // qualquer para zerar a protecao contra script.

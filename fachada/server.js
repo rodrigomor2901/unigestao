@@ -415,6 +415,63 @@ function prefixarCaminhos(html, base) {
 // Proxy
 // ---------------------------------------------------------------------------
 
+// Quantos proxies existem na FRENTE da Fachada. Na Railway e um: a borda dela.
+// Rodando direto na sua maquina, nenhum — e ai o certo e PROXIES_NA_FRENTE=0,
+// que manda ignorar o cabecalho por completo e ficar com a conexao.
+//
+// O padrao e 1 de proposito, e nao "adivinha pelo ambiente": errar para menos em
+// producao abre o furo de novo, enquanto errar para mais na maquina de
+// desenvolvimento nao machuca ninguem. Numero, e nao deteccao automatica, porque
+// isto e a unica coisa que separa o endereco escrito pela infraestrutura do
+// endereco escrito por quem chamou.
+const PROXIES_NA_FRENTE = process.env.PROXIES_NA_FRENTE !== undefined
+  ? Math.max(0, Number(process.env.PROXIES_NA_FRENTE) || 0)
+  : 1;
+
+// O endereco de quem realmente abriu a conexao.
+//
+// O X-Forwarded-For e uma lista e a ordem importa: cada proxy ACRESCENTA no fim
+// o endereco de quem falou com ele. Entao os ultimos valores foram escritos
+// pela infraestrutura e valem; tudo o que vem antes foi escrito por quem chamou
+// e nao vale nada — pode ser invencao.
+//
+// Contar os saltos e o que separa um do outro, e por isso o numero e
+// configuracao e nao adivinhacao: com um proxy na frente, o valor bom e o
+// ultimo; com nenhum, a lista inteira e do cliente e deve ser jogada fora.
+//
+// Ler o PRIMEIRO valor — o que o Core fazia — e justamente o furo: quem quisesse
+// burlar o teto de tentativas so precisava mandar um endereco novo a cada vez.
+function ipDoCliente(req) {
+  const daConexao = (req.socket && req.socket.remoteAddress) || "";
+  if (PROXIES_NA_FRENTE === 0) return daConexao;
+
+  const bruto = req.headers["x-forwarded-for"];
+  const partes = bruto
+    ? String(bruto).split(",").map((x) => x.trim()).filter(Boolean)
+    : [];
+  // Lista curta demais para o numero de saltos esperado: alguem esta chamando
+  // por um caminho que nao e o previsto. Fica com a conexao.
+  if (partes.length < PROXIES_NA_FRENTE) return daConexao;
+  return partes[partes.length - PROXIES_NA_FRENTE];
+}
+
+// Uma linha, uma vez por processo, para conferir o formato que a Railway
+// entrega sem guardar endereco de ninguem: quantos valores vieram na lista e de
+// onde saiu o endereco escolhido. Se algum dia a lista passar a ter mais de um
+// salto de infraestrutura, e aqui que se ve.
+let jaContou = false;
+function contarUmaVez(req) {
+  if (jaContou) return;
+  jaContou = true;
+  const bruto = req.headers["x-forwarded-for"];
+  const n = bruto ? String(bruto).split(",").filter((x) => x.trim()).length : 0;
+  console.log(`[fachada] x-forwarded-for com ${n} valor(es); ` +
+              `proxies na frente: ${PROXIES_NA_FRENTE}; origem do IP: ` +
+              (PROXIES_NA_FRENTE && n >= PROXIES_NA_FRENTE
+                ? `valor ${PROXIES_NA_FRENTE} contado da direita`
+                : "conexao direta"));
+}
+
 function encaminhar(req, res, destino, caminho, extras, injetar) {
   let alvo;
   try {
@@ -427,6 +484,18 @@ function encaminhar(req, res, destino, caminho, extras, injetar) {
   const headers = { ...req.headers, ...extras };
   headers.host = alvo.host;
   delete headers["accept-encoding"]; // simplifica a injecao de HTML
+
+  // A Fachada e a unica porta publica, entao e aqui que o endereco de quem
+  // chamou para de ser palpite. O cabecalho e REESCRITO com um valor so — o
+  // verdadeiro. O que o cliente tiver escrito e descartado, e nao repassado
+  // para o Core nem para os modulos.
+  //
+  // Sem isto, qualquer um mandaria "x-forwarded-for: 1.2.3.4" e o Core contaria
+  // a tentativa na conta de um endereco que nao existe.
+  contarUmaVez(req);
+  headers["x-forwarded-for"] = ipDoCliente(req);
+  delete headers["x-real-ip"];               // idem: e do cliente, nao vale
+  delete headers["x-envoy-external-address"];
 
   // Numa navegacao de pagina, o navegador pode mandar "so me responda se
   // mudou" (if-none-match / if-modified-since) com o ETag que ele guardou. O

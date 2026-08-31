@@ -26,7 +26,14 @@ const mural = require("./core/mural");
 const checklists = require("./core/checklists");
 
 const app = express();
-app.set("trust proxy", 1);
+
+// Em quem acreditar ao ler o X-Forwarded-For — a lista esta em core/auth.js,
+// junto de quem a usa para decidir bloqueio e auditoria.
+//
+// Consequencia pratica: se algum dia o Core for exposto direto na internet, a
+// requisicao de fora chega com o vizinho publico, o cabecalho e IGNORADO e vale
+// o endereco da conexao de verdade. Ninguem consegue dizer de onde esta vindo.
+app.set("trust proxy", auth.PROXY_CONFIAVEL);
 // 3mb cobre a maior imagem aceita em base64 com folga: o teto real e 900 KB
 // para a imagem do mural (core/mural.js), que em base64 da ~1,2 MB. O resto
 // das rotas manda JSON pequeno — este limite existe so por causa de imagem.

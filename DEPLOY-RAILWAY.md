@@ -115,6 +115,7 @@ negócio passa por aqui.
    | `NODE_ENV` | `production` |
    | `CORE_INTERNAL_KEY` | **a mesma chave** do Core |
    | `URL_CORE` | `http://core.railway.internal:3000` |
+   | `PROXIES_NA_FRENTE` | opcional — padrão `1`; só mude se puser outro proxy na frente |
 
    Não preencha as `URL_<MODULO>` ainda — nenhum módulo foi plugado.
    O `PORT` da Fachada o Railway injeta sozinho, por ela ter domínio público.
@@ -157,6 +158,36 @@ Se travar nessa etapa, veja **Perdeu o 2FA** no [README.md](README.md#perdeu-o-2
 - [ ] `URL_CORE` aponta para `http://core.railway.internal:3000`
 - [ ] Login funciona e o 2FA foi ativado
 - [ ] `BOOTSTRAP_SENHA` removida das variáveis
+
+---
+
+## Como o endereço de rede de quem chama é apurado
+
+O bloqueio de tentativas de login e o registro na auditoria dependem de saber de
+onde veio a requisição. Esse endereço chega num cabeçalho, `X-Forwarded-For`, e
+cabeçalho é texto: **quem chama escreve o que quiser nele**.
+
+O que separa o verdadeiro do inventado é a ordem. Cada proxy *acrescenta no fim*
+o endereço de quem falou com ele. Então, com um proxy na frente — a borda do
+Railway —, o último valor foi escrito pela infraestrutura e vale; tudo o que vem
+antes foi escrito por quem chamou e não vale nada.
+
+Isso já foi um defeito: o Core lia o **primeiro** valor. Bastava mandar um
+endereço diferente a cada tentativa para o teto de 60 por local nunca fechar, e
+a auditoria guardava endereço inventado — pior do que não guardar, porque dá a
+impressão de que se sabe de onde veio.
+
+Hoje são duas travas:
+
+1. **A Fachada reescreve o cabeçalho** antes de repassar. Ela conta os saltos
+   (`PROXIES_NA_FRENTE`, padrão 1) e manda adiante **um valor só**, o verdadeiro.
+   O que o cliente escreveu não chega ao Core nem aos módulos.
+2. **O Core só acredita no cabeçalho quando o vizinho da conexão é da rede
+   privada** do Railway — por onde unicamente a Fachada fala. Requisição vinda de
+   fora tem o cabeçalho ignorado e vale o endereço real da conexão.
+
+Rodando na sua máquina sem a Fachada na frente, o certo é `PROXIES_NA_FRENTE=0`:
+sem proxy nenhum, o cabeçalho inteiro é invenção e deve ser descartado.
 
 ---
 

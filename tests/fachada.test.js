@@ -125,6 +125,60 @@ function portaLivre() {
   ok(decodeURIComponent(recebido.headers["x-ug-nome"] || "").includes("Fachada"),
      "nome com acento trafega sem quebrar o cabecalho");
 
+  console.log("\n=== O ENDERECO DE REDE FORJADO MORRE NA PORTA DE ENTRADA ===");
+  // A Fachada e a unica porta publica, entao e o unico lugar onde da para saber
+  // de quem e a conexao. O X-Forwarded-For que chega de fora e uma lista: o
+  // ultimo valor foi escrito pelo proxy da Railway e vale; o resto foi escrito
+  // por quem chamou e nao vale nada.
+  //
+  // O achado do teste de seguranca era o Core ficar com o PRIMEIRO valor. A
+  // Fachada agora REESCREVE o cabecalho antes de repassar, entao o texto
+  // inventado nao chega nem ao Core nem aos modulos.
+  await fetch(`${F}/operacional/`, {
+    headers: { ...C(comAcesso).headers, "x-forwarded-for": "1.2.3.4, 5.6.7.8" },
+  });
+  const repassado = String(recebido.headers["x-forwarded-for"] || "");
+  ok(!repassado.includes("1.2.3.4"),
+     "o endereco inventado pelo cliente NAO e repassado  <-- era o furo");
+  ok(!repassado.includes(","),
+     "vai um valor so, sem lista: nao sobra o que escolher do outro lado");
+  ok(repassado.includes("127.0.0.1") || repassado.includes("::1") ||
+     repassado.includes("5.6.7.8"),
+     "e o que vale e o ultimo da lista (ou a propria conexao, sem proxy na frente)");
+
+  await fetch(`${F}/operacional/`, {
+    headers: { ...C(comAcesso).headers, "x-real-ip": "9.9.9.9",
+               "x-envoy-external-address": "9.9.9.9" },
+  });
+  ok(!recebido.headers["x-real-ip"] && !recebido.headers["x-envoy-external-address"],
+     "os outros cabecalhos de endereco tambem sao descartados — sao do cliente");
+
+  // E a prova de que isso chega ate onde importa: o contador de tentativas.
+  // Cinco tentativas erradas, cada uma inventando um endereco diferente, no
+  // formato que a borda da Railway produz (o endereco de verdade entra no FIM
+  // da lista). Tem que sobrar UM contador, no endereco de verdade.
+  //
+  // Antes da correcao sobravam cinco — um por endereco inventado —, e o teto de
+  // 60 tentativas por local nunca fechava.
+  await pool.query("DELETE FROM login_tentativas");
+  for (let i = 0; i < 5; i++) {
+    await fetch(`${F}/api/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json",
+                 "x-forwarded-for": `10.9.9.${i}, 203.0.113.7` },
+      body: JSON.stringify({ email: "naoexiste.fach@uniseter.com", senha: "errada" }),
+    });
+  }
+  const contadores = await pool.query(
+    "SELECT chave, count FROM login_tentativas WHERE chave LIKE 'ip:%' ORDER BY chave");
+  ok(contadores.rows.length === 1,
+     "as 5 tentativas somam num contador so (vieram " + contadores.rows.length + ")");
+  ok(contadores.rows[0] && contadores.rows[0].chave === "ip:203.0.113.7",
+     "e no endereco que a infraestrutura escreveu, nao no que o cliente inventou");
+  ok(contadores.rows[0] && contadores.rows[0].count === 5,
+     "com as cinco tentativas somadas — e o teto por local volta a fechar");
+  await pool.query("DELETE FROM login_tentativas");
+
   console.log("\n=== INJECAO NO HTML ===");
   ok(corpo.includes("Sistema antigo"), "conteudo original do modulo preservado");
   ok(corpo.includes('src="/operacional/__ug/shim.js"'), "shim referenciado como arquivo");
