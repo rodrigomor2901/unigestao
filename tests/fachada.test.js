@@ -129,6 +129,41 @@ function portaLivre() {
   ok(decodeURIComponent(recebido.headers["x-ug-nome"] || "").includes("Fachada"),
      "nome com acento trafega sem quebrar o cabecalho");
 
+  console.log("\n=== A IDENTIDADE CHEGA ASSINADA AO MODULO ===");
+  // Ponta a ponta, com a Fachada de verdade: o que o modulo recebe tem que ser
+  // um bilhete que o verificador canonico aceita. Testar so o assinador e o
+  // verificador em separado deixaria passar o erro mais provavel — os dois
+  // lados combinando formatos diferentes.
+  const ident = require("../integracao/identidade.js");
+  const conferir = (b) => ident.verificar(b, {
+    env: { CORE_INTERNAL_KEY: CHAVE }, modulo: "operacional", semRepeticao: false });
+
+  await fetch(`${F}/operacional/`, C(comAcesso));
+  const bilhete = recebido.headers["x-ug-identidade"];
+  ok(Boolean(bilhete), "o modulo recebe o bilhete assinado");
+  const dentroDoBilhete = conferir(bilhete);
+  ok(Boolean(dentroDoBilhete), "e o verificador do modulo aceita o que a Fachada assinou");
+  ok(dentroDoBilhete && dentroDoBilhete.papel === "cco", "com o papel que o Core informou");
+  ok(dentroDoBilhete && dentroDoBilhete.mod === "operacional", "preso ao modulo de destino");
+  ok(dentroDoBilhete && dentroDoBilhete.exp > dentroDoBilhete.iat, "e com prazo de validade");
+
+  // Bilhete e cabecalhos de identidade vindos DO CLIENTE sao descartados na
+  // porta. Sem isso, bastaria mandar um `x-ug-identidade` proprio e torcer para
+  // alguma rota nao sobrescrever.
+  await fetch(`${F}/operacional/`, {
+    headers: { ...C(comAcesso).headers,
+               "x-ug-identidade": "bilhete.inventado",
+               "x-ug-papel": "admin", "x-ug-super": "1", "x-ug-id": "u-invasor" },
+  });
+  ok(recebido.headers["x-ug-identidade"] !== "bilhete.inventado",
+     "bilhete vindo do cliente NAO chega ao modulo");
+  const dentroDoSegundo = conferir(recebido.headers["x-ug-identidade"]);
+  ok(dentroDoSegundo && dentroDoSegundo.papel === "cco" && dentroDoSegundo.super === false,
+     "o bilhete que chega e o do Core: papel 'cco' e sem super admin");
+  ok(dentroDoSegundo && dentroDoSegundo.id !== "u-invasor", "e com o id de quem realmente esta logado");
+  ok(recebido.headers["x-ug-papel"] === "cco" && recebido.headers["x-ug-super"] === "0",
+     "os cabecalhos antigos tambem sao sobrescritos, nao repassados");
+
   console.log("\n=== O ENDERECO DE REDE FORJADO MORRE NA PORTA DE ENTRADA ===");
   // A Fachada e a unica porta publica, entao e o unico lugar onde da para saber
   // de quem e a conexao. O X-Forwarded-For que chega de fora e uma lista: o

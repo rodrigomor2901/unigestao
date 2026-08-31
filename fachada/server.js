@@ -32,6 +32,10 @@
 const http = require("http");
 const https = require("https");
 const { URL } = require("url");
+// Copia de integracao/identidade.js — a Fachada e publicada com a propria pasta
+// na raiz do container, entao nao alcanca nada de fora dela. As duas copias sao
+// comparadas byte a byte em tests/identidade-assinada.test.js.
+const identidade = require("./identidade");
 
 const PORT = process.env.PORT || 8080;
 const CORE = process.env.URL_CORE || "http://localhost:3000";
@@ -512,6 +516,16 @@ function encaminhar(req, res, destino, caminho, extras, injetar) {
   delete headers["x-real-ip"];               // idem: e do cliente, nao vale
   delete headers["x-envoy-external-address"];
 
+  // Cabecalhos de identidade que venham DE FORA sao apagados antes de qualquer
+  // coisa. Quem os escreve e a Fachada, logo abaixo, com `extras`. Sem esta
+  // limpeza, um `x-ug-identidade` vindo do navegador chegaria ao modulo em
+  // qualquer rota que nao monte `extras` — o Core, por exemplo.
+  for (const nome of Object.keys(headers)) {
+    if (nome.toLowerCase().startsWith("x-ug-") && !(nome in (extras || {}))) {
+      delete headers[nome];
+    }
+  }
+
   // Numa navegacao de pagina, o navegador pode mandar "so me responda se
   // mudou" (if-none-match / if-modified-since) com o ETag que ele guardou. O
   // modulo entao responde 304 SEM CORPO — e sem corpo nao ha onde injetar a
@@ -694,8 +708,26 @@ const servidor = http.createServer(async (req, res) => {
     return responder(res, 503, "Não foi possível validar seu acesso agora. Tente novamente.");
   }
 
-  // A identidade vai em cabecalhos. O modulo confia neles porque so a Fachada
-  // alcanca a rede privada — e confere a chave compartilhada.
+  // A identidade vai ASSINADA, num cabecalho so: `x-ug-identidade`. Assinada
+  // significa que os campos andam lacrados juntos — mexer no papel ou no
+  // super-admin invalida o conjunto inteiro. O bilhete vale dois minutos, vale
+  // para ESTE modulo e tem numero unico, entao nao serve para guardar e usar
+  // depois nem para apresentar em outra porta.
+  //
+  // Os cabecalhos soltos continuam indo por enquanto, e SO por isso: os modulos
+  // que ainda nao foram atualizados leem deles. Modulo atualizado ignora todos,
+  // e so olha o bilhete. Quando o ultimo tiver sido atualizado, o `x-ug-key` e
+  // os `x-ug-*` saem daqui — e ai o segredo para de viajar, que e o ganho de
+  // verdade desta mudanca (ver DEPLOY-RAILWAY.md).
+  const bilhete = identidade.assinar({
+    id: quem.id,
+    nome: quem.nome || "",
+    email: quem.email || "",
+    papel: quem.papel || "",
+    superAdmin: quem.superAdmin,
+    modulo,
+  });
+
   const extras = {
     "x-ug-key": CHAVE,
     "x-ug-id": quem.id,
@@ -705,6 +737,7 @@ const servidor = http.createServer(async (req, res) => {
     "x-ug-super": quem.superAdmin ? "1" : "0",
     "x-ug-base": "/" + modulo,
   };
+  if (bilhete) extras[identidade.CABECALHO] = bilhete;
 
   // Remove o prefixo antes de repassar: /eventos/api/x  ->  /api/x
   const resto = req.url.slice(("/" + modulo).length) || "/";

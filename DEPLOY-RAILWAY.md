@@ -155,9 +155,60 @@ Se travar nessa etapa, veja **Perdeu o 2FA** no [README.md](README.md#perdeu-o-2
 - [ ] O serviço `core` **não** tem domínio público
 - [ ] O serviço `fachada` **tem** domínio público
 - [ ] `CORE_INTERNAL_KEY` é idêntica nos dois
+- [ ] Cada módulo recebe `x-ug-identidade` e recusa cabeçalho `x-ug-*` sem assinatura
+- [ ] `UG_LEGACY_HEADERS_ENABLED` **não** está definida em nenhum módulo
 - [ ] `URL_CORE` aponta para `http://core.railway.internal:3000`
 - [ ] Login funciona e o 2FA foi ativado
 - [ ] `BOOTSTRAP_SENHA` removida das variáveis
+
+---
+
+## Como a identidade da pessoa chega aos módulos
+
+A Fachada **assina** quem é a pessoa; o módulo **confere a assinatura** antes de
+acreditar em qualquer campo. Vai tudo num cabeçalho só, `x-ug-identidade`:
+id, nome, e-mail, papel, super admin, módulo de destino, hora de emissão,
+validade e um número único — lacrados juntos por um HMAC-SHA256.
+
+O desenho anterior mandava esses campos soltos (`x-ug-id`, `x-ug-papel`,
+`x-ug-super`) e validava com um segredo que viajava junto, no `x-ug-key`. Quem
+tivesse o segredo montava um administrador num `curl`, só trocando dois
+cabeçalhos — e o segredo passava por todo módulo, em toda requisição, então
+bastava um log ou um módulo comprometido para vazar.
+
+O que a assinatura resolve:
+
+| Ataque | Antes | Agora |
+|---|---|---|
+| Mandar `x-ug-papel: admin` num curl | entrava com o segredo | ignorado |
+| Editar o papel de um bilhete legítimo | — | assinatura quebra |
+| Reusar um bilhete capturado | valia para sempre | 2 min, e só uma vez |
+| Usar bilhete do CRM na Precificação | valia | recusado (preso ao módulo) |
+
+**O que ela não resolve, e é honesto dizer:** a assinatura é simétrica. Quem
+tiver o segredo de assinatura emite bilhete válido. O ganho é que o segredo
+deixa de viajar e o bilhete passa a ter dono e prazo.
+
+### Variáveis
+
+| Variável | Onde | Para quê |
+|---|---|---|
+| `CORE_INTERNAL_KEY` | Core, Fachada, módulos | já existia; hoje a chave de assinatura **deriva** dela quando não há uma dedicada |
+| `UG_ASSINATURA_SEGREDO` | Fachada e módulos | opcional, **recomendada**: chave de assinatura própria. Tem que ser *idêntica* nos dois lados |
+| `UG_MODULO` | cada módulo | opcional: a chave do módulo (`eventos`, `crm`…). Prende o bilhete àquela porta |
+| `UG_LEGACY_HEADERS_ENABLED` | cada módulo | opcional: `true` reativa os cabeçalhos soltos. **Deixe desligado** — ligado, devolve o furo |
+
+### A virada, em três passos
+
+1. **Fachada primeiro.** Ela passa a mandar o bilhete assinado *e* continua
+   mandando os cabeçalhos antigos. Módulo velho não percebe diferença.
+2. **Um módulo de cada vez.** Ao atualizar o `unigestao.js` (e copiar o
+   `identidade.js` junto), aquele módulo passa a exigir assinatura e a ignorar
+   os cabeçalhos soltos.
+3. **Faxina, depois que o último módulo estiver atualizado.** Cadastrar
+   `UG_ASSINATURA_SEGREDO` em todos e **parar de enviar o `x-ug-key`** na
+   Fachada. É esse passo que faz o segredo deixar de viajar — sem ele, o ganho
+   fica pela metade.
 
 ---
 
