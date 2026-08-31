@@ -115,7 +115,7 @@ negócio passa por aqui.
    | `NODE_ENV` | `production` |
    | `CORE_INTERNAL_KEY` | **a mesma chave** do Core |
    | `URL_CORE` | `http://core.railway.internal:3000` |
-   | `PROXIES_NA_FRENTE` | opcional — padrão `1`; só mude se puser outro proxy na frente |
+   | `PROXIES_NA_FRENTE` | opcional — padrão `2`, que é o do Railway; só mude se a topologia mudar |
 
    Não preencha as `URL_<MODULO>` ainda — nenhum módulo foi plugado.
    O `PORT` da Fachada o Railway injeta sozinho, por ela ter domínio público.
@@ -180,14 +180,22 @@ impressão de que se sabe de onde veio.
 Hoje são duas travas:
 
 1. **A Fachada reescreve o cabeçalho** antes de repassar. Ela conta os saltos
-   (`PROXIES_NA_FRENTE`, padrão 1) e manda adiante **um valor só**, o verdadeiro.
+   (`PROXIES_NA_FRENTE`, padrão 2) e manda adiante **um valor só**, o verdadeiro.
    O que o cliente escreveu não chega ao Core nem aos módulos.
+
+   O número 2 foi medido, não suposto (31/08/2026): três requisições de fora,
+   mandando 0, 1 e 2 endereços inventados, chegaram todas com **exatamente 2
+   valores** na lista — a borda do Railway descarta o que o cliente escreve e
+   monta a lista sozinha, com dois saltos. Se a topologia mudar, a primeira
+   requisição de cada processo registra a forma nova no log da Fachada
+   (quantidade e tipo, nunca o endereço).
 2. **O Core só acredita no cabeçalho quando o vizinho da conexão é da rede
    privada** do Railway — por onde unicamente a Fachada fala. Requisição vinda de
    fora tem o cabeçalho ignorado e vale o endereço real da conexão.
 
-Rodando na sua máquina sem a Fachada na frente, o certo é `PROXIES_NA_FRENTE=0`:
-sem proxy nenhum, o cabeçalho inteiro é invenção e deve ser descartado.
+Rodando na sua máquina sem proxy nenhum na frente, o certo é
+`PROXIES_NA_FRENTE=0` — o `dev-local.js` já define isso. Sem proxy, o cabeçalho
+inteiro é invenção e deve ser descartado.
 
 ---
 

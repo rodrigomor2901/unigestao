@@ -415,18 +415,27 @@ function prefixarCaminhos(html, base) {
 // Proxy
 // ---------------------------------------------------------------------------
 
-// Quantos proxies existem na FRENTE da Fachada. Na Railway e um: a borda dela.
-// Rodando direto na sua maquina, nenhum — e ai o certo e PROXIES_NA_FRENTE=0,
-// que manda ignorar o cabecalho por completo e ficar com a conexao.
+// Quantos proxies existem na FRENTE da Fachada. Na Railway sao DOIS — medido,
+// nao suposto (31/08/2026): tres requisicoes de fora, mandando 0, 1 e 2
+// enderecos inventados, chegaram todas com exatamente 2 valores na lista. Ou
+// seja, a borda da Railway DESCARTA o que o cliente escreve e monta a lista
+// sozinha, com dois saltos.
 //
-// O padrao e 1 de proposito, e nao "adivinha pelo ambiente": errar para menos em
-// producao abre o furo de novo, enquanto errar para mais na maquina de
-// desenvolvimento nao machuca ninguem. Numero, e nao deteccao automatica, porque
-// isto e a unica coisa que separa o endereco escrito pela infraestrutura do
-// endereco escrito por quem chamou.
+// Como cada proxy acrescenta no fim o endereco de quem falou com ele, o cliente
+// e o valor 2 contado da direita — o primeiro, hoje. Contar da direita, em vez
+// de pegar o primeiro direto, e o que mantem a conta certa se um dia a borda
+// deixar de descartar: os enderecos inventados entrariam a esquerda e o cliente
+// continuaria na mesma posicao a partir do fim.
+//
+// Rodando direto na sua maquina, sem proxy nenhum, o certo e
+// PROXIES_NA_FRENTE=0: ai a lista inteira e invencao e vale a conexao.
+//
+// O numero e configuracao e nao deteccao automatica porque e a unica coisa que
+// separa o endereco escrito pela infraestrutura do escrito por quem chama. Se um
+// dia a Railway mudar a topologia, o log abaixo mostra a nova forma.
 const PROXIES_NA_FRENTE = process.env.PROXIES_NA_FRENTE !== undefined
   ? Math.max(0, Number(process.env.PROXIES_NA_FRENTE) || 0)
-  : 1;
+  : 2;
 
 // O endereco de quem realmente abriu a conexao.
 //
@@ -462,7 +471,7 @@ function ipDoCliente(req) {
 // Nenhum endereco e escrito: so a quantidade e o tipo de cada valor (publico ou
 // privado). Tipo basta para ler a estrutura da lista e nao identifica ninguem.
 const PRIVADO = /^(10\.|127\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|::1|::ffff:(10\.|127\.|192\.168\.)|f[cd])/i;
-let aContar = 5;
+let aContar = 1;
 function contarUmaVez(req) {
   if (aContar <= 0) return;
   aContar--;

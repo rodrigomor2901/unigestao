@@ -23,6 +23,9 @@ const env = {
   BOOTSTRAP_EMAIL: "rodrigo.moraes@uniseter.com",
   BOOTSTRAP_SENHA: "Uniseter@2026",
   SESSAO_HORAS: "10",
+  // Aqui nao ha proxy nenhum na frente da Fachada — entao o X-Forwarded-For que
+  // chegar e invencao de quem chamou e deve ser ignorado. Na Railway sao 2.
+  PROXIES_NA_FRENTE: "0",
   // Em desenvolvimento nenhum e-mail sai: cada mensagem vira uma linha em
   // .emails-dev.jsonl. Sem isso, um teste de cadastro alcancaria a caixa de
   // entrada de uma pessoa de verdade.

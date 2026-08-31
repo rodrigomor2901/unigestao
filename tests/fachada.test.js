@@ -57,6 +57,10 @@ function portaLivre() {
   const fachada = fork(path.join(__dirname, "..", "fachada", "server.js"), [], {
     env: { ...process.env, PORT: String(PORTA_FACHADA), URL_CORE: "http://localhost:3000",
            CORE_INTERNAL_KEY: CHAVE,
+           // Imita a topologia da Railway: dois saltos na frente da Fachada.
+           // Explicito, e nao herdado do padrao, para o teste dizer QUAL forma
+           // esta sendo testada — se o padrao mudar, e aqui que se decide.
+           PROXIES_NA_FRENTE: "2",
            URL_OPERACIONAL: "http://localhost:" + PORTA_MODULO,
            // Precificacao: tela num servico, API em outro
            URL_PRECIFICACAO: "http://localhost:" + PORTA_MODULO,
@@ -134,17 +138,32 @@ function portaLivre() {
   // O achado do teste de seguranca era o Core ficar com o PRIMEIRO valor. A
   // Fachada agora REESCREVE o cabecalho antes de repassar, entao o texto
   // inventado nao chega nem ao Core nem aos modulos.
+  // A lista imita o que a Railway entrega, com os dois saltos dela:
+  //   [inventado pelo cliente] , [cliente de verdade] , [borda]
+  // O valor bom e o 2 contado da direita.
   await fetch(`${F}/operacional/`, {
-    headers: { ...C(comAcesso).headers, "x-forwarded-for": "1.2.3.4, 5.6.7.8" },
+    headers: { ...C(comAcesso).headers,
+               "x-forwarded-for": "1.2.3.4, 203.0.113.7, 198.51.100.9" },
   });
   const repassado = String(recebido.headers["x-forwarded-for"] || "");
   ok(!repassado.includes("1.2.3.4"),
      "o endereco inventado pelo cliente NAO e repassado  <-- era o furo");
   ok(!repassado.includes(","),
      "vai um valor so, sem lista: nao sobra o que escolher do outro lado");
-  ok(repassado.includes("127.0.0.1") || repassado.includes("::1") ||
-     repassado.includes("5.6.7.8"),
-     "e o que vale e o ultimo da lista (ou a propria conexao, sem proxy na frente)");
+  ok(repassado === "203.0.113.7",
+     "e o que vale e o cliente de verdade, nem o inventado nem o da borda");
+
+  // Lista mais curta que o esperado: alguem chamou por um caminho que nao e o
+  // previsto. Nao da para saber de quem e — entao fica a conexao, nunca o
+  // cabecalho.
+  await fetch(`${F}/operacional/`, {
+    headers: { ...C(comAcesso).headers, "x-forwarded-for": "1.2.3.4" },
+  });
+  const curto = String(recebido.headers["x-forwarded-for"] || "");
+  ok(curto !== "1.2.3.4",
+     "lista curta demais para os saltos esperados: o cabecalho e descartado");
+  ok(curto.includes("127.0.0.1") || curto.includes("::1"),
+     "e vale o endereco da conexao de verdade");
 
   await fetch(`${F}/operacional/`, {
     headers: { ...C(comAcesso).headers, "x-real-ip": "9.9.9.9",
@@ -165,7 +184,7 @@ function portaLivre() {
     await fetch(`${F}/api/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json",
-                 "x-forwarded-for": `10.9.9.${i}, 203.0.113.7` },
+                 "x-forwarded-for": `10.9.9.${i}, 203.0.113.7, 198.51.100.9` },
       body: JSON.stringify({ email: "naoexiste.fach@uniseter.com", senha: "errada" }),
     });
   }
