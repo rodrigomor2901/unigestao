@@ -194,21 +194,50 @@ deixa de viajar e o bilhete passa a ter dono e prazo.
 | Variável | Onde | Para quê |
 |---|---|---|
 | `CORE_INTERNAL_KEY` | Core, Fachada, módulos | já existia; hoje a chave de assinatura **deriva** dela quando não há uma dedicada |
-| `UG_ASSINATURA_SEGREDO` | Fachada e módulos | opcional, **recomendada**: chave de assinatura própria. Tem que ser *idêntica* nos dois lados |
+| `UG_ASSINATURA_SEGREDO` | Fachada e módulos | opcional, **recomendada**: chave de assinatura própria. Tem que ser *idêntica* nos sete serviços, e entra nos módulos ANTES da Fachada |
 | `UG_MODULO` | cada módulo | opcional: a chave do módulo (`eventos`, `crm`…). Prende o bilhete àquela porta |
 | `UG_LEGACY_HEADERS_ENABLED` | cada módulo | opcional: `true` reativa os cabeçalhos soltos. **Deixe desligado** — ligado, devolve o furo |
 
-### A virada, em três passos
+### A virada
 
-1. **Fachada primeiro.** Ela passa a mandar o bilhete assinado *e* continua
-   mandando os cabeçalhos antigos. Módulo velho não percebe diferença.
-2. **Um módulo de cada vez.** Ao atualizar o `unigestao.js` (e copiar o
-   `identidade.js` junto), aquele módulo passa a exigir assinatura e a ignorar
-   os cabeçalhos soltos.
-3. **Faxina, depois que o último módulo estiver atualizado.** Cadastrar
-   `UG_ASSINATURA_SEGREDO` em todos e **parar de enviar o `x-ug-key`** na
-   Fachada. É esse passo que faz o segredo deixar de viajar — sem ele, o ganho
-   fica pela metade.
+Os dois primeiros passos já foram feitos (01/09/2026):
+
+1. ✅ **Fachada assinando.** Ela manda o bilhete assinado *e* continua mandando
+   os cabeçalhos antigos, para nenhum módulo quebrar durante a troca.
+2. ✅ **Os seis módulos exigindo assinatura.** Operacional, Eventos, Tarefas,
+   Documentos, CRM e Precificação ignoram os cabeçalhos soltos.
+
+Falta tirar o segredo de circulação. Hoje a chave de assinatura é *derivada* da
+`CORE_INTERNAL_KEY` — que continua viajando no `x-ug-key` para os seis módulos.
+Quem consegue ler uma requisição tem o material para emitir bilhete válido.
+
+**Por que não dá para virar de uma vez:** assinar usa uma chave só. No instante
+em que a Fachada trocasse de segredo, todo módulo que ainda não tivesse o novo
+recusaria todo mundo — e a virada teria que ser simultânea em sete serviços.
+Por isso o verificador aceita **as duas** chaves (a dedicada e a derivada)
+enquanto durar a troca. A ordem então fica sem buraco:
+
+3. ✅ **Verificador aceitando as duas chaves**, nos sete serviços.
+4. **Gerar um segredo** e cadastrar `UG_ASSINATURA_SEGREDO` **nos seis
+   módulos**. Nada muda ainda: a Fachada continua assinando com a derivada, e os
+   módulos aceitam as duas. Um segredo bom sai de:
+
+   ```
+   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+   ```
+
+5. **Cadastrar o mesmo valor na Fachada.** Ela passa a assinar com a dedicada, e
+   todos já aceitam. É aqui que o segredo que assina deixa de ser o que viaja.
+6. **Faxina:** tirar o `x-ug-key` da Fachada e a aceitação da chave derivada dos
+   módulos.
+
+**A ordem importa.** Cadastrar na Fachada antes dos módulos derruba: módulo sem
+o segredo novo recusa bilhete assinado com ele. Se acontecer, é reversível —
+apagar a variável da Fachada devolve tudo ao passo anterior.
+
+Para quem usa o portal, nenhum desses passos muda nada: o bilhete é interno,
+criado e conferido a cada requisição entre a Fachada e o módulo. Ninguém é
+deslogado.
 
 ---
 
