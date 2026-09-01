@@ -163,6 +163,40 @@ async function rodarTela({ usuario, modulos, publicacoes = [] }) {
   ok(g3.indexOf("Movimentação Operacional") < g3.indexOf("CRM Comercial"),
      "sem ordem salva, vale a ordem natural do registro de modulos");
 
+  console.log("\n=== O ATALHO DA AGENDA DE SALAS ===");
+  // A reserva de sala mora dentro das Tarefas, mas muita gente entra no portal
+  // so para isso. O cartao leva direto la, com ?ir=agenda-salas.
+  //
+  // A regra que importa: so aparece para quem tem o modulo Tarefas. Cartao que
+  // leva a um 403 e pior do que cartao nenhum.
+  const comTarefas = await rodarTela({
+    usuario: { nome: "Fulana", superAdmin: false, senhaTemp: false, exigirPerfil: false },
+    modulos: [{ id: "tarefas", nome: "Gestão de Tarefas", descricao: "Tarefas e agenda de salas",
+                papel: "coordenador", papelRotulo: "Coordenador", icone: "tarefas" }],
+  });
+  const htmlComTarefas = comTarefas.getElementById("grade").innerHTML;
+  ok(htmlComTarefas.includes("Agenda de Salas"),
+     "quem tem Tarefas ve o atalho da agenda de salas");
+  ok(htmlComTarefas.includes("/tarefas/?ir=agenda-salas"),
+     "e ele aponta para a tela certa, dentro do modulo");
+  ok(htmlComTarefas.includes('data-chave="tarefas:salas"'),
+     "com chave propria — da para arrastar como qualquer outro cartao");
+
+  const semTarefas = await rodarTela({
+    usuario: { nome: "Fulana", superAdmin: false, senhaTemp: false, exigirPerfil: false },
+    modulos: [{ id: "crm", nome: "CRM Comercial", descricao: "Pipeline",
+                papel: "vendedor", papelRotulo: "Vendedor", icone: "crm" }],
+  });
+  ok(!semTarefas.getElementById("grade").innerHTML.includes("Agenda de Salas"),
+     "quem NAO tem Tarefas nao ve o atalho  <-- levaria a um 403");
+
+  // As duas agendas do portal precisam ser distinguiveis de relance: a de
+  // contatos e a de salas apareciam as duas como "Agenda".
+  ok(htmlComTarefas.includes("Agenda de Contatos"),
+     "a agenda de gente se chama 'Agenda de Contatos'");
+  ok(!/>Agenda</.test(htmlComTarefas),
+     "e nenhuma das duas se chama so 'Agenda'");
+
   console.log("\n=== SEM MODULO LIBERADO, A PESSOA NAO FICA NO VAZIO ===");
   const vazio = await rodarTela({
     usuario: { nome: "Novata", superAdmin: false, senhaTemp: false, exigirPerfil: false },

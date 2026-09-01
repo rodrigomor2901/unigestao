@@ -191,7 +191,7 @@
   <div class="quem">
     <span id="nome"></span>
     <a href="/mural">Mural</a>
-    <a href="/agenda">Agenda</a>
+    <a href="/agenda">Contatos</a>
     <a href="/perfil">Meu perfil</a>
     <a href="/admin" id="linkAdmin" style="display:none">Admin Geral</a>
     <button onclick="sair()">Sair</button>
@@ -265,6 +265,10 @@ async function carregar() {
   ]);
   if (d.usuario.podeVerChecklists) {
     cartoes.push({ chave: 'portal:checklists', html: cartaoChecklists() });
+  }
+  // O atalho da agenda de salas so existe para quem alcanca as Tarefas.
+  if (d.modulos.some(function (m) { return m.id === 'tarefas'; })) {
+    cartoes.push({ chave: 'tarefas:salas', html: cartaoSalas() });
   }
 
   var ordem = d.usuario.ordemModulos || [];
@@ -427,12 +431,34 @@ function cartaoMural() {
            '</div></a>';
 }
 
+// "de Contatos" no nome porque existem DUAS agendas no portal, e as duas
+// apareciam como "Agenda": esta, que e a lista de gente do grupo, e a de salas,
+// que e reserva de sala de reuniao e mora dentro das Tarefas.
 function cartaoAgenda() {
   return '<a class="card modulo doPortal" href="/agenda">' + icone('agenda') +
            '<div class="txt">' +
-             '<h3>Agenda</h3>' +
+             '<h3>Agenda de Contatos</h3>' +
              '<p>Telefone, ramal, área e cargo de todo mundo do grupo</p>' +
              '<span class="selo selo-off">Todo o grupo</span>' +
+           '</div></a>';
+}
+
+// Atalho para uma tela DENTRO das Tarefas — a reserva de sala de reuniao. Vale
+// um cartao proprio porque muita gente entra no portal so para isso e nao tem
+// por que passar pelo Dashboard de tarefas no caminho.
+//
+// So aparece para quem tem o modulo Tarefas: cartao que leva a um 403 e pior do
+// que cartao nenhum. O `?ir=agenda-salas` e lido la dentro (ver
+// abrirDestinoDoLink no index.html das Tarefas).
+function cartaoSalas() {
+  // Icone de calendario, e nao o de agenda: a "Agenda de Contatos" logo acima ja
+  // usa aquele, e duas agendas com o mesmo desenho e exatamente a confusao que
+  // este cartao veio desfazer.
+  return '<a class="card modulo doPortal" href="/tarefas/?ir=agenda-salas">' + icone('calendar') +
+           '<div class="txt">' +
+             '<h3>Agenda de Salas</h3>' +
+             '<p>Reserva das salas de reunião — abre direto na agenda</p>' +
+             '<span class="selo selo-off">Atalho para Tarefas</span>' +
            '</div></a>';
 }
 
