@@ -75,6 +75,34 @@
   .colunas { display: grid; gap: 26px; grid-template-columns: 1fr 320px; align-items: start; }
   @media (max-width: 900px) { .colunas { grid-template-columns: 1fr; } }
 
+  /* Reservas de sala: mesma coluna do mural, acima dele. Fica em cima porque e
+     informacao com hora marcada — perder de vista custa uma reuniao; o mural
+     espera. */
+  .salas { margin-bottom: 26px; }
+  .salas h3 { font-size: 15px; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
+  .salas .reserva { padding: 11px 14px; margin-bottom: 8px; display: flex; gap: 12px;
+                    align-items: baseline; }
+  .salas .quando { flex: 0 0 auto; text-align: center; min-width: 46px; }
+  .salas .dia { display: block; font-size: 12px; font-weight: 700; color: var(--laranja);
+                text-transform: uppercase; letter-spacing: .03em; }
+  .salas .hora { display: block; font-size: 13px; font-weight: 700; color: var(--accent);
+                 white-space: nowrap; }
+  .salas .oque { flex: 1; min-width: 0; }
+  /* display:block nos dois: sao <span>, e sem isto o titulo e a sala saem na
+     mesma linha, grudados. */
+  .salas .titulo-reserva { display: block; font-size: 13.5px; color: var(--texto);
+                           line-height: 1.35; overflow: hidden; text-overflow: ellipsis;
+                           white-space: nowrap; }
+  .salas .sala { display: block; font-size: 12px; color: var(--texto-fraco); margin-top: 2px;
+                 overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Reserva de hoje ganha um traco: e a que muda o que a pessoa faz agora. */
+  .salas .reserva.hoje { border-left: 3px solid var(--laranja); }
+  .salas .nenhuma { padding: 13px 14px; font-size: 13px; color: var(--texto-fraco);
+                    line-height: 1.5; }
+  .salas .todos { display: block; text-align: center; font-size: 13px; padding: 8px;
+                  color: var(--accent); text-decoration: none; }
+  .salas .todos:hover { text-decoration: underline; }
+
   .mural h3 { font-size: 15px; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
   .mural .conta {
     background: var(--laranja); color: #fff; border-radius: 999px;
@@ -209,12 +237,21 @@
       </p>
       <div class="grade" id="grade"></div>
     </div>
+    <div>
+    <!-- Reservas de sala da propria pessoa, acima do mural. So aparece para quem
+         tem o modulo Tarefas — e de la que os dados vem. -->
+    <aside class="salas" id="salas" style="display:none">
+      <h3><a href="/tarefas/?ir=agenda-salas" style="color:inherit;text-decoration:none">Suas reservas de sala</a></h3>
+      <div id="salasLista"></div>
+    </aside>
+
     <!-- O mural so aparece quando ha o que mostrar: painel vazio na tela toda
          vez ensina a pessoa a ignorar aquele canto. -->
     <aside class="mural" id="mural" style="display:none">
       <h3><a href="/mural" style="color:inherit;text-decoration:none">Mural</a> <span class="conta" id="muralConta" style="display:none"></span></h3>
       <div id="muralLista"></div>
     </aside>
+    </div>
   </div>
 </main>
 
@@ -267,7 +304,8 @@ async function carregar() {
     cartoes.push({ chave: 'portal:checklists', html: cartaoChecklists() });
   }
   // O atalho da agenda de salas so existe para quem alcanca as Tarefas.
-  if (d.modulos.some(function (m) { return m.id === 'tarefas'; })) {
+  var temTarefas = d.modulos.some(function (m) { return m.id === 'tarefas'; });
+  if (temTarefas) {
     cartoes.push({ chave: 'tarefas:salas', html: cartaoSalas() });
   }
 
@@ -291,6 +329,8 @@ async function carregar() {
   });
   if (cartoes.length > 1) document.getElementById('dicaOrdem').style.display = '';
   ligarArrasto();
+
+  if (temTarefas) reservasPendentes = carregarReservas();
 
   carregarMural();
 }
@@ -598,6 +638,114 @@ async function salvarOrdem() {
     // isso e melhor do que deixar a pessoa achar que salvou.
     aviso.textContent = 'Não consegui salvar a ordem — ela volta ao recarregar.';
   }
+}
+
+// ---------------------------------------------------------------------------
+// RESERVAS DE SALA DA PROPRIA PESSOA
+// ---------------------------------------------------------------------------
+// Os dados moram nas Tarefas, e sao buscados PELO NAVEGADOR atraves da Fachada
+// (/tarefas/api/...). A Fachada ja confere a sessao e anexa a identidade
+// assinada, entao o portal nao precisa de chave nenhuma nem falar direto com o
+// banco do outro sistema. Quem nao tem o modulo recebe 403 e nao chega aqui.
+//
+// Nada disto pode derrubar a tela inicial: se as Tarefas estiverem fora do ar,
+// ou a resposta vier estranha, o painel simplesmente nao aparece. A pessoa
+// entrou para abrir os modulos, nao para ver reservas.
+var DIAS_A_FRENTE = 14;
+var MAX_RESERVAS = 4;
+
+// A busca das reservas NAO segura o desenho da tela: os modulos aparecem na
+// hora e o painel entra quando chegar. Esta variavel guarda a promessa so para
+// o teste conseguir esperar por ela — sem isso, ele terminaria antes.
+var reservasPendentes = null;
+
+async function carregarReservas() {
+  try {
+    var eu = await pedirJson('/tarefas/api/me');
+    var meuId = eu && eu.usuario && eu.usuario.id;
+    if (!meuId) return;
+
+    var hoje = new Date();
+    var fim = new Date();
+    fim.setDate(fim.getDate() + DIAS_A_FRENTE);
+    var lista = await pedirJson('/tarefas/api/reservas-sala?inicio=' + iso(hoje) + '&fim=' + iso(fim));
+    if (!Array.isArray(lista)) return;
+
+    // "Minhas" = as que eu reservei mais aquelas em que fui posto como
+    // participante. Sem a segunda metade, quem e chamado para a reuniao de
+    // outra pessoa nao veria nada — e e justamente quem mais esquece.
+    var minhas = lista.filter(function (r) {
+      if (String(r.usuario_id) === String(meuId)) return true;
+      return (r.participantes || []).some(function (p) { return String(p.id) === String(meuId); });
+    });
+
+    // Hoje, so o que ainda nao terminou: reserva das 9h nao ajuda ninguem as 15h.
+    var agora = new Date();
+    var hhmm = String(agora.getHours()).padStart(2, '0') + ':' +
+               String(agora.getMinutes()).padStart(2, '0');
+    minhas = minhas.filter(function (r) {
+      return diaDe(r.data) !== iso(agora) || String(r.hora_fim || '').slice(0, 5) >= hhmm;
+    });
+
+    if (!minhas.length) return mostrarSalas(
+      '<div class="card nenhuma">Nenhuma reserva sua nos próximos ' + DIAS_A_FRENTE + ' dias.</div>' +
+      '<a class="todos" href="/tarefas/?ir=agenda-salas">Reservar uma sala →</a>');
+
+    var html = minhas.slice(0, MAX_RESERVAS).map(function (r) {
+      var dia = diaDe(r.data);
+      var ehHoje = dia === iso(new Date());
+      return '<div class="card reserva' + (ehHoje ? ' hoje' : '') + '">' +
+        '<span class="quando">' +
+          '<b class="dia">' + (ehHoje ? 'hoje' : esc(diaCurto(dia))) + '</b>' +
+          '<b class="hora">' + esc(String(r.hora_inicio || '').slice(0, 5)) + '</b>' +
+        '</span>' +
+        '<span class="oque">' +
+          '<span class="titulo-reserva">' + esc(r.titulo || '(sem título)') + '</span>' +
+          '<span class="sala">' + esc(r.sala || '') +
+            (String(r.usuario_id) === String(meuId) ? '' : ' · de ' + esc(r.usuario_nome || '')) +
+          '</span>' +
+        '</span></div>';
+    }).join('');
+
+    var sobra = minhas.length - MAX_RESERVAS;
+    mostrarSalas(html + '<a class="todos" href="/tarefas/?ir=agenda-salas">' +
+      (sobra > 0 ? '+ ' + sobra + (sobra === 1 ? ' outra reserva' : ' outras reservas') : 'Ver a agenda de salas') +
+      ' →</a>');
+  } catch (e) {
+    // Silencio de proposito: ver comentario acima.
+    console.warn('Nao consegui carregar as reservas de sala:', e);
+  }
+}
+
+function mostrarSalas(html) {
+  document.getElementById('salasLista').innerHTML = html;
+  document.getElementById('salas').style.display = '';
+}
+
+async function pedirJson(url) {
+  var r = await fetch(url, { headers: { accept: 'application/json' } });
+  if (!r.ok) throw new Error(url + ' respondeu ' + r.status);
+  return r.json();
+}
+
+// A data vem do Postgres como DATE e chega em ISO ("2026-09-02T00:00:00.000Z").
+// Cortar os 10 primeiros caracteres e proposital: converter para Date local
+// deslocaria o dia para tras em qualquer fuso a oeste de Greenwich.
+function diaDe(valor) { return String(valor || '').slice(0, 10); }
+
+function iso(d) {
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' +
+         String(d.getDate()).padStart(2, '0');
+}
+
+var SEMANA = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+
+function diaCurto(dia) {
+  var p = dia.split('-');
+  // Meio-dia, e nao meia-noite: evita que o horario de verao empurre a data
+  // para o dia anterior na hora de descobrir o dia da semana.
+  var d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]), 12);
+  return SEMANA[d.getDay()] + ' ' + p[2] + '/' + p[1];
 }
 
 function esc(s) {

@@ -55,22 +55,34 @@ const MODULOS = [
 // Quantos quadrados de icone existem no HTML desenhado.
 const quantosIcones = (html) => (html.match(/class="ic"/g) || []).length;
 
-async function rodarTela({ usuario, modulos, publicacoes = [] }) {
+async function rodarTela({ usuario, modulos, publicacoes = [], reservas = null, euNasTarefas = 7 }) {
   const documento = criarDocumento();
   const respostas = {
     "/api/eu": { usuario, modulos },
     "/api/mural?limite=5": { publicacoes },
     "/api/mural/popup": { publicacao: null },
+    "/tarefas/api/me": { usuario: { id: euNasTarefas, nome: "Fulana" } },
   };
-  const fetchFalso = async (url) => ({
-    ok: true,
-    json: async () => respostas[url] || {},
-    headers: { get: () => null },
-  });
+  // As reservas vem das Tarefas, atraves da Fachada. A URL leva as datas
+  // calculadas na hora, entao o casamento aqui e por prefixo.
+  const fetchFalso = async (url) => {
+    if (String(url).startsWith("/tarefas/api/reservas-sala")) {
+      if (reservas === null) throw new Error("Tarefas fora do ar");
+      return { ok: true, json: async () => reservas, headers: { get: () => null } };
+    }
+    return {
+      ok: true,
+      json: async () => respostas[url] || {},
+      headers: { get: () => null },
+    };
+  };
 
   const script = scriptDe("inicio.html");
   // A pagina chama carregar() no fim; aqui ela roda com as pecas de mentira.
-  const fn = new Function("document", "fetch", "location", "window", script + "\nreturn carregar();");
+  // Espera tambem o painel de reservas, que a pagina dispara sem segurar o
+  // desenho — senao o teste olharia a tela antes de ele chegar.
+  const fn = new Function("document", "fetch", "location", "window",
+    script + "\nreturn carregar().then(function () { return reservasPendentes; });");
   await fn(documento, fetchFalso, { href: "/" }, { location: {} });
   return documento;
 }
@@ -196,6 +208,92 @@ async function rodarTela({ usuario, modulos, publicacoes = [] }) {
      "a agenda de gente se chama 'Agenda de Contatos'");
   ok(!/>Agenda</.test(htmlComTarefas),
      "e nenhuma das duas se chama so 'Agenda'");
+
+  console.log("\n=== AS RESERVAS DE SALA DA PROPRIA PESSOA ===");
+  // O painel fica acima do mural, na coluna da direita: e informacao com hora
+  // marcada, e perder de vista custa uma reuniao.
+  const hoje = new Date();
+  const iso = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") +
+                     "-" + String(d.getDate()).padStart(2, "0");
+  const daquiADias = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return iso(d); };
+
+  const comReservas = await rodarTela({
+    usuario: { nome: "Fulana", superAdmin: false, senhaTemp: false, exigirPerfil: false },
+    modulos: [{ id: "tarefas", nome: "Gestão de Tarefas", descricao: "Tarefas",
+                papel: "coordenador", papelRotulo: "Coordenador", icone: "check" }],
+    euNasTarefas: 7,
+    reservas: [
+      // minha, daqui a dois dias
+      { id: 1, usuario_id: 7, usuario_nome: "Fulana", sala: "Sala 2", titulo: "Reunião comercial",
+        data: daquiADias(2) + "T00:00:00.000Z", hora_inicio: "09:00:00", hora_fim: "10:00:00",
+        participantes: [] },
+      // de outra pessoa, mas eu sou participante
+      { id: 2, usuario_id: 99, usuario_nome: "Beltrano", sala: "Sala 6 - TAO", titulo: "Alinhamento",
+        data: daquiADias(3) + "T00:00:00.000Z", hora_inicio: "14:00:00", hora_fim: "15:00:00",
+        participantes: [{ id: 7, nome: "Fulana" }] },
+      // de outra pessoa, sem mim: NAO e minha
+      { id: 3, usuario_id: 99, usuario_nome: "Beltrano", sala: "Sala 1", titulo: "Reunião alheia",
+        data: daquiADias(1) + "T00:00:00.000Z", hora_inicio: "08:00:00", hora_fim: "09:00:00",
+        participantes: [] },
+      // minha, hoje, mas ja terminou
+      { id: 4, usuario_id: 7, usuario_nome: "Fulana", sala: "Sala 3", titulo: "Reunião de ontem à noite",
+        data: iso(hoje) + "T00:00:00.000Z", hora_inicio: "00:00:00", hora_fim: "00:01:00",
+        participantes: [] },
+    ],
+  });
+
+  const painel = comReservas.getElementById("salasLista").innerHTML;
+  ok(comReservas.getElementById("salas").style.display === "",
+     "o painel de reservas aparece para quem tem Tarefas");
+  ok(painel.includes("Reunião comercial"), "a reserva que eu fiz aparece");
+  ok(painel.includes("Alinhamento"),
+     "e a reserva de outra pessoa em que eu sou participante tambem  <-- e quem mais esquece");
+  ok(painel.includes("de Beltrano"), "com o nome de quem reservou, quando nao fui eu");
+  ok(!painel.includes("Reunião alheia"),
+     "reserva de outra pessoa sem mim NAO aparece — o painel e o meu dia, nao a agenda inteira");
+  ok(!painel.includes("Reunião de ontem à noite"),
+     "e reserva de hoje que ja terminou some — as 15h nao adianta ver a das 9h");
+  ok(painel.includes("Sala 2") && painel.includes("Sala 6 - TAO"), "com a sala de cada uma");
+  ok(painel.includes('href="/tarefas/?ir=agenda-salas"'), "e o rodape leva para a agenda inteira");
+
+  console.log("\n=== O PAINEL NAO PODE DERRUBAR A TELA INICIAL ===");
+  // A pessoa entrou para abrir os modulos. Se as Tarefas estiverem fora do ar,
+  // o painel some e o resto da tela continua de pe.
+  const comTarefasFora = await rodarTela({
+    usuario: { nome: "Fulana", superAdmin: false, senhaTemp: false, exigirPerfil: false },
+    modulos: [{ id: "tarefas", nome: "Gestão de Tarefas", descricao: "Tarefas",
+                papel: "coordenador", papelRotulo: "Coordenador", icone: "check" }],
+    reservas: null,   // a chamada estoura
+  });
+  ok(comTarefasFora.getElementById("grade").innerHTML.includes("Gestão de Tarefas"),
+     "com as Tarefas fora do ar, os modulos continuam desenhados");
+  ok(comTarefasFora.getElementById("salas").style.display === "none" ||
+     comTarefasFora.getElementById("salas").style.display === undefined,
+     "e o painel de reservas simplesmente nao aparece");
+
+  console.log("\n=== SEM RESERVA NENHUMA, O PAINEL CONVIDA ===");
+  const semReservas = await rodarTela({
+    usuario: { nome: "Fulana", superAdmin: false, senhaTemp: false, exigirPerfil: false },
+    modulos: [{ id: "tarefas", nome: "Gestão de Tarefas", descricao: "Tarefas",
+                papel: "coordenador", papelRotulo: "Coordenador", icone: "check" }],
+    reservas: [],
+  });
+  ok(semReservas.getElementById("salasLista").innerHTML.includes("Nenhuma reserva sua"),
+     "quem nao tem reserva ve que nao tem, em vez de um espaco vazio");
+  ok(semReservas.getElementById("salasLista").innerHTML.includes("Reservar uma sala"),
+     "com o caminho para reservar");
+
+  console.log("\n=== QUEM NAO TEM TAREFAS NAO VE O PAINEL ===");
+  const semTarefasNoPainel = await rodarTela({
+    usuario: { nome: "Fulana", superAdmin: false, senhaTemp: false, exigirPerfil: false },
+    modulos: [{ id: "crm", nome: "CRM Comercial", descricao: "Pipeline",
+                papel: "vendedor", papelRotulo: "Vendedor", icone: "briefcase" }],
+    reservas: [{ id: 1, usuario_id: 7, sala: "Sala 2", titulo: "Nao deveria aparecer",
+                 data: daquiADias(1) + "T00:00:00.000Z", hora_inicio: "09:00:00",
+                 hora_fim: "10:00:00", participantes: [] }],
+  });
+  ok(!semTarefasNoPainel.getElementById("salasLista").innerHTML.includes("Nao deveria aparecer"),
+     "sem o modulo Tarefas, o painel nem e consultado");
 
   console.log("\n=== SEM MODULO LIBERADO, A PESSOA NAO FICA NO VAZIO ===");
   const vazio = await rodarTela({
