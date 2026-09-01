@@ -224,20 +224,20 @@ async function rodarTela({ usuario, modulos, publicacoes = [], reservas = null, 
     euNasTarefas: 7,
     reservas: [
       // minha, daqui a dois dias
-      { id: 1, usuario_id: 7, usuario_nome: "Fulana", sala: "Sala 2", titulo: "Reunião comercial",
-        data: daquiADias(2) + "T00:00:00.000Z", hora_inicio: "09:00:00", hora_fim: "10:00:00",
+      { id: 1, usuario_id: 7, usuario_nome: "Fulana", sala: "menor", titulo: "Reunião comercial",
+        data: daquiADias(2) + "T00:00:00.000Z", hora_inicio: 540, hora_fim: 600,
         participantes: [] },
       // de outra pessoa, mas eu sou participante
-      { id: 2, usuario_id: 99, usuario_nome: "Beltrano", sala: "Sala 6 - TAO", titulo: "Alinhamento",
-        data: daquiADias(3) + "T00:00:00.000Z", hora_inicio: "14:00:00", hora_fim: "15:00:00",
+      { id: 2, usuario_id: 99, usuario_nome: "Beltrano", sala: "tao", titulo: "Alinhamento",
+        data: daquiADias(3) + "T00:00:00.000Z", hora_inicio: 870, hora_fim: 930,
         participantes: [{ id: 7, nome: "Fulana" }] },
       // de outra pessoa, sem mim: NAO e minha
-      { id: 3, usuario_id: 99, usuario_nome: "Beltrano", sala: "Sala 1", titulo: "Reunião alheia",
-        data: daquiADias(1) + "T00:00:00.000Z", hora_inicio: "08:00:00", hora_fim: "09:00:00",
+      { id: 3, usuario_id: 99, usuario_nome: "Beltrano", sala: "principal", titulo: "Reunião alheia",
+        data: daquiADias(1) + "T00:00:00.000Z", hora_inicio: 480, hora_fim: 540,
         participantes: [] },
       // minha, hoje, mas ja terminou
-      { id: 4, usuario_id: 7, usuario_nome: "Fulana", sala: "Sala 3", titulo: "Reunião de ontem à noite",
-        data: iso(hoje) + "T00:00:00.000Z", hora_inicio: "00:00:00", hora_fim: "00:01:00",
+      { id: 4, usuario_id: 7, usuario_nome: "Fulana", sala: "auditorio", titulo: "Reunião de ontem à noite",
+        data: iso(hoje) + "T00:00:00.000Z", hora_inicio: 0, hora_fim: 1,
         participantes: [] },
     ],
   });
@@ -253,7 +253,15 @@ async function rodarTela({ usuario, modulos, publicacoes = [], reservas = null, 
      "reserva de outra pessoa sem mim NAO aparece — o painel e o meu dia, nao a agenda inteira");
   ok(!painel.includes("Reunião de ontem à noite"),
      "e reserva de hoje que ja terminou some — as 15h nao adianta ver a das 9h");
-  ok(painel.includes("Sala 2") && painel.includes("Sala 6 - TAO"), "com a sala de cada uma");
+  // A API devolve a sala como chave ("menor") e a hora como minutos desde a
+  // meia-noite (870). Os dois precisam chegar tratados na tela — foi assim que
+  // "870" apareceu no lugar do horario em producao.
+  ok(painel.includes("Sala Menor") && painel.includes("Sala 6 - TAO"),
+     "a chave da sala vira o nome que a pessoa conhece");
+  ok(painel.includes("09:00") && painel.includes("14:30"),
+     "e os minutos viram hora de relogio  <-- 870 nao e horario nenhum");
+  ok(!painel.includes(">870<") && !painel.includes(">540<"),
+     "o numero cru nao aparece em lugar nenhum");
   ok(painel.includes('href="/tarefas/?ir=agenda-salas"'), "e o rodape leva para a agenda inteira");
 
   console.log("\n=== O PAINEL NAO PODE DERRUBAR A TELA INICIAL ===");
@@ -288,9 +296,9 @@ async function rodarTela({ usuario, modulos, publicacoes = [], reservas = null, 
     usuario: { nome: "Fulana", superAdmin: false, senhaTemp: false, exigirPerfil: false },
     modulos: [{ id: "crm", nome: "CRM Comercial", descricao: "Pipeline",
                 papel: "vendedor", papelRotulo: "Vendedor", icone: "briefcase" }],
-    reservas: [{ id: 1, usuario_id: 7, sala: "Sala 2", titulo: "Nao deveria aparecer",
-                 data: daquiADias(1) + "T00:00:00.000Z", hora_inicio: "09:00:00",
-                 hora_fim: "10:00:00", participantes: [] }],
+    reservas: [{ id: 1, usuario_id: 7, sala: "menor", titulo: "Nao deveria aparecer",
+                 data: daquiADias(1) + "T00:00:00.000Z", hora_inicio: 540,
+                 hora_fim: 600, participantes: [] }],
   });
   ok(!semTarefasNoPainel.getElementById("salasLista").innerHTML.includes("Nao deveria aparecer"),
      "sem o modulo Tarefas, o painel nem e consultado");

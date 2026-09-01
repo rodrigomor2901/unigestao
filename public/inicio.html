@@ -680,11 +680,13 @@ async function carregarReservas() {
     });
 
     // Hoje, so o que ainda nao terminou: reserva das 9h nao ajuda ninguem as 15h.
+    // As horas sao NUMERO de minutos desde a meia-noite, entao a comparacao e
+    // numerica — comparar como texto daria "870" >= "14:30" e acertaria por
+    // acidente em alguns casos e erraria em outros.
     var agora = new Date();
-    var hhmm = String(agora.getHours()).padStart(2, '0') + ':' +
-               String(agora.getMinutes()).padStart(2, '0');
+    var minutosAgora = agora.getHours() * 60 + agora.getMinutes();
     minhas = minhas.filter(function (r) {
-      return diaDe(r.data) !== iso(agora) || String(r.hora_fim || '').slice(0, 5) >= hhmm;
+      return diaDe(r.data) !== iso(agora) || Number(r.hora_fim) >= minutosAgora;
     });
 
     if (!minhas.length) return mostrarSalas(
@@ -697,11 +699,11 @@ async function carregarReservas() {
       return '<div class="card reserva' + (ehHoje ? ' hoje' : '') + '">' +
         '<span class="quando">' +
           '<b class="dia">' + (ehHoje ? 'hoje' : esc(diaCurto(dia))) + '</b>' +
-          '<b class="hora">' + esc(String(r.hora_inicio || '').slice(0, 5)) + '</b>' +
+          '<b class="hora">' + esc(hora(r.hora_inicio)) + '</b>' +
         '</span>' +
         '<span class="oque">' +
           '<span class="titulo-reserva">' + esc(r.titulo || '(sem título)') + '</span>' +
-          '<span class="sala">' + esc(r.sala || '') +
+          '<span class="sala">' + esc(nomeDaSala(r.sala)) +
             (String(r.usuario_id) === String(meuId) ? '' : ' · de ' + esc(r.usuario_nome || '')) +
           '</span>' +
         '</span></div>';
@@ -727,6 +729,29 @@ async function pedirJson(url) {
   if (!r.ok) throw new Error(url + ' respondeu ' + r.status);
   return r.json();
 }
+
+// As horas das reservas nao sao texto: sao MINUTOS desde a meia-noite (870 =
+// 14:30). Sem esta conversao a tela mostrava "870" no lugar do horario.
+function hora(minutos) {
+  var m = Number(minutos);
+  if (!Number.isFinite(m)) return '';
+  return String(Math.floor(m / 60)).padStart(2, '0') + ':' +
+         String(m % 60).padStart(2, '0');
+}
+
+// E a sala vem como chave ("menor", "tao"), nao como nome. Os rotulos sao os
+// mesmos da Agenda de Salas (SALA_LABELS, no index.html das Tarefas) — uma
+// chave nova aparece com o proprio nome cru, que e feio mas honesto, em vez de
+// sumir da tela.
+var SALAS = {
+  principal: 'Sala Principal',
+  menor: 'Sala Menor',
+  auditorio: 'Auditório',
+  entrevista: 'Sala de Entrevista Individual',
+  tao: 'Sala 6 - TAO',
+};
+
+function nomeDaSala(chave) { return SALAS[chave] || String(chave || ''); }
 
 // A data vem do Postgres como DATE e chega em ISO ("2026-09-02T00:00:00.000Z").
 // Cortar os 10 primeiros caracteres e proposital: converter para Date local
