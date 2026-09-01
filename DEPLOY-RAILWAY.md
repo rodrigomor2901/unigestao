@@ -228,8 +228,15 @@ enquanto durar a troca. A ordem então fica sem buraco:
 
 5. **Cadastrar o mesmo valor na Fachada.** Ela passa a assinar com a dedicada, e
    todos já aceitam. É aqui que o segredo que assina deixa de ser o que viaja.
-6. **Faxina:** tirar o `x-ug-key` da Fachada e a aceitação da chave derivada dos
-   módulos.
+6. ✅ **Faxina feita (01/09/2026):** a Fachada não manda mais o `x-ug-key` nem
+   os campos soltos — só o bilhete assinado e o `x-ug-base` (prefixo do módulo,
+   que serve para montar link e não decide acesso). E havendo
+   `UG_ASSINATURA_SEGREDO`, os módulos aceitam **só** ele: a chave derivada da
+   `CORE_INTERNAL_KEY` deixou de valer.
+
+   Sem `UG_ASSINATURA_SEGREDO` a derivada ainda vale — é o que mantém o
+   `dev-local.js` rodando sem cadastrar segredo nenhum. Em produção os sete
+   serviços têm a variável, então lá vale só a dedicada.
 
 **A ordem importa.** Cadastrar na Fachada antes dos módulos derruba: módulo sem
 o segredo novo recusa bilhete assinado com ele. Se acontecer, é reversível —

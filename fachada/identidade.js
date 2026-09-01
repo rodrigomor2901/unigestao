@@ -27,9 +27,11 @@
 //
 // O QUE ISTO **NAO** RESOLVE, e e honesto dizer: a assinatura e simetrica. Quem
 // tiver o segredo de assinatura consegue emitir bilhete valido. O ganho e que o
-// segredo deixa de viajar e o bilhete passa a ter dono e prazo — nao e uma
-// chave publica. Para separar de vez, use UG_ASSINATURA_SEGREDO diferente da
-// CORE_INTERNAL_KEY e pare de enviar o `x-ug-key` (ver DEPLOY-RAILWAY.md).
+// segredo NAO VIAJA — desde 01/09/2026 a Fachada nao manda mais o `x-ug-key`, e
+// a chave de assinatura e o UG_ASSINATURA_SEGREDO, que so existe nas variaveis
+// de cada servico — e que o bilhete tem dono e prazo. Nao e uma chave publica:
+// para isso seria preciso assinatura assimetrica, com a Fachada guardando a
+// chave privada e os modulos so a publica.
 // ============================================================================
 
 const crypto = require("crypto");
@@ -60,23 +62,27 @@ function chaveDeAssinatura(env = process.env) {
   return crypto.createHmac("sha256", base).update("ug-identidade-v1").digest();
 }
 
-// Quais chaves o VERIFICADOR aceita. Assinar usa uma so — a de cima —, mas
-// conferir aceita as duas durante a troca de segredo, e e isso que permite virar
-// sem janela de queda: se so uma valesse, no instante em que a Fachada trocasse
-// de chave todo modulo que ainda nao tivesse a nova recusaria todo mundo.
+// Quais chaves o VERIFICADOR aceita.
 //
-// A ordem importa pouco (basta uma bater), mas a dedicada vem primeiro porque e
-// a que deve valer no fim. Quando o `x-ug-key` sair de circulacao, a derivada
-// sai daqui junto e volta a existir uma chave so.
+// Havendo segredo dedicado, so ele vale — e essa e a diferenca que fecha o
+// assunto: a chave derivada da CORE_INTERNAL_KEY deixa de ser aceita, entao
+// quem tiver o segredo que viajava no `x-ug-key` nao consegue mais emitir
+// bilhete. Durante a troca (01/09/2026) as duas valeram ao mesmo tempo, de
+// proposito, para dar para cadastrar a nova um servico por vez; terminada a
+// troca, a sobreposicao vira exatamente o furo que ela ajudou a fechar.
+//
+// Sem segredo dedicado sobra a derivada. Isso mantem o ambiente local rodando
+// (`dev-local.js` nao cadastra segredo nenhum) e um servico que nunca recebeu a
+// variavel continua funcionando — desde que a Fachada tambem nao a tenha. Se so
+// um dos lados tiver, o bilhete e recusado: barulhento, e nao silenciosamente
+// permissivo.
 function chavesQueAceito(env = process.env) {
-  const lista = [];
   const dedicada = env.UG_ASSINATURA_SEGREDO || "";
-  if (dedicada) lista.push(Buffer.from(dedicada, "utf8"));
+  if (dedicada) return [Buffer.from(dedicada, "utf8")];
 
   const base = env.CORE_INTERNAL_KEY || "";
-  if (base) lista.push(crypto.createHmac("sha256", base).update("ug-identidade-v1").digest());
-
-  return lista;
+  if (!base) return [];
+  return [crypto.createHmac("sha256", base).update("ug-identidade-v1").digest()];
 }
 
 const b64url = (buf) => Buffer.from(buf).toString("base64")

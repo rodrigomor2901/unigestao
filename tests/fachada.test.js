@@ -18,7 +18,8 @@ let recebidoApi = null;
 const apiFalsa = http.createServer((req, res) => {
   recebidoApi = { url: req.url, headers: req.headers };
   res.writeHead(200, { "content-type": "application/json" });
-  res.end(JSON.stringify({ servico: "api", rota: req.url, papel: req.headers["x-ug-papel"] }));
+  res.end(JSON.stringify({ servico: "api", rota: req.url,
+                          temBilhete: Boolean(req.headers["x-ug-identidade"]) }));
 });
 
 // -- modulo falso, imitando um sistema atual --------------------------------
@@ -27,7 +28,8 @@ const moduloFalso = http.createServer((req, res) => {
   recebido = { url: req.url, headers: req.headers };
   if (req.url.startsWith("/api/")) {
     res.writeHead(200, { "content-type": "application/json" });
-    return res.end(JSON.stringify({ rota: req.url, papel: req.headers["x-ug-papel"] }));
+    return res.end(JSON.stringify({ rota: req.url,
+                                   temBilhete: Boolean(req.headers["x-ug-identidade"]) }));
   }
   res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
   res.end('<!doctype html><html><head><title>Modulo</title></head><body><h1>Sistema antigo</h1>' +
@@ -124,10 +126,17 @@ function portaLivre() {
   const corpo = await html.text();
   ok(html.status === 200, "modulo liberado responde 200");
   ok(recebido.url === "/", "prefixo /operacional removido antes de chegar ao modulo");
-  ok(recebido.headers["x-ug-papel"] === "cco", "papel do modulo chega no cabecalho (cco)");
-  ok(recebido.headers["x-ug-key"] === CHAVE, "chave interna acompanha a requisicao");
-  ok(decodeURIComponent(recebido.headers["x-ug-nome"] || "").includes("Fachada"),
-     "nome com acento trafega sem quebrar o cabecalho");
+  // A identidade vai so no bilhete assinado. Os cabecalhos soltos sairam de
+  // circulacao junto com o `x-ug-key` — que era o segredo viajando em toda
+  // requisicao, para todo modulo.
+  ok(!recebido.headers["x-ug-key"],
+     "a chave interna NAO viaja mais para o modulo  <-- o ganho da assinatura");
+  ok(!recebido.headers["x-ug-papel"] && !recebido.headers["x-ug-super"] &&
+     !recebido.headers["x-ug-id"] && !recebido.headers["x-ug-nome"] &&
+     !recebido.headers["x-ug-email"],
+     "e nenhum campo de identidade vai solto");
+  ok(recebido.headers["x-ug-base"] === "/operacional",
+     "so o prefixo do modulo continua indo — serve para montar link, nao decide acesso");
 
   console.log("\n=== A IDENTIDADE CHEGA ASSINADA AO MODULO ===");
   // Ponta a ponta, com a Fachada de verdade: o que o modulo recebe tem que ser
@@ -161,8 +170,9 @@ function portaLivre() {
   ok(dentroDoSegundo && dentroDoSegundo.papel === "cco" && dentroDoSegundo.super === false,
      "o bilhete que chega e o do Core: papel 'cco' e sem super admin");
   ok(dentroDoSegundo && dentroDoSegundo.id !== "u-invasor", "e com o id de quem realmente esta logado");
-  ok(recebido.headers["x-ug-papel"] === "cco" && recebido.headers["x-ug-super"] === "0",
-     "os cabecalhos antigos tambem sao sobrescritos, nao repassados");
+  ok(!recebido.headers["x-ug-papel"] && !recebido.headers["x-ug-super"] &&
+     !recebido.headers["x-ug-id"],
+     "os cabecalhos antigos que o cliente mandou sao apagados, nao repassados");
 
   console.log("\n=== O ENDERECO DE REDE FORJADO MORRE NA PORTA DE ENTRADA ===");
   // A Fachada e a unica porta publica, entao e o unico lugar onde da para saber
@@ -325,7 +335,8 @@ function portaLivre() {
   const dados = await api.json();
   ok(api.status === 200, "chamada de API atravessa a Fachada");
   ok(dados.rota === "/api/dados", "modulo recebe /api/dados (sem o prefixo)");
-  ok(dados.papel === "cco", "modulo enxerga o papel correto na chamada de API");
+  ok(dados.temBilhete === true,
+     "a identidade vai junto na chamada de API — assinada, e nao em cabecalho solto");
 
   console.log("\n=== MODULO PARTIDO EM DOIS SERVICOS ===");
   const comPrec = await criar("fach.prec@uniseter.com", [{ modulo: "precificacao", papel: "ADMIN" }]);
@@ -338,8 +349,15 @@ function portaLivre() {
   ok(chamadaApi.status === 200, "/api vai para o OUTRO servico");
   ok(corpoApi.servico === "api", "quem respondeu foi a API, nao a tela");
   ok(corpoApi.rota === "/api/pricing", "a API recebe /api/... como espera");
-  ok(corpoApi.papel === "ADMIN", "a identidade chega tambem na API");
-  ok(recebidoApi && recebidoApi.headers["x-ug-key"] === CHAVE, "chave interna acompanha");
+  ok(corpoApi.temBilhete === true, "a identidade assinada chega tambem na API");
+  // O papel agora vive DENTRO do bilhete, entao a conferencia e la — e o
+  // servico de API e um destino como outro qualquer: bilhete emitido para
+  // "precificacao", que e o modulo, nao um bilhete separado por servico.
+  const bilheteApi = ident.verificar(recebidoApi.headers["x-ug-identidade"], {
+    env: { CORE_INTERNAL_KEY: CHAVE }, modulo: "precificacao", semRepeticao: false });
+  ok(bilheteApi && bilheteApi.papel === "ADMIN", "com o papel que o Core informou");
+  ok(!recebidoApi.headers["x-ug-key"],
+     "e a chave interna NAO acompanha mais — nem para a API do modulo");
 
   // O modulo sem `sub` nao pode ser afetado pela novidade
   const semSub = await fetch(F + "/operacional/api/dados", C(comAcesso));

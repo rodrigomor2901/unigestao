@@ -714,11 +714,13 @@ const servidor = http.createServer(async (req, res) => {
   // para ESTE modulo e tem numero unico, entao nao serve para guardar e usar
   // depois nem para apresentar em outra porta.
   //
-  // Os cabecalhos soltos continuam indo por enquanto, e SO por isso: os modulos
-  // que ainda nao foram atualizados leem deles. Modulo atualizado ignora todos,
-  // e so olha o bilhete. Quando o ultimo tiver sido atualizado, o `x-ug-key` e
-  // os `x-ug-*` saem daqui — e ai o segredo para de viajar, que e o ganho de
-  // verdade desta mudanca (ver DEPLOY-RAILWAY.md).
+  // Os cabecalhos soltos NAO vao mais — nem o `x-ug-key`, que era o segredo
+  // viajando em toda requisicao para todo modulo (01/09/2026, depois que os seis
+  // passaram a exigir assinatura). E o que faz o segredo parar de circular: hoje
+  // ele so existe nas variaveis de ambiente de cada servico.
+  //
+  // `x-ug-base` fica: e o prefixo publico do modulo ("/eventos"), serve para
+  // montar link, nao decide acesso nenhum.
   const bilhete = identidade.assinar({
     id: quem.id,
     nome: quem.nome || "",
@@ -728,15 +730,7 @@ const servidor = http.createServer(async (req, res) => {
     modulo,
   });
 
-  const extras = {
-    "x-ug-key": CHAVE,
-    "x-ug-id": quem.id,
-    "x-ug-nome": encodeURIComponent(quem.nome || ""),
-    "x-ug-email": quem.email || "",
-    "x-ug-papel": quem.papel || "",
-    "x-ug-super": quem.superAdmin ? "1" : "0",
-    "x-ug-base": "/" + modulo,
-  };
+  const extras = { "x-ug-base": "/" + modulo };
   if (bilhete) extras[identidade.CABECALHO] = bilhete;
 
   // Remove o prefixo antes de repassar: /eventos/api/x  ->  /api/x

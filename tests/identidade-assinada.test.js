@@ -212,45 +212,41 @@ function quemE(mod, headers) {
   ok(dedicada.equals(Buffer.from("segredo-proprio-de-assinatura", "utf8")),
      "UG_ASSINATURA_SEGREDO, quando existe, tem precedencia");
 
-  console.log("\n=== 12. A TROCA DE SEGREDO NAO TEM JANELA DE QUEDA ===");
-  // Assinar usa UMA chave; conferir aceita as DUAS enquanto durar a troca. Sem
-  // essa sobreposicao, no instante em que a Fachada trocasse de chave todo
-  // modulo que ainda nao tivesse a nova recusaria todo mundo — e a virada teria
-  // que ser simultanea em sete servicos, o que nao existe.
+  console.log("\n=== 12. HAVENDO SEGREDO DEDICADO, SO ELE VALE ===");
+  // Este e o estado final, e a diferenca que fecha o assunto: a chave derivada
+  // da CORE_INTERNAL_KEY deixa de ser aceita, entao quem tiver o segredo que
+  // viajava no `x-ug-key` nao consegue mais emitir bilhete.
+  //
+  // Durante a troca (01/09/2026) as duas valeram ao mesmo tempo, de proposito,
+  // para dar para cadastrar a nova um servico por vez. Terminada a troca, a
+  // sobreposicao viraria exatamente o furo que ela ajudou a fechar.
   const DEDICADO = "segredo-dedicado-de-assinatura";
   const AMBAS = { ...ENV, UG_ASSINATURA_SEGREDO: DEDICADO };
 
-  const comAsDuas = identidade.chavesQueAceito(AMBAS);
-  ok(comAsDuas.length === 2, "com as duas variaveis, o modulo aceita duas chaves");
+  const aceitas = identidade.chavesQueAceito(AMBAS);
+  ok(aceitas.length === 1, "com o segredo dedicado, o modulo aceita UMA chave");
+  ok(aceitas[0].equals(Buffer.from(DEDICADO, "utf8")), "e ela e a dedicada");
 
-  const daFachadaVelha = identidade.assinar(
+  const comADerivada = identidade.assinar(
     { id: "u1", papel: "cco", modulo: "operacional" }, { env: ENV });
-  const daFachadaNova = identidade.assinar(
+  const comADedicada = identidade.assinar(
     { id: "u1", papel: "cco", modulo: "operacional" }, { env: AMBAS });
 
-  ok(identidade.verificar(daFachadaVelha, { chaves: comAsDuas, semRepeticao: false }) !== null,
-     "modulo ja com o segredo novo aceita bilhete da Fachada AINDA velha");
-  ok(identidade.verificar(daFachadaNova, { chaves: comAsDuas, semRepeticao: false }) !== null,
-     "e aceita tambem o bilhete da Fachada ja virada  <-- e a sobreposicao");
+  ok(identidade.verificar(comADedicada, { chaves: aceitas, semRepeticao: false }) !== null,
+     "bilhete assinado com a dedicada e aceito");
+  ok(identidade.verificar(comADerivada, { chaves: aceitas, semRepeticao: false }) === null,
+     "bilhete assinado com a chave DERIVADA da CORE_INTERNAL_KEY nao vale mais");
 
-  // A ordem da virada sai daqui: o segredo entra nos MODULOS primeiro, e so
-  // depois na Fachada. O contrario derruba.
-  const soADerivada = identidade.chavesQueAceito(ENV);
-  ok(identidade.verificar(daFachadaNova, { chaves: soADerivada, semRepeticao: false }) === null,
-     "modulo SEM o segredo novo recusa bilhete da Fachada nova — por isso o segredo entra nos modulos primeiro");
+  // Sem segredo dedicado, sobra a derivada — e o que mantem `dev-local.js` e os
+  // testes rodando sem cadastrar segredo nenhum.
+  const soDerivada = identidade.chavesQueAceito(ENV);
+  ok(soDerivada.length === 1, "sem o dedicado, sobra uma chave: a derivada");
+  ok(identidade.verificar(comADerivada, { chaves: soDerivada, semRepeticao: false }) !== null,
+     "e ai o bilhete derivado volta a valer — e o caso do ambiente local");
 
-  // E aceitar duas nao e aceitar qualquer uma.
-  const deOutroSegredo = identidade.assinar(
-    { id: "u-invasor", papel: "admin", superAdmin: true, modulo: "operacional" },
-    { env: { UG_ASSINATURA_SEGREDO: "segredo-que-ninguem-cadastrou" } });
-  ok(identidade.verificar(deOutroSegredo, { chaves: comAsDuas, semRepeticao: false }) === null,
-     "chave fora da lista continua sendo recusada");
-
-  // E a Fachada assina com a dedicada assim que ela existe — nao com as duas.
-  ok(identidade.verificar(daFachadaNova, { chave: comAsDuas[0], semRepeticao: false }) !== null,
-     "a Fachada assina com a dedicada quando ela esta cadastrada");
-  ok(identidade.verificar(daFachadaNova, { chave: comAsDuas[1], semRepeticao: false }) === null,
-     "e nao com a derivada, que sai de cena no fim da troca");
+  // Sem nada configurado, nada e aceito: servico mal configurado fica mudo.
+  ok(identidade.chavesQueAceito({}).length === 0,
+     "sem variavel nenhuma, nao ha chave que aceite bilhete");
 
   console.log("\n" + (falhas === 0 ? "TODOS OS TESTES PASSARAM" : falhas + " TESTE(S) FALHARAM"));
   process.exit(falhas === 0 ? 0 : 1);
