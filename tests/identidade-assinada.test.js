@@ -212,6 +212,46 @@ function quemE(mod, headers) {
   ok(dedicada.equals(Buffer.from("segredo-proprio-de-assinatura", "utf8")),
      "UG_ASSINATURA_SEGREDO, quando existe, tem precedencia");
 
+  console.log("\n=== 12. A TROCA DE SEGREDO NAO TEM JANELA DE QUEDA ===");
+  // Assinar usa UMA chave; conferir aceita as DUAS enquanto durar a troca. Sem
+  // essa sobreposicao, no instante em que a Fachada trocasse de chave todo
+  // modulo que ainda nao tivesse a nova recusaria todo mundo — e a virada teria
+  // que ser simultanea em sete servicos, o que nao existe.
+  const DEDICADO = "segredo-dedicado-de-assinatura";
+  const AMBAS = { ...ENV, UG_ASSINATURA_SEGREDO: DEDICADO };
+
+  const comAsDuas = identidade.chavesQueAceito(AMBAS);
+  ok(comAsDuas.length === 2, "com as duas variaveis, o modulo aceita duas chaves");
+
+  const daFachadaVelha = identidade.assinar(
+    { id: "u1", papel: "cco", modulo: "operacional" }, { env: ENV });
+  const daFachadaNova = identidade.assinar(
+    { id: "u1", papel: "cco", modulo: "operacional" }, { env: AMBAS });
+
+  ok(identidade.verificar(daFachadaVelha, { chaves: comAsDuas, semRepeticao: false }) !== null,
+     "modulo ja com o segredo novo aceita bilhete da Fachada AINDA velha");
+  ok(identidade.verificar(daFachadaNova, { chaves: comAsDuas, semRepeticao: false }) !== null,
+     "e aceita tambem o bilhete da Fachada ja virada  <-- e a sobreposicao");
+
+  // A ordem da virada sai daqui: o segredo entra nos MODULOS primeiro, e so
+  // depois na Fachada. O contrario derruba.
+  const soADerivada = identidade.chavesQueAceito(ENV);
+  ok(identidade.verificar(daFachadaNova, { chaves: soADerivada, semRepeticao: false }) === null,
+     "modulo SEM o segredo novo recusa bilhete da Fachada nova — por isso o segredo entra nos modulos primeiro");
+
+  // E aceitar duas nao e aceitar qualquer uma.
+  const deOutroSegredo = identidade.assinar(
+    { id: "u-invasor", papel: "admin", superAdmin: true, modulo: "operacional" },
+    { env: { UG_ASSINATURA_SEGREDO: "segredo-que-ninguem-cadastrou" } });
+  ok(identidade.verificar(deOutroSegredo, { chaves: comAsDuas, semRepeticao: false }) === null,
+     "chave fora da lista continua sendo recusada");
+
+  // E a Fachada assina com a dedicada assim que ela existe — nao com as duas.
+  ok(identidade.verificar(daFachadaNova, { chave: comAsDuas[0], semRepeticao: false }) !== null,
+     "a Fachada assina com a dedicada quando ela esta cadastrada");
+  ok(identidade.verificar(daFachadaNova, { chave: comAsDuas[1], semRepeticao: false }) === null,
+     "e nao com a derivada, que sai de cena no fim da troca");
+
   console.log("\n" + (falhas === 0 ? "TODOS OS TESTES PASSARAM" : falhas + " TESTE(S) FALHARAM"));
   process.exit(falhas === 0 ? 0 : 1);
 })().catch((e) => { console.error(e); process.exit(1); });

@@ -59,7 +59,11 @@ const LEGADO = process.env.UG_LEGACY_HEADERS_ENABLED === "true";
 
 // Lidos na carga, e nao a cada requisicao: configuracao de servico nao muda no
 // meio do voo, e ler uma vez deixa explicito de onde cada um veio.
-const CHAVE_ASSINATURA = identidade.chaveDeAssinatura();
+//
+// Sao DUAS chaves aceitas enquanto durar a troca de segredo: a dedicada
+// (UG_ASSINATURA_SEGREDO) e a derivada da CORE_INTERNAL_KEY. Assim da para
+// cadastrar a nova em um servico de cada vez sem derrubar ninguem.
+const CHAVES_ACEITAS = identidade.chavesQueAceito();
 const MODULO = process.env.UG_MODULO || "";
 
 let avisouLegado = false;
@@ -76,7 +80,7 @@ function identificar(req, res, next) {
 // assinatura errada, prazo vencido, formato estranho, bilhete de outro modulo.
 function lerIdentidade(req) {
   const bilhete = identidade.verificar(req.headers[identidade.CABECALHO],
-                                       { chave: CHAVE_ASSINATURA, modulo: MODULO });
+                                       { chaves: CHAVES_ACEITAS, modulo: MODULO });
   if (bilhete) {
     return montar({
       id: bilhete.id,

@@ -60,6 +60,25 @@ function chaveDeAssinatura(env = process.env) {
   return crypto.createHmac("sha256", base).update("ug-identidade-v1").digest();
 }
 
+// Quais chaves o VERIFICADOR aceita. Assinar usa uma so — a de cima —, mas
+// conferir aceita as duas durante a troca de segredo, e e isso que permite virar
+// sem janela de queda: se so uma valesse, no instante em que a Fachada trocasse
+// de chave todo modulo que ainda nao tivesse a nova recusaria todo mundo.
+//
+// A ordem importa pouco (basta uma bater), mas a dedicada vem primeiro porque e
+// a que deve valer no fim. Quando o `x-ug-key` sair de circulacao, a derivada
+// sai daqui junto e volta a existir uma chave so.
+function chavesQueAceito(env = process.env) {
+  const lista = [];
+  const dedicada = env.UG_ASSINATURA_SEGREDO || "";
+  if (dedicada) lista.push(Buffer.from(dedicada, "utf8"));
+
+  const base = env.CORE_INTERNAL_KEY || "";
+  if (base) lista.push(crypto.createHmac("sha256", base).update("ug-identidade-v1").digest());
+
+  return lista;
+}
+
 const b64url = (buf) => Buffer.from(buf).toString("base64")
   .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
@@ -123,20 +142,28 @@ function limparVistos(agora) {
 }
 
 function verificar(cru, opcoes = {}) {
-  const chave = opcoes.chave || chaveDeAssinatura(opcoes.env);
-  if (!chave || !cru) return null;
+  // `chaves` (lista) e o caminho normal; `chave` (uma so) continua aceito para
+  // quem chama de fora com uma chave especifica em maos — os testes, por exemplo.
+  const chaves = opcoes.chaves
+    || (opcoes.chave ? [opcoes.chave] : chavesQueAceito(opcoes.env));
+  if (!chaves.length || !cru) return null;
 
   const partes = String(cru).split(".");
   if (partes.length !== 2) return null;
 
   const [codificado, assinaturaRecebida] = partes;
-  const esperada = selo(codificado, chave);
-
-  // Comparacao de tempo constante: comparar com === vaza, pelo tempo de
-  // resposta, quantos caracteres iniciais estao certos.
   const a = Buffer.from(assinaturaRecebida);
-  const b = Buffer.from(esperada);
-  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+
+  // Basta UMA das chaves aceitas bater. Percorre todas mesmo depois de achar,
+  // para o tempo de resposta nao contar quantas foram tentadas.
+  let confere = false;
+  for (const chave of chaves) {
+    const b = Buffer.from(selo(codificado, chave));
+    // Comparacao de tempo constante: comparar com === vaza, pelo tempo de
+    // resposta, quantos caracteres iniciais estao certos.
+    if (a.length === b.length && crypto.timingSafeEqual(a, b)) confere = true;
+  }
+  if (!confere) return null;
 
   let corpo;
   try {
@@ -168,6 +195,6 @@ function verificar(cru, opcoes = {}) {
 }
 
 module.exports = {
-  assinar, verificar, chaveDeAssinatura,
+  assinar, verificar, chaveDeAssinatura, chavesQueAceito,
   CABECALHO, VERSAO, VALIDADE_S, TOLERANCIA_S,
 };
