@@ -66,6 +66,17 @@
   .modItem select { padding: 7px 9px; font-size: 13.5px; }
   input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--accent); cursor: pointer; }
 
+  /* O convite reenviado mostra a senha nova aqui: e a segunda via, para o
+     administrador passar por WhatsApp quando o e-mail falhar de novo — que e
+     justamente o caso em que este botao e usado. */
+  .convite { margin-top: 18px; padding: 14px 16px; border-radius: 8px;
+             background: #FDF0E1; border: 1px solid #F3C98B; font-size: 13.5px;
+             line-height: 1.55; color: #6b3c05; }
+  .convite b { color: #7a3d00; }
+  .convite .senha { display: inline-block; margin-top: 6px; font-family: 'DM Mono', ui-monospace, monospace;
+                    font-size: 15px; background: #fff; border: 1px solid #E7C9A0;
+                    border-radius: 6px; padding: 4px 10px; letter-spacing: .02em; }
+
   .acoes { display: flex; gap: 10px; justify-content: flex-end; margin-top: 22px; }
   .acoes .esq { margin-right: auto; }
 </style>
@@ -172,8 +183,11 @@
       </span>
     </label>
 
+    <div id="avisoConvite" class="convite" style="display:none"></div>
+
     <div class="acoes">
       <button class="btn btn-sec esq" id="btnReset2FA" style="display:none" onclick="resetar2FA()">Resetar 2FA</button>
+      <button class="btn btn-sec" id="btnConvite" style="display:none" onclick="reenviarConvite()">Reenviar convite</button>
       <button class="btn btn-sec" onclick="fechar()">Cancelar</button>
       <button class="btn" id="btnSalvar" onclick="salvar()">Salvar</button>
     </div>
@@ -322,6 +336,10 @@ function abrir(id) {
           : 'Manda para a pessoa o endereço do portal, a senha e a lista de módulos liberados.';
   document.getElementById('btnReset2FA').style.display =
     editando && editando.totp_ativo ? '' : 'none';
+  // So faz sentido reenviar convite de quem ja existe e esta ativo.
+  document.getElementById('btnConvite').style.display =
+    editando && editando.ativo ? '' : 'none';
+  document.getElementById('avisoConvite').style.display = 'none';
 
   var atuais = {};
   if (editando) editando.modulos.forEach(function (m) { atuais[m.modulo] = m.papel; });
@@ -444,6 +462,48 @@ async function salvar() {
   } finally {
     btn.disabled = false;
   }
+}
+
+// Reenviar o convite de quem nao recebeu o e-mail.
+//
+// A senha e NOVA — a antiga o Core nao tem como reenviar, porque guarda so o
+// hash. O aviso mostra a senha na tela ao lado do resultado do envio: e a
+// segunda via para o administrador passar por WhatsApp quando o e-mail falha de
+// novo, que e justamente o caso em que este botao e usado.
+async function reenviarConvite() {
+  if (!editando) return;
+  if (!confirm('Reenviar o convite para ' + editando.nome + '?\n\n' +
+               'A senha atual dessa pessoa deixa de valer e uma nova é gerada. ' +
+               'As sessões abertas dela caem.')) return;
+
+  var botao = document.getElementById('btnConvite');
+  botao.disabled = true;
+  try {
+    var r = await api('/api/admin/usuarios/' + editando.id + '/reenviar-convite', 'POST',
+                      { avisar: document.getElementById('fAvisar').checked });
+    var caixa = document.getElementById('avisoConvite');
+    caixa.innerHTML =
+      '<b>Convite reenviado.</b> ' + esc(recadoDoEnvio(r.email)) +
+      '<br>Senha provisória: <span class="senha">' + esc(r.senha) + '</span>' +
+      '<br><small>Ela troca de senha no primeiro acesso. Esta janela é o único lugar ' +
+      'onde a senha aparece — se fechar, é só reenviar de novo.</small>';
+    caixa.style.display = '';
+    await listar();
+  } catch (e) {
+    alerta(e.message, 'erro', 'modalAlerta');
+  } finally {
+    botao.disabled = false;
+  }
+}
+
+// Traduz o resultado do envio para uma frase — o administrador precisa saber se
+// o e-mail saiu de verdade ou se ele tera que passar a senha na mao.
+function recadoDoEnvio(envio) {
+  if (!envio) return '';
+  if (envio.ignorado) return 'E-mail não enviado (' + (envio.motivo || 'não solicitado') + ').';
+  if (envio.ok === false) return 'O e-mail falhou: ' + (envio.erro || 'motivo desconhecido') + '.';
+  if (envio.rascunho) return 'Ambiente local: a mensagem foi gravada em arquivo, não saiu.';
+  return 'E-mail enviado.';
 }
 
 async function resetar2FA() {

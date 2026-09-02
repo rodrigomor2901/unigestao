@@ -69,6 +69,20 @@ async function verificarSenha(senha, armazenado) {
   return { ok: false };
 }
 
+// Senha provisoria legivel: o administrador quase sempre precisa ditar ou
+// digitar isto em algum canto (WhatsApp, telefone), entao nada de caracteres
+// que se confundem. Sem I/l/1 e sem O/0, e com um simbolo e digitos para passar
+// nas regras de senha do proprio Core.
+const ALFABETO_SENHA = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+
+function senhaProvisoria() {
+  const sorteio = crypto.randomBytes(12);
+  let senha = "";
+  for (const b of sorteio) senha += ALFABETO_SENHA[b % ALFABETO_SENHA.length];
+  // O sufixo garante digito e simbolo mesmo no sorteio mais azarado.
+  return senha + "@" + (crypto.randomBytes(1)[0] % 90 + 10);
+}
+
 function comparaSegura(a, b) {
   const ba = Buffer.from(String(a));
   const bb = Buffer.from(String(b));
@@ -405,7 +419,7 @@ function ipDe(req) {
 }
 
 module.exports = {
-  gerarHash, verificarSenha,
+  gerarHash, verificarSenha, senhaProvisoria,
   gerarSegredoTOTP, verificarTOTP, urlQRCode,
   criarPendencia2FA, lerPendencia2FA, registrarTentativa2FA, consumirPendencia2FA,
   MAX_TENTATIVAS_2FA,

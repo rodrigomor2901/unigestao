@@ -1240,6 +1240,56 @@ app.post("/api/admin/usuarios", exigeSuperAdmin, async (req, res, next) => {
   }
 });
 
+// Reenviar o convite: a pessoa nao recebeu o e-mail (caixa de spam, endereco
+// digitado errado e depois corrigido, filtro da empresa) e precisa entrar hoje.
+//
+// GERA UMA SENHA NOVA, e nao reenvia a antiga: o Core guarda so o hash, entao a
+// senha original nao existe mais em lugar nenhum para ser reenviada. Como efeito
+// colateral util, quem tiver visto a senha velha em algum lugar perde o acesso.
+//
+// A senha nova volta na resposta de proposito — o administrador consegue passar
+// por WhatsApp se o e-mail falhar de novo, que e justamente o caso em que este
+// botao e usado. Ela some da tela ao fechar; nao fica gravada em lugar nenhum.
+app.post("/api/admin/usuarios/:id/reenviar-convite", exigeSuperAdmin, async (req, res, next) => {
+  try {
+    const id = req.params.id;
+    const r = await db.query(
+      `SELECT u.id, u.nome, u.email, u.ativo,
+              COALESCE(json_agg(json_build_object('modulo', m.modulo, 'papel', m.papel))
+                       FILTER (WHERE m.modulo IS NOT NULL), '[]') AS modulos
+         FROM usuarios u
+         LEFT JOIN usuario_modulos m ON m.usuario_id = u.id
+        WHERE u.id = $1
+        GROUP BY u.id`,
+      [id]
+    );
+    const dono = r.rows[0];
+    if (!dono) return res.status(404).json({ erro: "Usuário não encontrado" });
+    if (!dono.ativo) {
+      return res.status(400).json({ erro: "Usuário está inativo. Ative antes de reenviar o convite." });
+    }
+
+    const senha = auth.senhaProvisoria();
+    await db.query(
+      "UPDATE usuarios SET senha = $2, senha_temp = TRUE WHERE id = $1",
+      [id, auth.gerarHash(senha)]
+    );
+    // Sessoes abertas com a senha velha caem: o convite reenviado e um recomeco,
+    // e deixar sessao antiga viva contradiria a senha nova.
+    await auth.encerrarSessoesDoUsuario(id);
+    await auth.auditar(req, "convite_reenviado", { alvo: id, detalhe: { email: dono.email } });
+
+    const aviso = await avisarSeMarcado(req, () =>
+      correio.avisarContaNova({
+        nome: dono.nome, email: dono.email, senha, modulos: paraEmail(dono.modulos),
+      })
+    );
+    res.json({ ok: true, senha, email: aviso });
+  } catch (e) {
+    next(e);
+  }
+});
+
 app.patch("/api/admin/usuarios/:id", exigeSuperAdmin, async (req, res, next) => {
   try {
     const id = req.params.id;
