@@ -348,3 +348,9 @@ ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS checklists_ver BOOLEAN NOT NULL DE
 -- depois nao esta aqui e mesmo assim aparece, no fim. Ordem por posicao faria
 -- o cartao novo empurrar todos os outros ou, pior, sumir.
 ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS modulos_ordem TEXT[] NOT NULL DEFAULT '{}';
+
+-- Departamento principal — onde a pessoa esta lotada, escolhido pelo administrador
+-- quando cria o acesso. E diferente de `departamentos`, que e a lista de areas
+-- pelas quais ela RESPONDE (a agenda usa aquela; um gerente pode responder por
+-- tres). Este aqui e um so, e e o que vira equipe na Gestao de Tarefas.
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS departamento_principal TEXT;

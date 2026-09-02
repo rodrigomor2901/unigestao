@@ -1145,6 +1145,9 @@ app.get("/api/interno/sessao", async (req, res, next) => {
       // administrador geral na propria tela de usuarios.
       return res.json({
         id: usuario.id, nome: usuario.nome, email: usuario.email,
+        // Onde a pessoa esta lotada. A Gestao de Tarefas usa isto para pos-la
+        // na equipe certa; os outros modulos ignoram.
+        departamento: usuario.departamento_principal || "",
         papel: modulos.papelDeAdmin(moduloId), superAdmin: true,
         modulos: alcance,
       });
@@ -1158,6 +1161,7 @@ app.get("/api/interno/sessao", async (req, res, next) => {
 
     res.json({
       id: usuario.id, nome: usuario.nome, email: usuario.email,
+      departamento: usuario.departamento_principal || "",
       papel: r.rows[0].papel, superAdmin: false,
       modulos: alcance,
     });
@@ -1193,6 +1197,7 @@ app.get("/api/admin/usuarios", exigeSuperAdmin, async (req, res, next) => {
     }
     const r = await db.query(
       `SELECT u.id, u.nome, u.email, u.ativo, u.super_admin, u.totp_ativo,
+              u.departamento_principal,
               u.senha_temp, u.ultimo_login, u.mural_autor, u.checklists_ver,
               COALESCE(json_agg(json_build_object('modulo', m.modulo, 'papel', m.papel))
                        FILTER (WHERE m.modulo IS NOT NULL), '[]') AS modulos
@@ -1219,11 +1224,18 @@ app.post("/api/admin/usuarios", exigeSuperAdmin, async (req, res, next) => {
     if (senha.length < 8) return res.status(400).json({ erro: "A senha precisa ter ao menos 8 caracteres" });
 
     const id = "u" + crypto.randomBytes(9).toString("hex");
+    // O departamento principal e onde a pessoa esta lotada — e o que vira equipe
+    // na Gestao de Tarefas. Ele tambem entra na lista `departamentos`, que
+    // alimenta a Agenda de Contatos: assim a agenda ja nasce util, e a pessoa
+    // ajusta depois no perfil se responder por mais de uma area.
+    const departamento = String(req.body.departamentoPrincipal || "").trim();
     await db.query(
-      `INSERT INTO usuarios (id, nome, email, senha, senha_temp, super_admin, mural_autor, checklists_ver)
-       VALUES ($1,$2,$3,$4,TRUE,$5,$6,$7)`,
+      `INSERT INTO usuarios (id, nome, email, senha, senha_temp, super_admin, mural_autor,
+                             checklists_ver, departamento_principal, departamentos)
+       VALUES ($1,$2,$3,$4,TRUE,$5,$6,$7,$8,$9::text[])`,
       [id, nome, email, auth.gerarHash(senha), Boolean(req.body.superAdmin),
-       Boolean(req.body.muralAutor), Boolean(req.body.checklistsVer)]
+       Boolean(req.body.muralAutor), Boolean(req.body.checklistsVer),
+       departamento || null, departamento ? [departamento] : null]
     );
     await salvarModulos(id, req.body.modulos);
     await auth.auditar(req, "usuario_criado", { alvo: id, detalhe: { email, nome } });
@@ -1301,6 +1313,11 @@ app.patch("/api/admin/usuarios/:id", exigeSuperAdmin, async (req, res, next) => 
     };
 
     if (req.body.nome !== undefined) set("nome", String(req.body.nome).trim());
+    // Trocar o departamento aqui move a pessoa de equipe na Gestao de Tarefas —
+    // ver a sincronizacao em unigestao.js, do lado de la.
+    if (req.body.departamentoPrincipal !== undefined) {
+      set("departamento_principal", String(req.body.departamentoPrincipal).trim() || null);
+    }
     if (req.body.email !== undefined) set("email", String(req.body.email).toLowerCase().trim());
     if (req.body.ativo !== undefined) set("ativo", Boolean(req.body.ativo));
     if (req.body.superAdmin !== undefined) set("super_admin", Boolean(req.body.superAdmin));

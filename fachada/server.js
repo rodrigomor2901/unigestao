@@ -726,6 +726,7 @@ const servidor = http.createServer(async (req, res) => {
     nome: quem.nome || "",
     email: quem.email || "",
     papel: quem.papel || "",
+    departamento: quem.departamento || "",
     superAdmin: quem.superAdmin,
     modulo,
   });

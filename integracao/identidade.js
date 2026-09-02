@@ -113,6 +113,10 @@ function assinar(dados, opcoes = {}) {
     nome: String(dados.nome || ""),
     email: String(dados.email || ""),
     papel: String(dados.papel || ""),
+    // Onde a pessoa esta lotada. Vai assinado junto com o resto porque decide
+    // acesso do outro lado: a Gestao de Tarefas poe a pessoa na equipe de mesmo
+    // nome, e equipe la define o que se enxerga.
+    dep: String(dados.departamento || ""),
     super: Boolean(dados.superAdmin),
     mod: String(dados.modulo || ""),
     iat: agora,

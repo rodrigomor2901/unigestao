@@ -229,7 +229,7 @@ async function lerSessao(token) {
   if (!token) return null;
   const r = await db.query(
     `SELECT u.id, u.nome, u.email, u.ativo, u.super_admin, u.senha_temp, u.totp_ativo,
-            u.mural_visto_em, u.mural_autor, u.checklists_ver
+            u.mural_visto_em, u.mural_autor, u.checklists_ver, u.departamento_principal
        FROM sessoes s JOIN usuarios u ON u.id = s.usuario_id
       WHERE s.token = $1 AND s.expira_em > NOW() AND u.ativo = TRUE`,
     [token]

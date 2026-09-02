@@ -138,6 +138,14 @@
       <input type="text" id="fSenha" placeholder="mínimo 8 caracteres">
     </label>
 
+    <label class="campo"><span id="lblDepartamento">Departamento</span>
+      <select id="fDepartamento">
+        <option value="">— sem departamento —</option>
+      </select>
+      <small id="dicaDepartamento">Onde a pessoa está lotada. Ela entra automaticamente nessa
+        equipe na Gestão de Tarefas; equipes extras são adicionadas lá dentro.</small>
+    </label>
+
     <fieldset>
       <legend>Módulos</legend>
       <div id="listaModulos"></div>
@@ -223,8 +231,56 @@ async function api(url, metodo, corpo) {
   return d;
 }
 
+// A lista de departamentos NAO e uma lista propria do portal: sao as equipes
+// que ja existem na Gestao de Tarefas. Duas listas para a mesma coisa sempre
+// terminam divergindo, e quem paga e quem procura a pessoa depois.
+//
+// A leitura passa pela Fachada, que confere a sessao e anexa a identidade
+// assinada — o portal nao fala com o banco do outro modulo nem precisa de chave.
+// Se as Tarefas estiverem fora do ar, o campo vira texto livre em vez de
+// impedir o cadastro.
+var DEPARTAMENTOS = [];
+
+async function carregarDepartamentos() {
+  var campo = document.getElementById('fDepartamento');
+  try {
+    var r = await fetch('/tarefas/api/equipes', { headers: { accept: 'application/json' } });
+    if (!r.ok) throw new Error('sem acesso');
+    var equipes = await r.json();
+    // So equipes de nivel superior: subequipe e refinamento de dentro das
+    // Tarefas, e o cadastro do portal escolhe o departamento, nao o time.
+    DEPARTAMENTOS = (Array.isArray(equipes) ? equipes : [])
+      .filter(function (e) { return !e.parent_id; })
+      .map(function (e) { return e.nome; })
+      .sort(function (a, b) { return a.localeCompare(b, 'pt-BR'); });
+  } catch (e) {
+    DEPARTAMENTOS = [];
+    document.getElementById('dicaDepartamento').textContent =
+      'Não consegui ler as equipes da Gestão de Tarefas agora — digite o nome exatamente como está lá.';
+    campo.outerHTML = '<input id="fDepartamento" placeholder="Ex.: COMERCIAL">';
+  }
+}
+
+function montarDepartamentos(escolhido) {
+  var campo = document.getElementById('fDepartamento');
+  if (campo.tagName !== 'SELECT') { campo.value = escolhido || ''; return; }
+
+  var opcoes = ['<option value="">— sem departamento —</option>'];
+  var lista = DEPARTAMENTOS.slice();
+  // Departamento gravado que nao existe mais como equipe continua aparecendo:
+  // sumir com ele calado faria a pessoa perder a lotacao no proximo salvar.
+  if (escolhido && lista.indexOf(escolhido) === -1) lista.push(escolhido + ' (equipe não encontrada)');
+  lista.forEach(function (nome) {
+    var valor = nome.replace(' (equipe não encontrada)', '');
+    opcoes.push('<option value="' + esc(valor) + '"' +
+                (valor === escolhido ? ' selected' : '') + '>' + esc(nome) + '</option>');
+  });
+  campo.innerHTML = opcoes.join('');
+}
+
 async function carregar() {
   MODULOS = await api('/api/admin/modulos');
+  await carregarDepartamentos();
   EMAIL = await api('/api/admin/email').catch(function () { return { modo: 'desligado' }; });
   await listar();
 }
@@ -314,6 +370,7 @@ function abrir(id) {
     ? 'deixe em branco para não alterar'
     : 'mínimo 8 caracteres';
   document.getElementById('lblSenha').textContent = editando ? 'Nova senha (opcional)' : 'Senha inicial';
+  montarDepartamentos(editando ? (editando.departamento_principal || '') : '');
   document.getElementById('fSuper').checked = editando ? editando.super_admin : false;
   document.getElementById('fMural').checked = editando ? !!editando.mural_autor : false;
   document.getElementById('fChecklists').checked = editando ? !!editando.checklists_ver : false;
@@ -436,6 +493,7 @@ async function salvar() {
     var corpo = {
       nome: document.getElementById('fNome').value,
       email: document.getElementById('fEmail').value,
+      departamentoPrincipal: document.getElementById('fDepartamento').value.trim(),
       superAdmin: document.getElementById('fSuper').checked,
       muralAutor: document.getElementById('fMural').checked,
       checklistsVer: document.getElementById('fChecklists').checked,
