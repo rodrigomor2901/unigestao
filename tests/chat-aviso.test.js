@@ -102,6 +102,33 @@ function criarDocumento() {
   ok(decide(null, true) === false, "sem mensagem nenhuma -> nao avisa, e nao estoura");
   ok(decide({ conversaId: 1 }, true) === false, "evento sem mensagem dentro -> nao avisa");
 
+  // ---------------------------------------------------------------------------
+  // A FAIXA DENTRO DO PAINEL
+  //
+  // Aqui esteve um defeito real: quem ja tinha o navegador bloqueando avisos
+  // caia no mesmo caso de quem ja tinha ligado, e a faixa sumia. A pessoa abria
+  // o chat, nao via botao nenhum e nao tinha como descobrir o motivo — foi
+  // exatamente o que aconteceu no primeiro teste de verdade.
+  console.log("\n=== O QUE A FAIXA DIZ EM CADA SITUACAO ===");
+  const faixa = janela.window.UGChat._estadoDoConvite;
+  const AGORA = 1000000;
+
+  ok(faixa("default", 0, AGORA) === "convite",
+     "navegador que ainda nao perguntou nada -> oferece ligar");
+  ok(faixa("denied", 0, AGORA) === "bloqueado",
+     "navegador bloqueando -> explica onde desbloquear  <-- o caso que sumia calado");
+  ok(faixa("granted", 0, AGORA) === "nada",
+     "ja ligado -> nao fica repetindo recado que a pessoa nao precisa");
+  ok(faixa(null, 0, AGORA) === "nada",
+     "navegador sem o recurso -> nao promete o que nao da para cumprir");
+
+  ok(faixa("default", AGORA + 500, AGORA) === "nada",
+     "quem disse 'agora nao' nao e incomodado de novo");
+  ok(faixa("default", AGORA - 500, AGORA) === "convite",
+     "mas o adiamento VENCE: nao existe 'nunca mais', que deixaria a pessoa sem volta");
+  ok(faixa("denied", AGORA + 500, AGORA) === "nada",
+     "e o aviso de bloqueado tambem pode ser dispensado por um tempo");
+
   console.log("\n" + (falhas === 0 ? "TODOS OS TESTES PASSARAM" : falhas + " TESTE(S) FALHARAM"));
   process.exit(falhas === 0 ? 0 : 1);
 })().catch((e) => { console.error(e); process.exit(1); });

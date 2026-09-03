@@ -80,7 +80,7 @@
       '    <button class="ug-icone ug-empurra ug-fechar" title="Fechar">&#215;</button>',
       "  </div>",
       '  <div class="ug-convite">',
-      "    <span>Quer receber aviso na tela quando chegar mensagem?</span>",
+      '    <span class="ug-convite-txt"></span>',
       '    <button class="ug-convite-sim">Ativar</button>',
       '    <button class="ug-convite-nao">Agora não</button>',
       "  </div>",
@@ -120,7 +120,9 @@
     raiz.querySelector(".ug-fechar").addEventListener("click", function () { abrirPainel(false); });
     raiz.querySelector(".ug-convite-sim").addEventListener("click", pedirPermissao);
     raiz.querySelector(".ug-convite-nao").addEventListener("click", function () {
-      guardar(CONVITE, "adiado");
+      // Adia por uma semana, e nao para sempre: "para sempre" deixaria a pessoa
+      // sem caminho de volta pela tela do sistema.
+      guardar(CONVITE, String(Date.now() + 7 * 24 * 60 * 60 * 1000));
       mostrarConvite();
     });
     raiz.querySelector(".ug-voltar").addEventListener("click", voltarParaLista);
@@ -574,19 +576,59 @@
     return typeof window.Notification !== "undefined";
   }
 
+  // O que a faixa do aviso deve dizer.
+  //
+  // Sao TRES situacoes, e a do meio foi a que me escapou na primeira versao:
+  //
+  //   "convite"    — o navegador ainda nao perguntou nada. Oferece ligar.
+  //   "bloqueado"  — a pessoa (ou a politica do navegador) ja negou antes.
+  //                  Aqui NAO adianta pedir de novo: o navegador simplesmente
+  //                  ignora o pedido, sem nem mostrar a perguntinha. Entao a
+  //                  faixa explica onde desbloquear.
+  //   "nada"       — ja esta ligado, ou o navegador nao tem o recurso.
+  //
+  // Na primeira versao o "bloqueado" caia no mesmo balde do "ja ligado" e a
+  // faixa sumia: quem estava bloqueado nao via botao nenhum e nao tinha como
+  // descobrir por que. Sumir calado e pior do que dar trabalho.
+  //
+  // Pura de proposito — o teste confere os tres estados sem navegador.
+  function estadoDoConvite(permissao, adiadoAte, agora) {
+    if (!permissao || permissao === "granted") return "nada";
+    if (adiadoAte && agora < adiadoAte) return "nada";
+    return permissao === "denied" ? "bloqueado" : "convite";
+  }
+
   // O pedido de permissao NAO sai sozinho ao abrir a pagina.
   //
   // Permissao pedida do nada, sem a pessoa ter feito nada, e o caminho mais
-  // curto para ela clicar em "Bloquear" — e bloqueio no navegador nao tem
-  // volta pela tela do sistema: tem que ir nas configuracoes do Chrome. Por
-  // isso o convite aparece dentro do painel, ja com o chat aberto, e so
-  // depois de um clique dela.
+  // curto para ela clicar em "Bloquear" — e ai cai no caso "bloqueado" acima,
+  // que so se desfaz nas configuracoes do navegador. Por isso o convite aparece
+  // dentro do painel, ja com o chat aberto, e so depois de um clique dela.
   function mostrarConvite() {
     var faixa = raiz.querySelector(".ug-convite");
-    var cabe = temNotificacao() &&
-               window.Notification.permission === "default" &&
-               ler(CONVITE) !== "adiado";
-    faixa.classList.toggle("tem", cabe);
+    var texto = faixa.querySelector(".ug-convite-txt");
+    var sim = faixa.querySelector(".ug-convite-sim");
+    var nao = faixa.querySelector(".ug-convite-nao");
+
+    var estado = estadoDoConvite(
+      temNotificacao() ? window.Notification.permission : null,
+      Number(ler(CONVITE) || 0),
+      Date.now()
+    );
+
+    faixa.classList.toggle("tem", estado !== "nada");
+    if (estado === "nada") return;
+
+    if (estado === "bloqueado") {
+      texto.textContent = "Os avisos na tela estão bloqueados no navegador. " +
+        "Para ligar: clique no cadeado ao lado do endereço, procure Notificações e escolha Permitir.";
+      sim.hidden = true;
+      nao.textContent = "Entendi";
+    } else {
+      texto.textContent = "Quer receber aviso na tela quando chegar mensagem?";
+      sim.hidden = false;
+      nao.textContent = "Agora não";
+    }
   }
 
   function pedirPermissao() {
@@ -657,6 +699,7 @@
     // Windows aparece e dificil de conferir a olho (depende da janela estar
     // escondida) e facil de quebrar sem ninguem notar.
     _deveAvisarNaTela: deveAvisarNaTela,
+    _estadoDoConvite: estadoDoConvite,
     conversarSobre: function (o) {
       o = o || {};
       pendenteSobre = { sobre: o.sobre || "", link: o.link || "" };
