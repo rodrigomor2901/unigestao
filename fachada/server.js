@@ -376,7 +376,9 @@ function menuModulos(base, lista) {
 function shim(base, usuario, listaModulos) {
   const dados = escapeHtml(JSON.stringify(usuario));
   return `<link rel="stylesheet" href="${base}/__ug/barra.css">
+<link rel="stylesheet" href="${base}/__ug/chat.css">
 <script src="${base}/__ug/shim.js" data-base="${escapeHtml(base)}" data-usuario="${dados}"></script>
+<script src="${base}/__ug/chat.js" defer></script>
 <div id="ug-barra">
   <a class="ug-marca" href="/"><img src="${base}/__ug/marca.svg" alt="" width="22" height="22">Uni<span>Gestão</span></a>
   ${menuModulos(base, listaModulos)}
@@ -677,6 +679,27 @@ const servidor = http.createServer(async (req, res) => {
       "cache-control": "no-cache",
     });
     return res.end(BARRA_CSS);
+  }
+
+  // O comunicador interno.
+  //
+  // A tela dele (chat.js/chat.css) e as chamadas dele moram no CORE, e nao no
+  // modulo — a conversa e a mesma nos seis sistemas. Para o navegador, porem,
+  // tudo precisa sair de baixo de /<modulo>/: o CRM manda "script-src 'self'",
+  // e arquivo vindo de outro endereco simplesmente nao carregaria.
+  //
+  // Por isso o desvio: /<modulo>/__ug/chat/* entra aqui e sai no Core como
+  // /api/chat/*. O cookie de sessao viaja junto, entao o Core sabe quem e sem
+  // que a Fachada precise assinar nada.
+  if (caminho === `/${modulo}/__ug/chat.js`) {
+    return encaminhar(req, res, CORE, "/chat.js", {}, null);
+  }
+  if (caminho === `/${modulo}/__ug/chat.css`) {
+    return encaminhar(req, res, CORE, "/chat.css", {}, null);
+  }
+  if (caminho.startsWith(`/${modulo}/__ug/chat/`)) {
+    const resto = req.url.slice(`/${modulo}/__ug/chat`.length);
+    return encaminhar(req, res, CORE, "/api/chat" + resto, {}, null);
   }
 
   // Remove o prefixo do modulo antes de decidir o destino: /precificacao/api/x

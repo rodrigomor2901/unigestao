@@ -1,0 +1,213 @@
+/* ==========================================================================
+   COMUNICADOR INTERNO — aparencia
+   --------------------------------------------------------------------------
+   Arquivo separado, e nao <style> na pagina, porque este widget e injetado
+   DENTRO dos modulos — e o CRM manda "style-src 'self'", que bloqueia estilo
+   embutido. Pelo mesmo motivo nao existe atributo style="" no chat.js.
+
+   Tudo aqui embaixo de #ug-chat: o widget entra em seis sistemas com CSS
+   proprio, e nenhuma regra pode vazar para a pagina que o hospeda.
+   ========================================================================== */
+
+#ug-chat, #ug-chat * { box-sizing: border-box; }
+
+#ug-chat {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  /* Abaixo da barra do UniGestao (45) e dos modais dos modulos, que TEM que
+     cobrir o chat enquanto estiverem abertos. Ver tests/barra-modal.test.js. */
+  z-index: 44;
+  font-family: "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.4;
+  color: #1f2937;
+}
+
+/* --- botao redondo que abre --------------------------------------------- */
+#ug-chat .ug-abrir {
+  width: 52px; height: 52px;
+  border: 0; border-radius: 50%;
+  background: #12335e;
+  color: #fff;
+  font-size: 22px;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(0,0,0,.28);
+  display: flex; align-items: center; justify-content: center;
+  margin-left: auto;
+  transition: transform .12s ease;
+}
+#ug-chat .ug-abrir:hover { transform: scale(1.06); }
+
+#ug-chat .ug-selo {
+  position: absolute; top: -2px; right: -2px;
+  min-width: 20px; height: 20px; padding: 0 5px;
+  border-radius: 10px;
+  background: #dc2626; color: #fff;
+  font-size: 11px; font-weight: 700;
+  display: none; align-items: center; justify-content: center;
+}
+#ug-chat .ug-selo.tem { display: flex; }
+#ug-chat .ug-canto { position: relative; }
+
+/* --- painel -------------------------------------------------------------- */
+#ug-chat .ug-painel {
+  display: none;
+  width: 360px;
+  height: 520px;
+  max-height: calc(100vh - 110px);
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 14px 44px rgba(0,0,0,.3);
+  overflow: hidden;
+  flex-direction: column;
+  margin-bottom: 10px;
+}
+#ug-chat.aberto .ug-painel { display: flex; }
+
+#ug-chat .ug-topo {
+  background: #12335e; color: #fff;
+  padding: 10px 12px;
+  display: flex; align-items: center; gap: 8px;
+  flex: 0 0 auto;
+}
+#ug-chat .ug-topo b { font-weight: 600; font-size: 14px; }
+#ug-chat .ug-topo .ug-sub { font-size: 11px; opacity: .75; display: block; }
+#ug-chat .ug-icone {
+  background: none; border: 0; color: #fff; cursor: pointer;
+  font-size: 18px; line-height: 1; padding: 2px 6px; border-radius: 4px;
+}
+#ug-chat .ug-icone:hover { background: rgba(255,255,255,.15); }
+#ug-chat .ug-empurra { margin-left: auto; }
+
+/* --- lista de pessoas ---------------------------------------------------- */
+#ug-chat .ug-busca { padding: 8px; border-bottom: 1px solid #e5e7eb; flex: 0 0 auto; }
+#ug-chat .ug-busca input {
+  width: 100%; padding: 7px 10px;
+  border: 1px solid #d1d5db; border-radius: 6px;
+  font: inherit; color: inherit;
+}
+
+#ug-chat .ug-lista { flex: 1 1 auto; overflow-y: auto; }
+#ug-chat .ug-pessoa {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; cursor: pointer; border: 0; background: none;
+  width: 100%; text-align: left; font: inherit; color: inherit;
+}
+#ug-chat .ug-pessoa:hover { background: #f3f4f6; }
+#ug-chat .ug-foto {
+  width: 34px; height: 34px; border-radius: 50%;
+  background: #dbe3ee center/cover no-repeat;
+  color: #12335e; font-size: 13px; font-weight: 600;
+  display: flex; align-items: center; justify-content: center;
+  flex: 0 0 auto; position: relative;
+}
+#ug-chat .ug-luz {
+  position: absolute; right: -1px; bottom: -1px;
+  width: 11px; height: 11px; border-radius: 50%;
+  background: #9ca3af; border: 2px solid #fff;
+}
+#ug-chat .ug-luz.on { background: #16a34a; }
+#ug-chat .ug-quem { flex: 1 1 auto; min-width: 0; }
+#ug-chat .ug-nome {
+  font-weight: 600; font-size: 13px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#ug-chat .ug-previa {
+  font-size: 12px; color: #6b7280;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#ug-chat .ug-conta {
+  background: #dc2626; color: #fff;
+  min-width: 19px; height: 19px; padding: 0 5px; border-radius: 10px;
+  font-size: 11px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; flex: 0 0 auto;
+}
+#ug-chat .ug-vazio { padding: 18px; text-align: center; color: #6b7280; font-size: 13px; }
+
+/* --- conversa ------------------------------------------------------------ */
+#ug-chat .ug-conversa { display: none; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+#ug-chat.na-conversa .ug-conversa { display: flex; }
+#ug-chat.na-conversa .ug-lista,
+#ug-chat.na-conversa .ug-busca { display: none; }
+
+#ug-chat .ug-balas {
+  flex: 1 1 auto; overflow-y: auto;
+  padding: 12px; background: #f7f8fa;
+  display: flex; flex-direction: column; gap: 8px;
+}
+#ug-chat .ug-bala { max-width: 78%; padding: 7px 10px; border-radius: 12px; position: relative; }
+#ug-chat .ug-bala.deles { background: #fff; border: 1px solid #e5e7eb; align-self: flex-start; }
+#ug-chat .ug-bala.minha { background: #12335e; color: #fff; align-self: flex-end; }
+#ug-chat .ug-bala .ug-txt { white-space: pre-wrap; word-wrap: break-word; font-size: 13px; }
+#ug-chat .ug-bala .ug-hora { font-size: 10px; opacity: .6; margin-top: 3px; text-align: right; }
+#ug-chat .ug-bala.apagada .ug-txt { font-style: italic; opacity: .6; }
+#ug-chat .ug-bala img.ug-print {
+  max-width: 100%; border-radius: 8px; margin-top: 4px; cursor: zoom-in; display: block;
+}
+#ug-chat .ug-sobre {
+  display: block; font-size: 11px; margin-bottom: 4px;
+  padding: 4px 7px; border-radius: 6px;
+  background: rgba(0,0,0,.06); border-left: 3px solid #f5820a;
+  color: inherit; text-decoration: none;
+}
+#ug-chat .ug-bala.minha .ug-sobre { background: rgba(255,255,255,.15); }
+#ug-chat .ug-sobre:hover { text-decoration: underline; }
+#ug-chat .ug-apagar {
+  position: absolute; top: 2px; right: 4px;
+  background: none; border: 0; cursor: pointer;
+  font-size: 12px; opacity: 0; color: inherit; padding: 0 2px;
+}
+#ug-chat .ug-bala:hover .ug-apagar { opacity: .55; }
+#ug-chat .ug-apagar:hover { opacity: 1; }
+
+#ug-chat .ug-dia {
+  align-self: center; font-size: 11px; color: #6b7280;
+  background: #e9ebef; padding: 2px 9px; border-radius: 9px;
+}
+
+/* --- caixa de escrever --------------------------------------------------- */
+#ug-chat .ug-escrever {
+  flex: 0 0 auto; border-top: 1px solid #e5e7eb; padding: 8px;
+  display: flex; gap: 6px; align-items: flex-end; background: #fff;
+}
+#ug-chat .ug-escrever textarea {
+  flex: 1 1 auto; resize: none; max-height: 90px; min-height: 36px;
+  padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 8px;
+  font: inherit; font-size: 13px; color: inherit;
+}
+#ug-chat .ug-clipe, #ug-chat .ug-enviar {
+  border: 0; border-radius: 8px; cursor: pointer; height: 36px; flex: 0 0 auto;
+}
+#ug-chat .ug-clipe { background: #eef1f5; width: 36px; font-size: 16px; }
+#ug-chat .ug-enviar { background: #12335e; color: #fff; padding: 0 14px; font-size: 13px; }
+#ug-chat .ug-enviar:disabled { opacity: .5; cursor: default; }
+#ug-chat .ug-arquivo { display: none; }
+
+#ug-chat .ug-anexo {
+  display: none; align-items: center; gap: 8px;
+  padding: 6px 10px; border-top: 1px solid #e5e7eb;
+  font-size: 12px; color: #374151; background: #fff;
+}
+#ug-chat .ug-anexo.tem { display: flex; }
+#ug-chat .ug-anexo img { height: 34px; border-radius: 4px; }
+#ug-chat .ug-anexo button { margin-left: auto; border: 0; background: none; cursor: pointer; color: #dc2626; }
+
+#ug-chat .ug-aviso { font-size: 11px; color: #b91c1c; padding: 0 10px 6px; display: none; }
+#ug-chat .ug-aviso.tem { display: block; }
+
+/* Print aberto em tamanho grande */
+#ug-chat .ug-lupa {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,.8); z-index: 60;
+  align-items: center; justify-content: center; cursor: zoom-out;
+}
+#ug-chat .ug-lupa.tem { display: flex; }
+#ug-chat .ug-lupa img { max-width: 92vw; max-height: 92vh; border-radius: 6px; }
+
+/* No celular o painel ocupa a tela: 360px de largura fixa sairia pela lateral
+   e o teclado cobriria a caixa de escrever. */
+@media (max-width: 480px) {
+  #ug-chat { right: 12px; bottom: 12px; left: 12px; }
+  #ug-chat .ug-painel { width: auto; height: calc(100vh - 120px); }
+}

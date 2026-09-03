@@ -119,6 +119,43 @@
     </table>
   </div>
 
+  <!-- ------------------------------------------------------------------
+       RESGATE DE CONVERSA
+       Ninguem le a conversa dos outros no dia a dia — nem quem administra o
+       sistema. Este e o unico caminho, ele e deliberado (fechado, com motivo
+       obrigatorio) e deixa rastro na auditoria. Um acesso escondido seria pior
+       para todo mundo: quem usa o chat perde a confianca, e quem resgata de
+       boa-fe fica sem como provar que foi a pedido.
+       ------------------------------------------------------------------ -->
+  <details class="card" id="resgate" style="margin-top:22px;padding:16px">
+    <summary style="cursor:pointer;font-weight:600">Resgate de conversa do comunicador interno</summary>
+
+    <p class="dica" style="margin-top:10px">
+      As conversas do comunicador são privadas: não há tela que mostre a conversa de outra
+      pessoa, e o administrador geral também não vê. Este resgate existe só para atender
+      pedido formal da diretoria — e <b>fica registrado na auditoria</b>: quem resgatou,
+      quando, de quem e o motivo informado.
+    </p>
+
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin:12px 0">
+      <label class="campo" style="flex:1 1 200px">Pessoa 1
+        <select id="rgA"></select>
+      </label>
+      <label class="campo" style="flex:1 1 200px">Pessoa 2
+        <select id="rgB"></select>
+      </label>
+    </div>
+
+    <label class="campo">Quem pediu o resgate e por quê
+      <textarea id="rgMotivo" rows="2" placeholder="Ex.: pedido da diretoria em 03/09 — apuração de conduta no atendimento ao cliente X"></textarea>
+    </label>
+
+    <div id="rgAlerta"></div>
+    <button class="btn" onclick="resgatar()" style="margin-top:10px">Resgatar conversa</button>
+
+    <div id="rgSaida"></div>
+  </details>
+
 </main>
 
 <!-- Modal de edicao -->
@@ -278,6 +315,64 @@ function montarDepartamentos(escolhido) {
   campo.innerHTML = opcoes.join('');
 }
 
+
+// --- Resgate de conversa ---------------------------------------------------
+// Preenchido com a mesma lista que ja foi carregada para a tabela: nao vale a
+// pena uma consulta so para isto, e assim o resgate enxerga exatamente quem o
+// administrador ve na tela.
+function montarSelecaoResgate() {
+  var opcoes = '<option value="">—</option>' + USUARIOS.map(function (u) {
+    return '<option value="' + esc(u.id) + '">' + esc(u.nome) + '</option>';
+  }).join('');
+  var a = document.getElementById('rgA'), b = document.getElementById('rgB');
+  if (!a || !b) return;
+  var guardaA = a.value, guardaB = b.value;
+  a.innerHTML = opcoes; b.innerHTML = opcoes;
+  a.value = guardaA; b.value = guardaB;
+}
+
+async function resgatar() {
+  alerta('', 'erro', 'rgAlerta');
+  document.getElementById('rgSaida').innerHTML = '';
+  var aId = document.getElementById('rgA').value;
+  var bId = document.getElementById('rgB').value;
+  var motivo = document.getElementById('rgMotivo').value.trim();
+
+  if (!aId || !bId) return alerta('Escolha as duas pessoas.', 'erro', 'rgAlerta');
+  if (aId === bId) return alerta('Escolha duas pessoas diferentes.', 'erro', 'rgAlerta');
+
+  try {
+    var d = await api('/api/admin/chat/resgate', 'POST', { aId: aId, bId: bId, motivo: motivo });
+    var nomes = d.pessoas.map(function (p) { return p.nome; }).join(' e ');
+
+    if (!d.mensagens.length) {
+      document.getElementById('rgSaida').innerHTML =
+        '<p class="dica" style="margin-top:12px">Não há conversa entre ' + esc(nomes) + '.</p>';
+      return;
+    }
+
+    document.getElementById('rgSaida').innerHTML =
+      '<p class="dica" style="margin-top:12px"><b>' + d.mensagens.length + ' mensagens</b> entre ' +
+      esc(nomes) + '. Este acesso foi registrado na auditoria.</p>' +
+      '<div style="max-height:420px;overflow:auto;border:1px solid var(--borda,#e5e7eb);border-radius:8px;padding:10px">' +
+      d.mensagens.map(function (m) {
+        var quando = new Date(m.em).toLocaleString('pt-BR');
+        var corpo = m.apagada
+          ? '<i>mensagem apagada pelo autor — texto preservado abaixo</i><br>' + esc(m.texto)
+          : esc(m.texto);
+        var print = m.temImagem
+          ? '<br><a href="/api/admin/chat/mensagem/' + m.id + '/imagem" target="_blank" rel="noopener">ver print anexado</a>'
+          : '';
+        var sobre = m.sobre ? '<br><small>sobre: ' + esc(m.sobre) + '</small>' : '';
+        return '<div style="margin-bottom:8px"><small style="color:var(--texto-fraco,#6b7280)">' +
+               esc(m.autor) + ' · ' + esc(quando) + '</small><br>' + corpo + sobre + print + '</div>';
+      }).join('') +
+      '</div>';
+  } catch (e) {
+    alerta(e.message, 'erro', 'rgAlerta');
+  }
+}
+
 async function carregar() {
   MODULOS = await api('/api/admin/modulos');
   await carregarDepartamentos();
@@ -309,6 +404,7 @@ async function carregar() {
 async function listar() {
   var busca = document.getElementById('busca').value.trim();
   USUARIOS = await api('/api/admin/usuarios?busca=' + encodeURIComponent(busca));
+  montarSelecaoResgate();
   var corpo = document.getElementById('corpo');
 
   if (!USUARIOS.length) {
@@ -591,5 +687,9 @@ document.getElementById('busca').addEventListener('input', function () {
 
 carregar().catch(function (e) { alerta(e.message); });
 </script>
+<!-- Comunicador interno. O mesmo arquivo que a Fachada injeta nos modulos:
+     a conversa acompanha a pessoa do portal para dentro dos sistemas. -->
+<link rel="stylesheet" href="/chat.css">
+<script src="/chat.js" defer></script>
 </body>
 </html>

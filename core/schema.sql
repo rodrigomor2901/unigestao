@@ -354,3 +354,84 @@ ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS modulos_ordem TEXT[] NOT NULL DEFA
 -- pelas quais ela RESPONDE (a agenda usa aquela; um gerente pode responder por
 -- tres). Este aqui e um so, e e o que vira equipe na Gestao de Tarefas.
 ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS departamento_principal TEXT;
+
+-- ============================================================
+-- COMUNICADOR INTERNO — conversa entre logins do UniGestao
+-- ============================================================
+-- Uma conversa direta entre duas pessoas do sistema. Nesta primeira versao NAO
+-- existe grupo: e sempre um para um.
+--
+-- O par fica em duas colunas com unicidade, e nao numa tabela de membros, por
+-- um motivo pratico: e assim que se garante UMA conversa por dupla. Com tabela
+-- de membros, dois cliques simultaneos ("A abre com B" e "B abre com A" no
+-- mesmo segundo) criariam duas conversas paralelas, cada um falando na sua e
+-- achando que o outro nao responde. O indice unico e o arbitro.
+--
+-- Para a unicidade valer nos dois sentidos, `a_id` e SEMPRE o menor id da
+-- dupla e `b_id` o maior — quem grava ordena antes (ver core/chat.js).
+CREATE TABLE IF NOT EXISTS conversas (
+  id        BIGSERIAL   PRIMARY KEY,
+  a_id      TEXT        NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  b_id      TEXT        NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  criada_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT conversa_par_ordenado CHECK (a_id < b_id),
+  CONSTRAINT conversa_par_unico    UNIQUE (a_id, b_id)
+);
+
+-- Ate onde cada pessoa ja leu a conversa.
+--
+-- Guarda o ID DA ULTIMA MENSAGEM LIDA, e nao uma marca por mensagem. A conta
+-- decide o desempenho: com marca por mensagem, 45 pessoas trocando 100
+-- mensagens por dia geram 4.500 linhas/dia so para dizer "li" — e a contagem
+-- de nao lidas viraria uma varredura. Assim e UMA linha por pessoa por
+-- conversa, para sempre, e "nao lidas" e um COUNT com `id > lido_ate`.
+CREATE TABLE IF NOT EXISTS conversa_leitura (
+  conversa_id BIGINT NOT NULL REFERENCES conversas(id) ON DELETE CASCADE,
+  usuario_id  TEXT   NOT NULL REFERENCES usuarios(id)  ON DELETE CASCADE,
+  lido_ate    BIGINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (conversa_id, usuario_id)
+);
+
+-- As mensagens.
+--
+-- `apagada_em` existe porque apagar aqui e ESCONDER, nunca sumir: a linha fica.
+-- Sao duas exigencias que so convivem assim — a pessoa poder tirar da tela o
+-- que mandou errado, e a diretoria poder resgatar a conversa se um dia pedir.
+-- Apagar de verdade tornaria o resgate uma promessa que o sistema nao cumpre.
+--
+-- `sobre` e `link` sao o "conversar sobre isto": quando a conversa nasce de uma
+-- tarefa, de um evento ou de uma proposta, a primeira mensagem carrega o nome e
+-- o endereco do item. E o que separa este chat do WhatsApp — aqui a conversa
+-- fica amarrada ao trabalho.
+CREATE TABLE IF NOT EXISTS mensagens (
+  id          BIGSERIAL   PRIMARY KEY,
+  conversa_id BIGINT      NOT NULL REFERENCES conversas(id) ON DELETE CASCADE,
+  autor_id    TEXT        NOT NULL REFERENCES usuarios(id)  ON DELETE CASCADE,
+  texto       TEXT        NOT NULL DEFAULT '',
+  tem_imagem  BOOLEAN     NOT NULL DEFAULT FALSE,
+  sobre       TEXT,
+  link        TEXT,
+  criada_em   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  apagada_em  TIMESTAMPTZ
+);
+
+-- A consulta que roda o tempo todo e "as mensagens desta conversa, das novas
+-- para as velhas" — e, no fluxo em tempo real, "o que passou do id X".
+CREATE INDEX IF NOT EXISTS idx_mensagens_conversa ON mensagens (conversa_id, id DESC);
+
+-- O print de tela. Em tabela separada pelo mesmo motivo da foto de perfil:
+-- `mensagens` e lida a cada atualizacao da conversa, e arrastar o binario
+-- junto tornaria cara toda leitura que nao precisa da imagem.
+CREATE TABLE IF NOT EXISTS mensagem_imagem (
+  mensagem_id BIGINT PRIMARY KEY REFERENCES mensagens(id) ON DELETE CASCADE,
+  tipo        TEXT   NOT NULL,
+  bytes       BYTEA  NOT NULL
+);
+
+-- Quando o navegador da pessoa apareceu pela ultima vez.
+--
+-- E daqui que sai a bolinha verde. Escrito pelo fluxo em tempo real do chat, a
+-- cada batida do coracao — nao por requisicao de pagina. Assim "online" quer
+-- dizer "esta com o sistema aberto agora", que e o que quem manda a mensagem
+-- quer saber, e nao "carregou uma tela em algum momento".
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS visto_em TIMESTAMPTZ;

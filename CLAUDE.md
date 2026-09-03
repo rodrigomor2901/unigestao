@@ -18,8 +18,10 @@ UniGestao/
 │   ├── db.js              # pool PostgreSQL
 │   ├── schema.sql         # usuarios, usuario_modulos, sessoes, login_attempts, auditoria
 │   ├── auth.js            # PBKDF2, verificacao multi-algoritmo, TOTP, rate limit
+│   ├── chat.js            # COMUNICADOR: o que vale como mensagem, quem apaga, quem ve
 │   └── modulos.js         # REGISTRO dos modulos e dos papeis de cada um
 ├── public/                # login.html, inicio.html, admin.html, core.css
+│                          # chat.js + chat.css: o comunicador, servido tambem aos modulos
 ├── fachada/server.js      # FACHADA: unico servico publico, roteia e injeta o shim
 ├── integracao/unigestao.js# arquivo copiado para dentro de cada modulo
 └── tests/                 # permissao.test.js, fachada.test.js
@@ -100,6 +102,26 @@ Ordem acordada: Operacional → Documentos → Eventos → Tarefas → CRM → P
 - **A pendência do 2FA mora no banco, não em memória.** Em memória ela sumiria a cada
   deploy do Core e quebraria de vez com mais de uma instância: a senha entraria numa e o
   código cairia na outra. Não voltar a usar `Map` para isso.
+
+- **O comunicador interno mora no Core e aparece nos seis modulos.** A Fachada serve
+  `public/chat.js` e `public/chat.css` em `/<modulo>/__ug/chat.*`, e desvia
+  `/<modulo>/__ug/chat/*` para `/api/chat/*` do Core. Tem que sair de baixo do endereco do
+  modulo: o CRM manda `script-src 'self'` e arquivo de outra origem nao carregaria. Pelo
+  mesmo motivo o widget nao tem `<style>` embutido nem `onclick` no HTML.
+
+- **Tempo real do chat: consulta ao banco a cada 2s, nao registro de conexoes em
+  memoria.** Parece menos elegante e e o que sobrevive a duas instancias do Core: a
+  mensagem que chegou na instancia A precisa alcancar quem esta pendurado na B. Com
+  conexoes em memoria isso falharia calado — metade das mensagens sumindo, so para
+  algumas pessoas. Se um dia pesar, o caminho e `LISTEN/NOTIFY` do proprio Postgres.
+
+- **Apagar mensagem e ESCONDER, nunca remover a linha.** E o que sustenta a promessa do
+  resgate a pedido da diretoria. Apagar de verdade transformaria "da para resgatar" numa
+  promessa que o sistema nao cumpre justamente no caso em que ela importa.
+
+- **`departamentos` e NOT NULL.** Ao criar acesso sem departamento, mande lista vazia e
+  nunca `null` — com `null` a criacao de acesso inteira falhava com 500, e nao escolher
+  departamento e o caso comum.
 
 ---
 

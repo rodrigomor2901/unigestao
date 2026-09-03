@@ -28,6 +28,7 @@ const testes = [
   "barra-modal.test.js",
   "nexti.test.js",
   "checklists.test.js",
+  "chat.test.js",
   "identidade-assinada.test.js",
   "fachada.test.js",
   "modulo-operacional.test.js",

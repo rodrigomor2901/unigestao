@@ -197,6 +197,7 @@ deixa de viajar e o bilhete passa a ter dono e prazo.
 | `UG_ASSINATURA_SEGREDO` | Fachada e módulos | opcional, **recomendada**: chave de assinatura própria. Tem que ser *idêntica* nos sete serviços, e entra nos módulos ANTES da Fachada |
 | `UG_MODULO` | cada módulo | opcional: a chave do módulo (`eventos`, `crm`…). Prende o bilhete àquela porta |
 | `UG_LEGACY_HEADERS_ENABLED` | cada módulo | opcional: `true` reativa os cabeçalhos soltos. **Deixe desligado** — ligado, devolve o furo |
+| `CHAT_EMAILS` | Core | opcional: e-mails (separados por vírgula) que enxergam o comunicador interno. **Vazio = todo mundo.** Serve para testar com três pessoas antes de abrir para as 45 — quem não está na lista não vê o chat *e* não aparece na lista de quem vê |
 
 ### A virada
 

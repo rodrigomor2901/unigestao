@@ -24,6 +24,7 @@ const correio = require("./core/email");
 const perfil = require("./core/perfil");
 const mural = require("./core/mural");
 const checklists = require("./core/checklists");
+const chat = require("./core/chat");
 
 const app = express();
 
@@ -1069,6 +1070,484 @@ app.post("/api/senha", exigeLogin, async (req, res, next) => {
 });
 
 // ---------------------------------------------------------------------------
+// COMUNICADOR INTERNO
+// ----------------------------------------------------------------------------
+// Conversa direta entre logins do UniGestao. Mora no Core, e nao num modulo,
+// porque quem sabe quem e cada pessoa e o Core — e assim a conversa acompanha
+// quem trocar de sistema: comeca no CRM, continua nas Tarefas, e a mesma.
+//
+// As regras (o que vale como mensagem, quem apaga, o que e "online") estao em
+// core/chat.js. Aqui embaixo e so encanamento.
+// ---------------------------------------------------------------------------
+
+// A trava de liberacao (ver core/chat.js). Quem nao esta liberado recebe 403 e
+// a tela simplesmente nao monta o chat — sem mensagem de erro, porque para
+// essa pessoa o recurso ainda nao existe.
+function exigeChat(req, res, next) {
+  if (!req.usuario) return res.status(401).json({ erro: "Sessão expirada" });
+  if (!chat.podeUsar(req.usuario)) return res.status(403).json({ erro: "Comunicador não liberado" });
+  next();
+}
+
+// Acha a conversa da dupla, ou cria.
+//
+// O `ON CONFLICT` com nova leitura nao e preciosismo: se as duas pessoas
+// clicarem uma na outra no mesmo segundo, os dois INSERTs correm juntos e um
+// perde. Quem perde le a conversa que o outro acabou de criar, em vez de
+// estourar um erro na cara de quem so queria mandar um "bom dia".
+async function conversaDaDupla(euId, outroId) {
+  const par = chat.parDe(euId, outroId);
+  if (!par) return null;
+
+  const achada = await db.query("SELECT id FROM conversas WHERE a_id=$1 AND b_id=$2", par);
+  if (achada.rows[0]) return achada.rows[0].id;
+
+  const nova = await db.query(
+    `INSERT INTO conversas (a_id, b_id) VALUES ($1,$2)
+     ON CONFLICT (a_id, b_id) DO NOTHING RETURNING id`, par
+  );
+  if (nova.rows[0]) return nova.rows[0].id;
+
+  const doOutro = await db.query("SELECT id FROM conversas WHERE a_id=$1 AND b_id=$2", par);
+  return doOutro.rows[0] ? doOutro.rows[0].id : null;
+}
+
+// Confere que a pessoa participa da conversa.
+//
+// Roda em TODA leitura, e nao so na abertura. Sem isto, trocar o numero no
+// endereco (/api/chat/conversa/42/...) leria a conversa dos outros — o tipo de
+// falha que ninguem percebe porque a tela nunca oferece esse caminho.
+async function souDaConversa(conversaId, usuarioId) {
+  const r = await db.query(
+    "SELECT id, a_id, b_id FROM conversas WHERE id=$1 AND (a_id=$2 OR b_id=$2)",
+    [conversaId, usuarioId]
+  );
+  return r.rows[0] || null;
+}
+
+// A lista da esquerda: todo mundo do sistema, quem esta online, o que cada um
+// mandou por ultimo e quantas mensagens novas ha.
+//
+// Sai tudo numa consulta so. Em N consultas (uma por pessoa) seriam 45 idas ao
+// banco a cada vez que alguem abre o chat — e o chat abre em toda pagina.
+app.get("/api/chat/pessoas", exigeChat, async (req, res, next) => {
+  try {
+    const r = await db.query(
+      `SELECT u.id, u.nome, u.email, u.departamento_principal AS departamento, u.cargo,
+              (u.visto_em > NOW() - ($2 || ' seconds')::interval) AS online,
+              (f.usuario_id IS NOT NULL) AS tem_foto,
+              c.id AS conversa_id,
+              COALESCE((SELECT COUNT(*) FROM mensagens m
+                         WHERE m.conversa_id = c.id
+                           AND m.autor_id <> $1
+                           AND m.apagada_em IS NULL
+                           AND m.id > COALESCE(l.lido_ate, 0)), 0) AS nao_lidas,
+              ult.texto, ult.criada_em, ult.tem_imagem, ult.apagada_em,
+              (ult.autor_id = $1) AS minha
+         FROM usuarios u
+         LEFT JOIN usuario_foto f ON f.usuario_id = u.id
+         LEFT JOIN conversas c
+                ON c.a_id = LEAST(u.id, $1) AND c.b_id = GREATEST(u.id, $1)
+         LEFT JOIN conversa_leitura l
+                ON l.conversa_id = c.id AND l.usuario_id = $1
+         LEFT JOIN LATERAL (
+                SELECT texto, criada_em, tem_imagem, apagada_em, autor_id
+                  FROM mensagens m2 WHERE m2.conversa_id = c.id
+                 ORDER BY m2.id DESC LIMIT 1
+              ) ult ON TRUE
+        WHERE u.ativo AND u.id <> $1
+        ORDER BY ult.criada_em DESC NULLS LAST, u.nome`,
+      [req.usuario.id, String(chat.ONLINE_SEGUNDOS)]
+    );
+
+    // A lista so mostra quem tambem esta liberado a usar o chat. Sem esta
+    // metade, alguem apareceria na lista e receberia mensagem que nunca vai ler.
+    const liberados = chat.liberados();
+    const visiveis = liberados.length
+      ? r.rows.filter((p) => liberados.includes(String(p.email || "").toLowerCase()))
+      : r.rows;
+
+    res.json({
+      pessoas: visiveis.map((p) => ({
+        id: p.id,
+        nome: p.nome,
+        departamento: p.departamento || "",
+        cargo: p.cargo || "",
+        online: Boolean(p.online),
+        // Quem tem foto. Sem isto a tela pede a foto de todo mundo e leva 404
+        // de quem nao tem — 40 erros no console a cada vez que a lista desenha,
+        // que e exatamente o barulho que faz ninguem mais olhar para o console.
+        temFoto: Boolean(p.tem_foto),
+        naoLidas: Number(p.nao_lidas || 0),
+        ultima: p.criada_em
+          ? {
+              texto: p.apagada_em ? "" : (p.texto || ""),
+              apagada: Boolean(p.apagada_em),
+              temImagem: Boolean(p.tem_imagem),
+              em: p.criada_em,
+              minha: Boolean(p.minha),
+            }
+          : null,
+      })),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Abrir a conversa com alguem. Cria na hora se for a primeira vez.
+app.get("/api/chat/com/:outroId", exigeChat, async (req, res, next) => {
+  try {
+    const outro = await db.query(
+      "SELECT id, nome, departamento_principal AS departamento, cargo FROM usuarios WHERE id=$1 AND ativo",
+      [req.params.outroId]
+    );
+    if (!outro.rows[0]) return res.status(404).json({ erro: "Pessoa não encontrada" });
+
+    const conversaId = await conversaDaDupla(req.usuario.id, req.params.outroId);
+    if (!conversaId) return res.status(400).json({ erro: "Conversa inválida" });
+
+    const msgs = await db.query(
+      `SELECT id, autor_id, texto, tem_imagem, sobre, link, criada_em, apagada_em
+         FROM mensagens WHERE conversa_id=$1 ORDER BY id DESC LIMIT 60`,
+      [conversaId]
+    );
+
+    // Abrir a conversa e ler. Marcar aqui — e nao numa chamada a parte — evita
+    // o caso de a tela abrir, a pessoa ler e o contador continuar vermelho.
+    await marcarLido(conversaId, req.usuario.id);
+
+    res.json({
+      conversaId,
+      outro: outro.rows[0],
+      mensagens: msgs.rows.reverse().map((m) => formatarMensagem(m, req.usuario.id)),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+function formatarMensagem(m, euId) {
+  return {
+    id: Number(m.id),
+    minha: m.autor_id === euId,
+    texto: m.apagada_em ? "" : (m.texto || ""),
+    apagada: Boolean(m.apagada_em),
+    temImagem: Boolean(m.tem_imagem) && !m.apagada_em,
+    sobre: m.apagada_em ? null : (m.sobre || null),
+    link: m.apagada_em ? null : (m.link || null),
+    em: m.criada_em,
+  };
+}
+
+async function marcarLido(conversaId, usuarioId, ate) {
+  await db.query(
+    `INSERT INTO conversa_leitura (conversa_id, usuario_id, lido_ate)
+     VALUES ($1, $2, COALESCE($3, (SELECT COALESCE(MAX(id),0) FROM mensagens WHERE conversa_id=$1)))
+     ON CONFLICT (conversa_id, usuario_id)
+     DO UPDATE SET lido_ate = GREATEST(conversa_leitura.lido_ate, EXCLUDED.lido_ate)`,
+    [conversaId, usuarioId, ate == null ? null : Number(ate)]
+  );
+}
+
+app.post("/api/chat/conversa/:id/lido", exigeChat, async (req, res, next) => {
+  try {
+    const conversa = await souDaConversa(req.params.id, req.usuario.id);
+    if (!conversa) return res.status(404).json({ erro: "Conversa não encontrada" });
+    await marcarLido(conversa.id, req.usuario.id, req.body.ate);
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Mandar mensagem.
+app.post("/api/chat/com/:outroId", exigeChat, async (req, res, next) => {
+  try {
+    const v = chat.validarMensagem(req.body || {});
+    if (!v.ok) return res.status(400).json({ erro: v.erro });
+
+    const destino = await db.query("SELECT id FROM usuarios WHERE id=$1 AND ativo", [
+      req.params.outroId,
+    ]);
+    if (!destino.rows[0]) return res.status(404).json({ erro: "Pessoa não encontrada" });
+
+    const conversaId = await conversaDaDupla(req.usuario.id, req.params.outroId);
+    if (!conversaId) return res.status(400).json({ erro: "Conversa inválida" });
+
+    let bytes = null;
+    if (req.body.imagem) {
+      bytes = Buffer.from(String(req.body.imagem), "base64");
+      if (bytes.length > chat.IMAGEM_MAX_BYTES) {
+        return res.status(413).json({ erro: "Print muito grande — reduza a imagem." });
+      }
+    }
+
+    const r = await db.query(
+      `INSERT INTO mensagens (conversa_id, autor_id, texto, tem_imagem, sobre, link)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, autor_id, texto, tem_imagem, sobre, link, criada_em, apagada_em`,
+      [conversaId, req.usuario.id, v.valores.texto, Boolean(bytes), v.valores.sobre, v.valores.link]
+    );
+    const msg = r.rows[0];
+
+    if (bytes) {
+      await db.query(
+        "INSERT INTO mensagem_imagem (mensagem_id, tipo, bytes) VALUES ($1,$2,$3)",
+        [msg.id, req.body.imagemTipo, bytes]
+      );
+    }
+
+    // Quem escreveu ja leu o que escreveu.
+    await marcarLido(conversaId, req.usuario.id, msg.id);
+
+    res.json({ ok: true, conversaId, mensagem: formatarMensagem(msg, req.usuario.id) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// O print. So quem participa da conversa ve.
+app.get("/api/chat/mensagem/:id/imagem", exigeChat, async (req, res, next) => {
+  try {
+    const r = await db.query(
+      `SELECT i.tipo, i.bytes
+         FROM mensagem_imagem i
+         JOIN mensagens m ON m.id = i.mensagem_id
+         JOIN conversas c ON c.id = m.conversa_id
+        WHERE i.mensagem_id = $1
+          AND m.apagada_em IS NULL
+          AND (c.a_id = $2 OR c.b_id = $2)`,
+      [req.params.id, req.usuario.id]
+    );
+    if (!r.rows[0]) return res.status(404).end();
+    res.set("Content-Type", r.rows[0].tipo);
+    res.set("Cache-Control", "private, max-age=3600");
+    res.send(r.rows[0].bytes);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// A foto de quem esta na conversa.
+//
+// Existe separada de /api/foto/:id por causa do caminho: dentro de um modulo o
+// chat vive sob /<modulo>/__ug/chat/..., e uma imagem apontando para a raiz do
+// dominio nao chegaria aqui. Mesma consulta, endereco que funciona nos dois
+// lugares.
+app.get("/api/chat/foto/:id", exigeChat, async (req, res, next) => {
+  try {
+    const r = await db.query("SELECT tipo, bytes FROM usuario_foto WHERE usuario_id=$1", [
+      req.params.id,
+    ]);
+    if (!r.rows[0]) return res.status(404).end();
+    res.set("Content-Type", r.rows[0].tipo);
+    res.set("Cache-Control", "private, max-age=600");
+    res.send(r.rows[0].bytes);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Apagar: esconde para os dois, mas a linha FICA no banco.
+//
+// E o que sustenta a promessa do resgate: se apagar sumisse de verdade, "a
+// diretoria pode pedir a conversa" seria uma promessa que o sistema nao
+// cumpre justamente no caso em que ela importa.
+app.delete("/api/chat/mensagem/:id", exigeChat, async (req, res, next) => {
+  try {
+    const r = await db.query("SELECT id, autor_id, conversa_id FROM mensagens WHERE id=$1", [
+      req.params.id,
+    ]);
+    const msg = r.rows[0];
+    if (!msg) return res.status(404).json({ erro: "Mensagem não encontrada" });
+    if (!chat.podeApagar(req.usuario, msg)) {
+      return res.status(403).json({ erro: "Só quem escreveu pode apagar" });
+    }
+    await db.query("UPDATE mensagens SET apagada_em = NOW() WHERE id=$1 AND apagada_em IS NULL", [
+      msg.id,
+    ]);
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Tempo real (SSE)
+// ----------------------------------------------------------------------------
+// O navegador abre esta conexao e deixa aberta; o servidor escreve nela quando
+// chega mensagem. E HTTP comum — passa pela Fachada e por qualquer proxy sem
+// configuracao, ao contrario de WebSocket.
+//
+// A checagem e uma consulta ao BANCO a cada 2 segundos, e nao um registro de
+// conexoes na memoria do processo. Parece menos elegante e e mais correto: se
+// um dia o Core rodar em duas instancias no Railway, a mensagem que a instancia
+// A recebeu tem que chegar em quem esta pendurado na instancia B. Guardando as
+// conexoes na memoria, isso falharia em silencio — metade das mensagens
+// simplesmente nao apareceria, e so na tela de algumas pessoas.
+//
+// Custo: ~45 pessoas x uma consulta indexada a cada 2s. Se um dia pesar, o
+// caminho e LISTEN/NOTIFY do proprio Postgres — sem trocar nada do lado da tela.
+// ---------------------------------------------------------------------------
+app.get("/api/chat/stream", exigeChat, async (req, res, next) => {
+  try {
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      // Proxy que junta pedacos antes de repassar mataria o tempo real: a
+      // mensagem so chegaria quando o buffer enchesse. Isto pede para nao.
+      "X-Accel-Buffering": "no",
+    });
+    res.write("retry: 5000\n\n");
+
+    const euId = req.usuario.id;
+    const inicio = await db.query("SELECT COALESCE(MAX(id),0) AS ultimo FROM mensagens");
+    let ultimo = Number(req.query.desde || inicio.rows[0].ultimo);
+
+    await db.query("UPDATE usuarios SET visto_em = NOW() WHERE id=$1", [euId]);
+
+    let ocupado = false;
+    async function olhar() {
+      if (ocupado || res.writableEnded) return;
+      ocupado = true;
+      try {
+        const r = await db.query(
+          `SELECT m.id, m.conversa_id, m.autor_id, m.texto, m.tem_imagem, m.sobre, m.link,
+                  m.criada_em, m.apagada_em, u.nome AS autor_nome,
+                  CASE WHEN c.a_id = $1 THEN c.b_id ELSE c.a_id END AS outro_id
+             FROM mensagens m
+             JOIN conversas c ON c.id = m.conversa_id
+             JOIN usuarios  u ON u.id = m.autor_id
+            WHERE (c.a_id = $1 OR c.b_id = $1) AND m.id > $2 AND m.apagada_em IS NULL
+            ORDER BY m.id LIMIT 50`,
+          [euId, ultimo]
+        );
+        for (const m of r.rows) {
+          ultimo = Number(m.id);
+          const dado = {
+            conversaId: Number(m.conversa_id),
+            outroId: m.outro_id,
+            autorNome: m.autor_nome,
+            mensagem: formatarMensagem(m, euId),
+          };
+          res.write("event: mensagem\ndata: " + JSON.stringify(dado) + "\n\n");
+        }
+      } catch (e) {
+        console.error("[chat] falha ao olhar mensagens novas:", e.message);
+      } finally {
+        ocupado = false;
+      }
+    }
+
+    const olho = setInterval(olhar, 2000);
+
+    // A batida do coracao faz duas coisas: mantem a conexao viva atravessando
+    // proxy com tempo limite, e e ela que marca a pessoa como online. Por isso
+    // "online" quer dizer "esta com o sistema aberto agora", e nao "abriu uma
+    // tela alguma hora hoje".
+    const batida = setInterval(async () => {
+      if (res.writableEnded) return;
+      res.write(": batida\n\n");
+      try {
+        await db.query("UPDATE usuarios SET visto_em = NOW() WHERE id=$1", [euId]);
+      } catch (e) {
+        console.error("[chat] falha ao marcar presenca:", e.message);
+      }
+    }, 25000);
+
+    req.on("close", () => {
+      clearInterval(olho);
+      clearInterval(batida);
+      res.end();
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Resgate de conversa — administrador geral, com motivo registrado
+// ----------------------------------------------------------------------------
+// Ninguem le a conversa dos outros no dia a dia: nao existe tela, nao existe
+// atalho, e o administrador geral tambem nao ve. O que existe e ISTO — um
+// caminho unico, deliberado e que deixa rastro, para quando a diretoria pedir.
+//
+// O motivo escrito nao e burocracia. Ele e o que, seis meses depois, separa um
+// resgate legitimo de bisbilhotice — inclusive para proteger quem resgatou de
+// boa-fe e precisa explicar o que foi ver e a pedido de quem.
+// ---------------------------------------------------------------------------
+app.post("/api/admin/chat/resgate", exigeSuperAdmin, async (req, res, next) => {
+  try {
+    const v = chat.validarResgate(req.body || {});
+    if (!v.ok) return res.status(400).json({ erro: v.erro });
+
+    const par = chat.parDe(req.body.aId, req.body.bId);
+    if (!par) return res.status(400).json({ erro: "Escolha duas pessoas diferentes." });
+
+    const gente = await db.query("SELECT id, nome, email FROM usuarios WHERE id = ANY($1)", [par]);
+    if (gente.rows.length !== 2) return res.status(404).json({ erro: "Pessoa não encontrada" });
+
+    const conversa = await db.query("SELECT id FROM conversas WHERE a_id=$1 AND b_id=$2", par);
+    const conversaId = conversa.rows[0] ? conversa.rows[0].id : null;
+
+    const msgs = conversaId
+      ? (await db.query(
+          `SELECT m.id, m.texto, m.tem_imagem, m.sobre, m.link, m.criada_em, m.apagada_em,
+                  u.nome AS autor
+             FROM mensagens m JOIN usuarios u ON u.id = m.autor_id
+            WHERE m.conversa_id = $1 ORDER BY m.id`,
+          [conversaId]
+        )).rows
+      : [];
+
+    // O registro vai ANTES da resposta, de proposito: se gravar a auditoria
+    // falhar, ninguem le nada. Resgate sem rastro nao pode acontecer.
+    await auth.auditar(req, "chat_resgatado", {
+      usuarioId: req.usuario.id,
+      email: req.usuario.email,
+      alvo: par.join(" + "),
+      detalhe: {
+        motivo: v.motivo,
+        pessoas: gente.rows.map((g) => g.nome),
+        mensagens: msgs.length,
+      },
+    });
+
+    res.json({
+      pessoas: gente.rows,
+      conversaId,
+      mensagens: msgs.map((m) => ({
+        id: Number(m.id),
+        autor: m.autor,
+        texto: m.texto || "",
+        apagada: Boolean(m.apagada_em),
+        temImagem: Boolean(m.tem_imagem),
+        sobre: m.sobre || null,
+        em: m.criada_em,
+      })),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// A imagem dentro de um resgate. Mesmo caminho deliberado: so administrador
+// geral, e ja registrado pelo resgate que a listou.
+app.get("/api/admin/chat/mensagem/:id/imagem", exigeSuperAdmin, async (req, res, next) => {
+  try {
+    const r = await db.query("SELECT tipo, bytes FROM mensagem_imagem WHERE mensagem_id=$1", [
+      req.params.id,
+    ]);
+    if (!r.rows[0]) return res.status(404).end();
+    res.set("Content-Type", r.rows[0].tipo);
+    res.send(r.rows[0].bytes);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ---------------------------------------------------------------------------
 // API INTERNA — e por aqui que cada modulo pergunta "quem e essa pessoa aqui?"
 // So a Fachada e os modulos chamam, pela rede privada do Railway.
 // ---------------------------------------------------------------------------
@@ -1235,7 +1714,10 @@ app.post("/api/admin/usuarios", exigeSuperAdmin, async (req, res, next) => {
        VALUES ($1,$2,$3,$4,TRUE,$5,$6,$7,$8,$9::text[])`,
       [id, nome, email, auth.gerarHash(senha), Boolean(req.body.superAdmin),
        Boolean(req.body.muralAutor), Boolean(req.body.checklistsVer),
-       departamento || null, departamento ? [departamento] : null]
+       // Lista VAZIA, nunca null: `departamentos` e NOT NULL. Mandar null aqui
+       // derrubava a criacao de acesso inteira sempre que o administrador nao
+       // escolhia departamento — e nao escolher e o caso comum.
+       departamento || null, departamento ? [departamento] : []]
     );
     await salvarModulos(id, req.body.modulos);
     await auth.auditar(req, "usuario_criado", { alvo: id, detalhe: { email, nome } });
