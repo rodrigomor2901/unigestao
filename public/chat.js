@@ -79,6 +79,11 @@
       '    <div><b class="ug-titulo">Conversas</b><span class="ug-sub"></span></div>',
       '    <button class="ug-icone ug-empurra ug-fechar" title="Fechar">&#215;</button>',
       "  </div>",
+      '  <div class="ug-convite">',
+      "    <span>Quer receber aviso na tela quando chegar mensagem?</span>",
+      '    <button class="ug-convite-sim">Ativar</button>',
+      '    <button class="ug-convite-nao">Agora não</button>',
+      "  </div>",
       '  <div class="ug-busca"><input type="text" placeholder="Buscar pessoa..."></div>',
       '  <div class="ug-lista"></div>',
       '  <div class="ug-conversa">',
@@ -113,6 +118,11 @@
 
     raiz.querySelector(".ug-abrir").addEventListener("click", alternar);
     raiz.querySelector(".ug-fechar").addEventListener("click", function () { abrirPainel(false); });
+    raiz.querySelector(".ug-convite-sim").addEventListener("click", pedirPermissao);
+    raiz.querySelector(".ug-convite-nao").addEventListener("click", function () {
+      guardar(CONVITE, "adiado");
+      mostrarConvite();
+    });
     raiz.querySelector(".ug-voltar").addEventListener("click", voltarParaLista);
     raiz.querySelector(".ug-clipe").addEventListener("click", function () {
       raiz.querySelector(".ug-arquivo").click();
@@ -157,7 +167,11 @@
 
   function abrirPainel(abrir) {
     raiz.classList.toggle("aberto", Boolean(abrir));
-    if (abrir) { carregarPessoas(); if (atual) marcarLido(); }
+    if (abrir) {
+      carregarPessoas();
+      if (atual) marcarLido();
+      mostrarConvite();
+    }
   }
 
   function voltarParaLista() {
@@ -478,24 +492,28 @@
   }
 
   function chegou(d) {
-    var estaAberta = atual && d.outroId === atual.id && raiz.classList.contains("aberto");
+    // "Na tela" e "sendo lida" sao coisas diferentes: a conversa pode estar
+    // aberta com a janela minimizada. Tratar as duas como a mesma marcaria como
+    // lida mensagem que ninguem viu — e o "visto" viraria mentira.
+    var naTela = atual && d.outroId === atual.id && raiz.classList.contains("aberto");
+    var olhando = !document.hidden;
 
-    if (estaAberta) {
-      if (!balas.querySelector('[data-id="' + d.mensagem.id + '"]')) {
-        acrescentar(d.mensagem);
-        rolar();
-      }
-      if (!d.mensagem.minha) marcarLido();
+    if (naTela && !balas.querySelector('[data-id="' + d.mensagem.id + '"]')) {
+      acrescentar(d.mensagem);
+      rolar();
     }
 
-    if (!d.mensagem.minha && !estaAberta) {
-      pessoas.forEach(function (p) { if (p.id === d.outroId) p.naoLidas = (p.naoLidas || 0) + 1; });
-      atualizarSelo();
-      desenharLista();
-      apitar();
-    } else {
+    if (d.mensagem.minha || (naTela && olhando)) {
+      if (naTela && olhando && !d.mensagem.minha) marcarLido();
       carregarPessoas();
+      return;
     }
+
+    pessoas.forEach(function (p) { if (p.id === d.outroId) p.naoLidas = (p.naoLidas || 0) + 1; });
+    atualizarSelo();
+    desenharLista();
+    apitar();
+    if (deveAvisarNaTela(d, document.hidden)) avisarNaTela(d);
   }
 
   function marcarLido() {
@@ -538,6 +556,85 @@
     } catch (e) { /* navegador bloqueou som sem interacao: tudo bem */ }
   }
 
+  // ------------------------------------------------- aviso na tela do Windows
+  // A caixinha do canto inferior direito, que aparece por cima do Excel. E o
+  // unico aviso que alcanca quem esta trabalhando em outro programa — o selo e
+  // o bip so servem para quem ja esta com o navegador na frente.
+  //
+  // REGRA: so avisa quando a janela esta ESCONDIDA (outra aba, navegador
+  // minimizado, outro programa por cima). Com a pessoa olhando para a tela, o
+  // selo vermelho e o bip ja contam a historia; a caixinha por cima seria
+  // barulho em cima de aviso que ela ja recebeu.
+  function deveAvisarNaTela(d, escondido) {
+    if (!d || !d.mensagem || d.mensagem.minha) return false;
+    return Boolean(escondido);
+  }
+
+  function temNotificacao() {
+    return typeof window.Notification !== "undefined";
+  }
+
+  // O pedido de permissao NAO sai sozinho ao abrir a pagina.
+  //
+  // Permissao pedida do nada, sem a pessoa ter feito nada, e o caminho mais
+  // curto para ela clicar em "Bloquear" — e bloqueio no navegador nao tem
+  // volta pela tela do sistema: tem que ir nas configuracoes do Chrome. Por
+  // isso o convite aparece dentro do painel, ja com o chat aberto, e so
+  // depois de um clique dela.
+  function mostrarConvite() {
+    var faixa = raiz.querySelector(".ug-convite");
+    var cabe = temNotificacao() &&
+               window.Notification.permission === "default" &&
+               ler(CONVITE) !== "adiado";
+    faixa.classList.toggle("tem", cabe);
+  }
+
+  function pedirPermissao() {
+    if (!temNotificacao()) return;
+    try {
+      var r = window.Notification.requestPermission(function () { mostrarConvite(); });
+      if (r && typeof r.then === "function") r.then(function () { mostrarConvite(); });
+    } catch (e) {
+      mostrarConvite();
+    }
+  }
+
+  function avisarNaTela(d) {
+    if (!temNotificacao() || window.Notification.permission !== "granted") return;
+    try {
+      var quem = pessoas.filter(function (p) { return p.id === d.outroId; })[0];
+      var texto = d.mensagem.texto ||
+                  (d.mensagem.temImagem ? "mandou um print" : "mandou uma mensagem");
+      var opcoes = {
+        body: texto.length > 140 ? texto.slice(0, 140) + "..." : texto,
+        // Uma caixinha por conversa. Sem a etiqueta, dez mensagens seguidas da
+        // mesma pessoa empilhariam dez avisos e a pessoa fecharia todos no
+        // reflexo — inclusive o que importava.
+        tag: "ug-chat-" + d.conversaId,
+      };
+      if (quem && quem.temFoto) opcoes.icon = API + "/foto/" + encodeURIComponent(quem.id);
+
+      var caixinha = new window.Notification(d.autorNome || "Nova mensagem", opcoes);
+      caixinha.onclick = function () {
+        try { window.focus(); } catch (e) { /* nada */ }
+        abrirPainel(true);
+        if (quem) abrirConversa(quem);
+        caixinha.close();
+      };
+    } catch (e) { /* navegador recusou: o selo e o bip continuam valendo */ }
+  }
+
+  // Memoria local, so para nao insistir com quem disse "agora nao". Se o
+  // navegador nao deixar guardar (janela anonima), o convite volta na proxima
+  // vez — chato, mas nao quebra nada.
+  var CONVITE = "ug_chat_convite";
+  function ler(chave) {
+    try { return window.localStorage.getItem(chave); } catch (e) { return null; }
+  }
+  function guardar(chave, valor) {
+    try { window.localStorage.setItem(chave, valor); } catch (e) { /* tudo bem */ }
+  }
+
   function desligar() {
     if (fluxo) { fluxo.close(); fluxo = null; }
     if (raiz) raiz.remove();
@@ -556,6 +653,10 @@
 
   window.UGChat = {
     abrir: function () { abrirPainel(true); },
+    // Exposta so para tests/chat-aviso.test.js: a regra de quando a caixinha do
+    // Windows aparece e dificil de conferir a olho (depende da janela estar
+    // escondida) e facil de quebrar sem ninguem notar.
+    _deveAvisarNaTela: deveAvisarNaTela,
     conversarSobre: function (o) {
       o = o || {};
       pendenteSobre = { sobre: o.sobre || "", link: o.link || "" };
@@ -588,6 +689,15 @@
         // Rede de seguranca: se o fluxo cair e o navegador demorar a reconectar,
         // a contagem ainda se atualiza sozinha.
         setInterval(function () { if (!document.hidden) carregarPessoas(); }, 60000);
+
+        // Voltar para a aba com a conversa aberta na frente conta como ler.
+        // Sem isto, quem recebeu a mensagem de janela minimizada voltava, via a
+        // mensagem na tela e continuava com o numero vermelho no balao.
+        document.addEventListener("visibilitychange", function () {
+          if (document.hidden) return;
+          if (atual && raiz.classList.contains("aberto")) marcarLido();
+          carregarPessoas();
+        });
       })
       .catch(function () { /* Core fora do ar: a pagina segue funcionando */ });
   }

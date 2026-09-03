@@ -119,6 +119,12 @@ Ordem acordada: Operacional → Documentos → Eventos → Tarefas → CRM → P
   resgate a pedido da diretoria. Apagar de verdade transformaria "da para resgatar" numa
   promessa que o sistema nao cumpre justamente no caso em que ela importa.
 
+- **A permissao de notificacao NAO e pedida ao abrir a pagina.** O convite fica dentro
+  do painel do chat e so sai depois de um clique. Pedido do nada, a pessoa clica em
+  "Bloquear" — e bloqueio no navegador nao tem volta pela tela do sistema, so pelas
+  configuracoes do Chrome. A caixinha do Windows so aparece com a janela ESCONDIDA:
+  com a pessoa olhando, o selo e o bip ja avisaram. Coberto por `tests/chat-aviso.test.js`.
+
 - **`departamentos` e NOT NULL.** Ao criar acesso sem departamento, mande lista vazia e
   nunca `null` — com `null` a criacao de acesso inteira falhava com 500, e nao escolher
   departamento e o caso comum.

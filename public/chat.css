@@ -211,3 +211,22 @@
   #ug-chat { right: 12px; bottom: 12px; left: 12px; }
   #ug-chat .ug-painel { width: auto; height: calc(100vh - 120px); }
 }
+
+/* Convite para ligar o aviso do Windows. Aparece dentro do painel, ja com o
+   chat aberto — nunca como pedido do navegador saindo do nada, que e o que
+   faz a pessoa clicar em "Bloquear" e nao ter mais volta pela tela. */
+#ug-chat .ug-convite {
+  display: none;
+  align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 9px 12px;
+  background: #fff7ed; border-bottom: 1px solid #fed7aa;
+  font-size: 12px; color: #7c2d12;
+}
+#ug-chat .ug-convite.tem { display: flex; }
+#ug-chat .ug-convite span { flex: 1 1 100%; }
+#ug-chat .ug-convite button {
+  border: 0; border-radius: 6px; cursor: pointer;
+  padding: 4px 10px; font: inherit; font-size: 12px;
+}
+#ug-chat .ug-convite-sim { background: #12335e; color: #fff; }
+#ug-chat .ug-convite-nao { background: #f1f0ec; color: #57534e; }
