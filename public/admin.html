@@ -373,33 +373,19 @@ async function resgatar() {
   }
 }
 
+// Quem esta usando a tela. Serve para uma coisa so: nao oferecer o botao de
+// desativar a si mesmo — o servidor ja recusa, mas oferecer um botao que
+// sempre da erro e pior do que nao ter botao.
+var EU = null;
+
 async function carregar() {
+  EU = await api('/api/eu').then(function (d) { return d.usuario; }).catch(function () { return null; });
   MODULOS = await api('/api/admin/modulos');
   await carregarDepartamentos();
   EMAIL = await api('/api/admin/email').catch(function () { return { modo: 'desligado' }; });
   await listar();
 }
 
-function alerta(msg, tipo, onde) {
-  var el = document.getElementById(onde || 'alerta');
-  el.innerHTML = msg ? '<div class="aviso aviso-' + (tipo || 'erro') + '">' + esc(msg) + '</div>' : '';
-}
-
-async function api(url, metodo, corpo) {
-  var opc = { method: metodo || 'GET', headers: { 'Content-Type': 'application/json' } };
-  if (corpo) opc.body = JSON.stringify(corpo);
-  var r = await fetch(url, opc);
-  if (r.status === 401) { location.href = '/'; throw new Error('Sessão expirada'); }
-  var d = await r.json().catch(function () { return {}; });
-  if (!r.ok) throw new Error(d.erro || 'Falha na comunicação com o servidor');
-  return d;
-}
-
-async function carregar() {
-  MODULOS = await api('/api/admin/modulos');
-  EMAIL = await api('/api/admin/email').catch(function () { return { modo: 'desligado' }; });
-  await listar();
-}
 
 async function listar() {
   var busca = document.getElementById('busca').value.trim();
@@ -426,13 +412,61 @@ async function listar() {
       '<td><div class="mods">' + mods + '</div></td>' +
       '<td>' + (u.ativo ? '<span class="selo selo-ok">ativo</span>' : '<span class="selo selo-off">inativo</span>') +
         (u.totp_ativo ? ' <span class="selo selo-off">2FA</span>' : '') + '</td>' +
-      '<td style="text-align:right"><button class="btn btn-sec btn-sm" data-id="' + esc(u.id) + '">Editar</button></td>' +
+      '<td style="text-align:right">' +
+        (EU && EU.id === u.id
+          ? ''
+          : '<button class="btn btn-sec btn-sm" data-troca="' + esc(u.id) + '">' +
+            (u.ativo ? 'Desativar' : 'Reativar') + '</button> ') +
+        '<button class="btn btn-sec btn-sm" data-id="' + esc(u.id) + '">Editar</button></td>' +
     '</tr>';
   }).join('');
 
   corpo.querySelectorAll('button[data-id]').forEach(function (b) {
     b.addEventListener('click', function () { abrir(b.getAttribute('data-id')); });
   });
+  corpo.querySelectorAll('button[data-troca]').forEach(function (b) {
+    b.addEventListener('click', function () { trocarSituacaoDoAcesso(b.getAttribute('data-troca')); });
+  });
+}
+
+// Desativar (ou reativar) direto da lista.
+//
+// Existe alem do campo dentro do cadastro porque desligamento e coisa de
+// pressa: quando alguem sai da empresa, o administrador quer UM clique, e nao
+// abrir o cadastro, procurar uma caixinha no meio do formulario e salvar a
+// pessoa inteira de novo.
+//
+// O aviso conta o que vai acontecer de verdade, porque e mais do que parece:
+// a sessao aberta cai na hora e os seis sistemas fecham junto.
+async function trocarSituacaoDoAcesso(id) {
+  var u = USUARIOS.find(function (x) { return x.id === id; });
+  if (!u) return;
+
+  var pergunta = u.ativo
+    ? [
+        'Desativar o acesso de ' + u.nome + '?',
+        '',
+        '• a sessão aberta dela cai imediatamente',
+        '• o login para de funcionar',
+        '• todos os módulos fecham junto — inclusive pelo endereço antigo de cada sistema',
+        '',
+        'Dá para reativar depois, e o histórico dela não se perde.',
+      ].join('\n')
+    : [
+        'Reativar o acesso de ' + u.nome + '?',
+        '',
+        'Ela volta a entrar com a mesma senha e os mesmos módulos.',
+      ].join('\n');
+
+  if (!window.confirm(pergunta)) return;
+
+  try {
+    await api('/api/admin/usuarios/' + encodeURIComponent(id), 'PATCH', { ativo: !u.ativo });
+    alerta(u.nome + (u.ativo ? ' foi desativada.' : ' foi reativada.'), 'ok');
+    await listar();
+  } catch (e) {
+    alerta(e.message);
+  }
 }
 
 // Rotulo do papel conforme o modulo. O Core manda a lista com valor e rotulo;

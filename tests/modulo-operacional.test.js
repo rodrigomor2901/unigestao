@@ -157,15 +157,19 @@ async function esperar(url, tentativas = 40) {
   const anonimo = await fetch(F + "/operacional/api/me", { redirect: "manual" });
   ok(anonimo.status === 302, "sem sessao -> redireciona para o login");
 
-  console.log("\n=== O MODULO SOZINHO NAO ACEITA CABECALHO FORJADO ===");
+  console.log("\n=== O MODULO SOZINHO NAO ATENDE NINGUEM ===");
+  // Mudou em 04/09/2026: antes o modulo respondia 401 ("faca login") a quem
+  // batia direto na porta dele. Hoje a porta da frente recusa ANTES disso, com
+  // 403 e a explicacao de onde entrar — porque o endereco proprio de cada
+  // sistema era justamente por onde alguem desativado no portal ainda entrava.
   const forjado = await fetch(`http://localhost:${PORTA_MODULO}/api/me`, {
     headers: { "x-ug-id": "qualquer", "x-ug-papel": "admin", "x-ug-key": "chave-errada" },
   });
-  ok(forjado.status === 401, "cabecalho com chave errada e ignorado");
+  ok(forjado.status === 403, "cabecalho com chave errada nao passa da porta");
   const semChave = await fetch(`http://localhost:${PORTA_MODULO}/api/me`, {
     headers: { "x-ug-id": "qualquer", "x-ug-papel": "admin" },
   });
-  ok(semChave.status === 401, "cabecalho sem chave e ignorado");
+  ok(semChave.status === 403, "cabecalho sem chave nao passa da porta");
 
   console.log("\n=== TROCAR O PAPEL NO CORE MUDA O ACESSO NO MODULO ===");
   await poolCore.query(
