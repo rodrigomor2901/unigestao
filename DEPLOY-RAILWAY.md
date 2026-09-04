@@ -197,6 +197,7 @@ deixa de viajar e o bilhete passa a ter dono e prazo.
 | `UG_ASSINATURA_SEGREDO` | Fachada e módulos | opcional, **recomendada**: chave de assinatura própria. Tem que ser *idêntica* nos sete serviços, e entra nos módulos ANTES da Fachada |
 | `UG_MODULO` | cada módulo | opcional: a chave do módulo (`eventos`, `crm`…). Prende o bilhete àquela porta |
 | `UG_LEGACY_HEADERS_ENABLED` | cada módulo | opcional: `true` reativa os cabeçalhos soltos. **Deixe desligado** — ligado, devolve o furo |
+| `UG_PORTA_ABERTA` | cada módulo | opcional: `true` **destranca** a porta da frente do módulo, voltando a atendê-lo pelo endereço próprio dele. É a saída de emergência do dia em que o portal cair — sem ela, uma falha na Fachada torna os seis sistemas inalcançáveis ao mesmo tempo. Deixe **desligado** |
 | `CHAT_EMAILS` | Core | opcional: e-mails (separados por vírgula) que enxergam o comunicador interno. **Vazio = todo mundo.** Serve para testar com três pessoas antes de abrir para as 45 — quem não está na lista não vê o chat *e* não aparece na lista de quem vê |
 
 ### A virada

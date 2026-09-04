@@ -138,6 +138,19 @@ Ordem acordada: Operacional → Documentos → Eventos → Tarefas → CRM → P
   faz as pessoas pararem de acreditar em todas. Estar offline sempre vence a situacao
   escolhida.
 
+- **Cada modulo so atende quem vem pela Fachada** (`portaDaFachada` em
+  integracao/unigestao.js, copiado nos cinco modulos JS). Desativar a pessoa no portal
+  fechava so a porta do portal: o endereco proprio de cada sistema continuava no ar com o
+  login antigo dele. A tranca confere o bilhete assinado; sem bilhete, o navegador recebe
+  uma pagina dizendo onde entrar e a chamada de programa recebe 403.
+
+  Duas consequencias para quem for mexer: (1) `identidadeDoCore` passou a GUARDAR o
+  resultado no proprio pedido, porque a porta confere e a rota confere de novo — e cada
+  bilhete so vale uma vez; (2) teste que bate na API sem passar pela Fachada precisa de
+  `UG_PORTA_ABERTA=true` (ja esta nos harness do CRM e das Tarefas).
+
+  Falta o Precificacao, que e NestJS + SPA em nginx e pede outro formato.
+
 - **`departamentos` e NOT NULL.** Ao criar acesso sem departamento, mande lista vazia e
   nunca `null` — com `null` a criacao de acesso inteira falhava com 500, e nao escolher
   departamento e o caso comum.
