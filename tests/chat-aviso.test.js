@@ -38,7 +38,9 @@ function criarDocumento() {
     hidden: false,
     title: "UniGestão",
     readyState: "complete",
-    body: { appendChild() {} },
+    // O body responde a getAttribute porque o chat le `data-janela` nele para
+    // saber se esta na janela separada.
+    body: { appendChild() {}, getAttribute: () => null },
     createElement: () => criarElemento(),
     querySelector: () => criarElemento(),
     querySelectorAll: () => [],
@@ -128,6 +130,25 @@ function criarDocumento() {
      "mas o adiamento VENCE: nao existe 'nunca mais', que deixaria a pessoa sem volta");
   ok(faixa("denied", AGORA + 500, AGORA) === "nada",
      "e o aviso de bloqueado tambem pode ser dispensado por um tempo");
+
+  // ---------------------------------------------------------------------------
+  // O NOME NA ABA
+  //
+  // No grupo ha tres Alexandres. Com "Alexandre" em duas abas, a pessoa tem que
+  // clicar para descobrir qual e qual — e a aba deixa de servir para o que
+  // serve, que e trocar de conversa sem procurar.
+  console.log("\n=== O NOME QUE CABE NA ABA ===");
+  const rotulo = janela.window.UGChat._rotuloDaAba;
+
+  ok(rotulo("Rodrigo Moraes", ["Rodrigo Moraes", "Gisele Alves"]) === "Rodrigo",
+     "nome unico na barra -> so o primeiro nome");
+  ok(rotulo("Alexandre Crespo", ["Alexandre Crespo", "Alexandre Oliveira"]) === "Alexandre C.",
+     "dois Alexandres abertos -> entra a inicial do sobrenome");
+  ok(rotulo("Alexandre Oliveira", ["Alexandre Crespo", "Alexandre Oliveira"]) === "Alexandre O.",
+     "e o outro ganha a dele");
+  ok(rotulo("Gisele", ["Gisele", "Gisele"]) === "Gisele",
+     "quem so tem um nome no cadastro nao vira 'Gisele undefined.'");
+  ok(rotulo("", []) === "?", "cadastro sem nome nao quebra a barra de abas");
 
   console.log("\n" + (falhas === 0 ? "TODOS OS TESTES PASSARAM" : falhas + " TESTE(S) FALHARAM"));
   process.exit(falhas === 0 ? 0 : 1);

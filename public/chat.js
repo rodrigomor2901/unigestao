@@ -29,9 +29,14 @@
 
   var LIMITE_BYTES = 1200 * 1024;   // igual ao teto do servidor (core/chat.js)
 
+  // Modo janela: a mesma tela, ocupando uma janela so dela. Ver chat-janela.html.
+  var MODO_JANELA = Boolean(document.body && document.body.getAttribute("data-janela"));
+
   var pessoas = [];
   var atual = null;                 // com quem estou falando
   var conversaId = null;
+  var minhaSituacao = "online";     // online | ocupado | reuniao
+  var abas = [];                    // conversas deixadas abertas, na ordem
   var anexo = null;                 // { dados: base64, tipo, previa }
   var tituloOriginal = document.title;
   var fluxo = null;
@@ -76,9 +81,19 @@
       '<div class="ug-painel">',
       '  <div class="ug-topo">',
       '    <button class="ug-icone ug-voltar" title="Voltar" hidden>&#8592;</button>',
-      '    <div><b class="ug-titulo">Conversas</b><span class="ug-sub"></span></div>',
-      '    <button class="ug-icone ug-empurra ug-fechar" title="Fechar">&#215;</button>',
+      '    <div class="ug-cabeca"><b class="ug-titulo">Conversas</b><span class="ug-sub"></span></div>',
+      '    <div class="ug-empurra ug-acoes">',
+      '      <button class="ug-situacao" title="Sua situação"><i></i><span>Disponível</span></button>',
+      '      <button class="ug-icone ug-janela" title="Abrir numa janela separada">&#9109;</button>',
+      '      <button class="ug-icone ug-fechar" title="Fechar">&#215;</button>',
+      "    </div>",
       "  </div>",
+      '  <div class="ug-menu-situacao">',
+      '    <button data-status="online"><i class="on"></i>Disponível</button>',
+      '    <button data-status="ocupado"><i class="ocupado"></i>Ocupado <small>sem som</small></button>',
+      '    <button data-status="reuniao"><i class="reuniao"></i>Em reunião <small>sem som</small></button>',
+      "  </div>",
+      '  <div class="ug-abas"></div>',
       '  <div class="ug-convite">',
       '    <span class="ug-convite-txt"></span>',
       '    <button class="ug-convite-sim">Ativar</button>',
@@ -117,7 +132,25 @@
     anexoBarra = raiz.querySelector(".ug-anexo");
 
     raiz.querySelector(".ug-abrir").addEventListener("click", alternar);
-    raiz.querySelector(".ug-fechar").addEventListener("click", function () { abrirPainel(false); });
+    raiz.querySelector(".ug-fechar").addEventListener("click", function () {
+      // Na janela separada o "x" fecha a janela; embutido, fecha so o painel.
+      if (MODO_JANELA) { try { window.close(); } catch (e) { /* nada */ } return; }
+      abrirPainel(false);
+    });
+    raiz.querySelector(".ug-janela").addEventListener("click", abrirEmJanela);
+    raiz.querySelector(".ug-situacao").addEventListener("click", function (ev) {
+      ev.stopPropagation();
+      raiz.classList.toggle("menu-aberto");
+    });
+    Array.prototype.forEach.call(raiz.querySelectorAll(".ug-menu-situacao button"), function (b) {
+      b.addEventListener("click", function () {
+        trocarSituacao(b.getAttribute("data-status"));
+        raiz.classList.remove("menu-aberto");
+      });
+    });
+    // Clicar em qualquer outro lugar fecha o menu — senao ele fica aberto por
+    // cima da conversa e a pessoa acha que travou.
+    document.addEventListener("click", function () { raiz.classList.remove("menu-aberto"); });
     raiz.querySelector(".ug-convite-sim").addEventListener("click", pedirPermissao);
     raiz.querySelector(".ug-convite-nao").addEventListener("click", function () {
       // Adia por uma semana, e nao para sempre: "para sempre" deixaria a pessoa
@@ -187,6 +220,173 @@
     carregarPessoas();
   }
 
+  // ------------------------------------------------------------------ situacao
+  // Disponível / Ocupado / Em reunião.
+  //
+  // Ocupado e Em reunião calam o som e a caixinha para QUEM ESCOLHEU — e o
+  // "nao perturbe". O contador continua subindo: a pessoa pediu para nao ser
+  // interrompida, nao para deixar de saber que falaram com ela.
+  function desenharSituacao() {
+    var bt = raiz.querySelector(".ug-situacao");
+    bt.className = "ug-situacao " + minhaSituacao;
+    bt.querySelector("span").textContent = ROTULO[minhaSituacao] || "Disponível";
+  }
+
+  var ROTULO = { online: "Disponível", ocupado: "Ocupado", reuniao: "Em reunião", offline: "Offline" };
+
+  function trocarSituacao(novo) {
+    minhaSituacao = novo === "ocupado" || novo === "reuniao" ? novo : "online";
+    desenharSituacao();
+    api("/status", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status: minhaSituacao === "online" ? null : minhaSituacao }),
+    }).catch(function () { /* volta a valer na proxima carga da lista */ });
+  }
+
+  function calado() {
+    // Nao perturbe da propria pessoa, ou existe uma janela separada aberta que
+    // ja vai avisar por todos.
+    return minhaSituacao !== "online" || temJanelaAberta();
+  }
+
+  // ------------------------------------------------------- janela separada
+  // Uma janela do navegador so com o chat, para deixar de lado enquanto se
+  // trabalha em outra coisa — inclusive fora do UniGestao.
+  function abrirEmJanela() {
+    var janela = window.open("/chat", "ug-chat-janela",
+                             "width=430,height=680,menubar=no,toolbar=no,location=no");
+    if (!janela) {
+      mostrarAviso("O navegador bloqueou a janela. Libere os pop-ups deste site.");
+      return;
+    }
+    try { janela.focus(); } catch (e) { /* nada */ }
+    if (!MODO_JANELA) abrirPainel(false);
+  }
+
+  // As janelas conversam entre si.
+  //
+  // Sem isto, com a janela separada aberta a pessoa ouviria DOIS bips e veria
+  // duas caixinhas por mensagem — uma de cada aba do UniGestao que estivesse
+  // aberta. A janela avisa que esta viva; as telas embutidas ficam quietas e
+  // deixam o aviso para ela.
+  var canal = null;
+  var janelaVistaEm = 0;
+  try { canal = new window.BroadcastChannel("ug-chat"); } catch (e) { canal = null; }
+
+  function temJanelaAberta() {
+    return !MODO_JANELA && Date.now() - janelaVistaEm < 12000;
+  }
+
+  if (canal) {
+    canal.onmessage = function (ev) {
+      var d = ev && ev.data;
+      if (!d) return;
+      if (d.tipo === "janela-viva") janelaVistaEm = Date.now();
+      // Leu numa janela, o contador cai nas outras.
+      if (d.tipo === "mexeu") carregarPessoas();
+    };
+  }
+
+  function avisarAsOutras(tipo) {
+    if (canal) { try { canal.postMessage({ tipo: tipo }); } catch (e) { /* nada */ } }
+  }
+
+  // ---------------------------------------------------------------------- abas
+  // Conversas deixadas abertas, para trocar sem voltar para a lista.
+  //
+  // Ficam guardadas no navegador, e nao no servidor: sao arranjo de tela desta
+  // maquina. Quem abre no computador e no celular nao quer as mesmas abas nos
+  // dois — quer as conversas que estava usando ali.
+  var ABAS = "ug_chat_abas";
+  var ABAS_MAX = 8;
+
+  function guardarAbas() {
+    guardar(ABAS, JSON.stringify(abas.map(function (a) { return a.id; })));
+  }
+
+  function restaurarAbas() {
+    var ids = [];
+    try { ids = JSON.parse(ler(ABAS) || "[]"); } catch (e) { ids = []; }
+    if (!Array.isArray(ids)) return;
+    abas = ids.map(function (id) {
+      var p = pessoas.filter(function (x) { return x.id === id; })[0];
+      // Pessoa desativada, ou que saiu da empresa, simplesmente nao volta.
+      return p ? { id: p.id, nome: p.nome } : null;
+    }).filter(Boolean).slice(0, ABAS_MAX);
+    desenharAbas();
+  }
+
+  function abrirAba(pessoa) {
+    var ja = abas.filter(function (a) { return a.id === pessoa.id; })[0];
+    if (!ja) {
+      abas.push({ id: pessoa.id, nome: pessoa.nome });
+      if (abas.length > ABAS_MAX) abas.shift();
+      guardarAbas();
+    }
+    desenharAbas();
+  }
+
+  function fecharAba(id) {
+    abas = abas.filter(function (a) { return a.id !== id; });
+    guardarAbas();
+    if (atual && atual.id === id) {
+      // Fechou a que estava aberta: vai para a aba do lado, se houver.
+      var proxima = abas[abas.length - 1];
+      if (proxima) {
+        var p = pessoas.filter(function (x) { return x.id === proxima.id; })[0];
+        if (p) { abrirConversa(p); return; }
+      }
+      voltarParaLista();
+      return;
+    }
+    desenharAbas();
+  }
+
+  // O nome curto que cabe na aba.
+  //
+  // So o primeiro nome, EXCETO quando outra aba aberta tem o mesmo primeiro
+  // nome — ai entra a inicial do sobrenome. No grupo ha tres Alexandres; com
+  // "Alexandre" em duas abas, a pessoa tem que clicar para descobrir qual e
+  // qual, e a aba deixa de servir para o que serve.
+  function rotuloDaAba(nome, todos) {
+    var partes = String(nome || "").trim().split(/\s+/);
+    var primeiro = partes[0] || "?";
+    var repetido = todos.filter(function (n) {
+      return n !== nome && String(n || "").trim().split(/\s+/)[0] === primeiro;
+    }).length > 0;
+    if (!repetido || partes.length < 2) return primeiro;
+    return primeiro + " " + partes[partes.length - 1].charAt(0).toUpperCase() + ".";
+  }
+
+  function desenharAbas() {
+    var faixa = raiz.querySelector(".ug-abas");
+    faixa.classList.toggle("tem", abas.length > 0);
+    var nomes = abas.map(function (a) { return a.nome; });
+    faixa.innerHTML = abas.map(function (a) {
+      var p = pessoas.filter(function (x) { return x.id === a.id; })[0] || {};
+      var naoLidas = p.naoLidas || 0;
+      return '<span class="ug-aba' + (atual && atual.id === a.id ? " aqui" : "") +
+             (naoLidas ? " nova" : "") + '" data-id="' + esc(a.id) +
+             '" title="' + esc(a.nome) + '">' +
+             '<button class="ug-aba-nome">' + esc(rotuloDaAba(a.nome, nomes)) +
+             (naoLidas ? ' <b>' + naoLidas + "</b>" : "") + "</button>" +
+             '<button class="ug-aba-x" title="Fechar">&#215;</button></span>';
+    }).join("");
+
+    Array.prototype.forEach.call(faixa.querySelectorAll(".ug-aba"), function (el) {
+      var id = el.getAttribute("data-id");
+      el.querySelector(".ug-aba-nome").addEventListener("click", function () {
+        var p = pessoas.filter(function (x) { return x.id === id; })[0];
+        if (p) abrirConversa(p);
+      });
+      el.querySelector(".ug-aba-x").addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        fecharAba(id);
+      });
+    });
+  }
+
   // --------------------------------------------------------------------- lista
   function carregarPessoas() {
     return api("/pessoas")
@@ -197,7 +397,12 @@
       .then(function (d) {
         if (!d) return;
         pessoas = d.pessoas || [];
+        if (d.eu && d.eu.situacao) {
+          minhaSituacao = d.eu.situacao;
+          desenharSituacao();
+        }
         desenharLista();
+        desenharAbas();
         atualizarSelo();
       })
       .catch(function () { /* sem rede: a proxima batida tenta de novo */ });
@@ -225,11 +430,17 @@
       } else {
         previa = p.departamento || p.cargo || "";
       }
+      // Ocupado e Em reunião aparecem no lugar da previa: e a informacao que
+      // muda a decisao de quem ia mandar mensagem agora.
+      var situacao = p.situacao || (p.online ? "online" : "offline");
+      if (situacao === "ocupado" || situacao === "reuniao") {
+        previa = ROTULO[situacao] + (previa ? " · " + previa : "");
+      }
       return [
         '<button class="ug-pessoa" data-id="' + esc(p.id) + '">',
         '  <span class="ug-foto"' + (p.temFoto ? ' data-foto="' + esc(p.id) + '"' : "") + ">",
         '    <span class="ug-iniciais">' + esc(iniciais(p.nome)) + "</span>",
-        '    <span class="ug-luz' + (p.online ? " on" : "") + '"></span>',
+        '    <span class="ug-luz ' + esc(situacao) + '"></span>',
         "  </span>",
         '  <span class="ug-quem">',
         '    <span class="ug-nome">' + esc(p.nome) + "</span>",
@@ -273,8 +484,10 @@
     raiz.classList.add("na-conversa");
     raiz.querySelector(".ug-voltar").hidden = false;
     raiz.querySelector(".ug-titulo").textContent = pessoa.nome;
+    var situacao = pessoa.situacao || (pessoa.online ? "online" : "offline");
     raiz.querySelector(".ug-sub").textContent =
-      (pessoa.online ? "online" : "offline") + (pessoa.departamento ? " · " + pessoa.departamento : "");
+      (ROTULO[situacao] || "Offline") + (pessoa.departamento ? " · " + pessoa.departamento : "");
+    abrirAba(pessoa);
     balas.innerHTML = '<div class="ug-vazio">Carregando...</div>';
 
     api("/com/" + encodeURIComponent(pessoa.id))
@@ -397,6 +610,7 @@
         pendenteSobre = null;
         acrescentar(res.d.mensagem);
         rolar();
+        avisarAsOutras("mexeu");
       })
       .catch(function () {
         botaoEnviar.disabled = false;
@@ -514,6 +728,11 @@
     pessoas.forEach(function (p) { if (p.id === d.outroId) p.naoLidas = (p.naoLidas || 0) + 1; });
     atualizarSelo();
     desenharLista();
+    desenharAbas();
+
+    // O contador SEMPRE sobe. O que "nao perturbe" e a janela separada calam e
+    // so a interrupcao — o bip e a caixinha.
+    if (calado()) return;
     apitar();
     if (deveAvisarNaTela(d, document.hidden)) avisarNaTela(d);
   }
@@ -527,6 +746,8 @@
     }).then(function () {
       if (atual) atual.naoLidas = 0;
       atualizarSelo();
+      desenharAbas();
+      avisarAsOutras("mexeu");
     });
   }
 
@@ -700,6 +921,7 @@
     // escondida) e facil de quebrar sem ninguem notar.
     _deveAvisarNaTela: deveAvisarNaTela,
     _estadoDoConvite: estadoDoConvite,
+    _rotuloDaAba: rotuloDaAba,
     conversarSobre: function (o) {
       o = o || {};
       pendenteSobre = { sobre: o.sobre || "", link: o.link || "" };
@@ -726,6 +948,19 @@
         if (!d) return;
         raiz = montar();
         pessoas = d.pessoas || [];
+        if (d.eu && d.eu.situacao) minhaSituacao = d.eu.situacao;
+        desenharSituacao();
+
+        if (MODO_JANELA) {
+          // Na janela propria nao ha balaozinho para abrir: o painel E a janela.
+          raiz.classList.add("janela", "aberto");
+          // Avisa as telas embutidas que existe uma janela cuidando dos avisos,
+          // para a pessoa nao ouvir dois bips por mensagem.
+          avisarAsOutras("janela-viva");
+          setInterval(function () { avisarAsOutras("janela-viva"); }, 5000);
+        }
+
+        restaurarAbas();
         desenharLista();
         atualizarSelo();
         ligarFluxo();

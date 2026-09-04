@@ -110,6 +110,13 @@ app.get("/checklists", (req, res) => {
 // Pagina do link que chega por e-mail. Nao exige login — quem chega aqui e
 // justamente quem nao consegue entrar. O que protege e o token, conferido no
 // POST abaixo; a pagina em si nao mostra nada de ninguem.
+// O chat numa janela so dele — para deixar de lado, fora da tela do UniGestao.
+// A mesma tela e o mesmo chat.js; o que muda e o modo, marcado no <body>.
+app.get("/chat", (req, res) => {
+  if (!req.usuario) return res.redirect("/");
+  res.sendFile(path.join(PUBLIC, "chat-janela.html"));
+});
+
 app.get("/redefinir", (req, res) => {
   res.sendFile(path.join(PUBLIC, "redefinir.html"));
 });
@@ -1135,6 +1142,11 @@ app.get("/api/chat/pessoas", exigeChat, async (req, res, next) => {
     const r = await db.query(
       `SELECT u.id, u.nome, u.email, u.departamento_principal AS departamento, u.cargo,
               (u.visto_em > NOW() - ($2 || ' seconds')::interval) AS online,
+              -- A situacao escolhida so vale por um dia de trabalho: depois
+              -- disso ela vira NULL sozinha, aqui na consulta. Assim ninguem
+              -- amanhece "em reuniao" por ter esquecido de desmarcar.
+              CASE WHEN u.chat_status_em > NOW() - ($3 || ' hours')::interval
+                   THEN u.chat_status END AS status,
               (f.usuario_id IS NOT NULL) AS tem_foto,
               c.id AS conversa_id,
               COALESCE((SELECT COUNT(*) FROM mensagens m
@@ -1157,7 +1169,7 @@ app.get("/api/chat/pessoas", exigeChat, async (req, res, next) => {
               ) ult ON TRUE
         WHERE u.ativo AND u.id <> $1
         ORDER BY ult.criada_em DESC NULLS LAST, u.nome`,
-      [req.usuario.id, String(chat.ONLINE_SEGUNDOS)]
+      [req.usuario.id, String(chat.ONLINE_SEGUNDOS), String(chat.STATUS_HORAS)]
     );
 
     // A lista so mostra quem tambem esta liberado a usar o chat. Sem esta
@@ -1167,13 +1179,24 @@ app.get("/api/chat/pessoas", exigeChat, async (req, res, next) => {
       ? r.rows.filter((p) => liberados.includes(String(p.email || "").toLowerCase()))
       : r.rows;
 
+    const meu = await db.query(
+      `SELECT CASE WHEN chat_status_em > NOW() - ($2 || ' hours')::interval
+                   THEN chat_status END AS status
+         FROM usuarios WHERE id = $1`,
+      [req.usuario.id, String(chat.STATUS_HORAS)]
+    );
+
     res.json({
+      eu: { situacao: meu.rows[0] ? (meu.rows[0].status || "online") : "online" },
       pessoas: visiveis.map((p) => ({
         id: p.id,
         nome: p.nome,
         departamento: p.departamento || "",
         cargo: p.cargo || "",
         online: Boolean(p.online),
+        // "offline" vence a situacao escolhida: quem marcou ocupado e fechou o
+        // navegador esta offline, e nao ocupado.
+        situacao: chat.comoAparece(Boolean(p.online), p.status),
         // Quem tem foto. Sem isto a tela pede a foto de todo mundo e leva 404
         // de quem nao tem — 40 erros no console a cada vez que a lista desenha,
         // que e exatamente o barulho que faz ninguem mais olhar para o console.
@@ -1301,6 +1324,20 @@ app.post("/api/chat/com/:outroId", exigeChat, async (req, res, next) => {
     await marcarLido(conversaId, req.usuario.id, msg.id);
 
     res.json({ ok: true, conversaId, mensagem: formatarMensagem(msg, req.usuario.id) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Trocar a propria situacao. "online" (ou nada) volta para o automatico.
+app.post("/api/chat/status", exigeChat, async (req, res, next) => {
+  try {
+    const status = chat.statusValido(req.body.status);
+    await db.query(
+      "UPDATE usuarios SET chat_status = $2, chat_status_em = NOW() WHERE id = $1",
+      [req.usuario.id, status]
+    );
+    res.json({ ok: true, situacao: status || "online" });
   } catch (e) {
     next(e);
   }

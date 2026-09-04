@@ -435,3 +435,12 @@ CREATE TABLE IF NOT EXISTS mensagem_imagem (
 -- dizer "esta com o sistema aberto agora", que e o que quem manda a mensagem
 -- quer saber, e nao "carregou uma tela em algum momento".
 ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS visto_em TIMESTAMPTZ;
+
+-- Situacao que a pessoa escolhe: ocupada, em reuniao, ou nada (automatico).
+--
+-- `chat_status_em` existe para a situacao VENCER. Sem prazo, quem marcou "em
+-- reuniao" as 14h de sexta aparece em reuniao na segunda de manha — e uma
+-- situacao que mente e pior do que situacao nenhuma, porque as pessoas param
+-- de acreditar em todas.
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS chat_status    TEXT;
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS chat_status_em TIMESTAMPTZ;

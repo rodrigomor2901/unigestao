@@ -230,3 +230,84 @@
 }
 #ug-chat .ug-convite-sim { background: #12335e; color: #fff; }
 #ug-chat .ug-convite-nao { background: #f1f0ec; color: #57534e; }
+
+/* --- situacao (Disponivel / Ocupado / Em reuniao) ------------------------ */
+#ug-chat .ug-acoes { display: flex; align-items: center; gap: 4px; }
+#ug-chat .ug-cabeca { min-width: 0; }
+#ug-chat .ug-situacao {
+  display: flex; align-items: center; gap: 5px;
+  background: rgba(255,255,255,.14); color: #fff;
+  border: 0; border-radius: 12px; cursor: pointer;
+  padding: 3px 9px; font: inherit; font-size: 11px; white-space: nowrap;
+}
+#ug-chat .ug-situacao:hover { background: rgba(255,255,255,.24); }
+#ug-chat .ug-situacao i {
+  width: 8px; height: 8px; border-radius: 50%; background: #16a34a; flex: 0 0 auto;
+}
+#ug-chat .ug-situacao.ocupado i { background: #dc2626; }
+#ug-chat .ug-situacao.reuniao i { background: #f5820a; }
+
+#ug-chat .ug-menu-situacao {
+  display: none; flex-direction: column;
+  border-bottom: 1px solid #e5e7eb; background: #fff;
+}
+#ug-chat.menu-aberto .ug-menu-situacao { display: flex; }
+#ug-chat .ug-menu-situacao button {
+  display: flex; align-items: center; gap: 8px;
+  border: 0; background: none; cursor: pointer;
+  padding: 9px 12px; font: inherit; font-size: 13px; text-align: left; color: inherit;
+}
+#ug-chat .ug-menu-situacao button:hover { background: #f3f4f6; }
+#ug-chat .ug-menu-situacao small { color: #6b7280; font-size: 11px; }
+#ug-chat .ug-menu-situacao i {
+  width: 9px; height: 9px; border-radius: 50%; background: #9ca3af; flex: 0 0 auto;
+}
+#ug-chat .ug-menu-situacao i.on { background: #16a34a; }
+#ug-chat .ug-menu-situacao i.ocupado { background: #dc2626; }
+#ug-chat .ug-menu-situacao i.reuniao { background: #f5820a; }
+
+/* A bolinha na lista segue a mesma cor da situacao de cada um */
+#ug-chat .ug-luz.online { background: #16a34a; }
+#ug-chat .ug-luz.ocupado { background: #dc2626; }
+#ug-chat .ug-luz.reuniao { background: #f5820a; }
+#ug-chat .ug-luz.offline { background: #9ca3af; }
+
+/* --- abas ---------------------------------------------------------------- */
+#ug-chat .ug-abas {
+  display: none; gap: 4px; padding: 6px 6px 0;
+  background: #e9ebef; overflow-x: auto; flex: 0 0 auto;
+}
+#ug-chat .ug-abas.tem { display: flex; }
+#ug-chat .ug-aba {
+  display: flex; align-items: center;
+  background: #fff; border-radius: 7px 7px 0 0;
+  padding: 0 2px 0 8px; max-width: 130px; flex: 0 0 auto;
+  border: 1px solid #d8dae0; border-bottom: 0;
+}
+#ug-chat .ug-aba.aqui { background: #fff; border-color: #12335e; }
+#ug-chat .ug-aba.nova .ug-aba-nome { font-weight: 700; }
+#ug-chat .ug-aba button {
+  border: 0; background: none; cursor: pointer; font: inherit; color: inherit;
+  padding: 6px 2px; font-size: 12px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+#ug-chat .ug-aba-nome b {
+  background: #dc2626; color: #fff; border-radius: 8px;
+  padding: 0 5px; font-size: 10px; margin-left: 3px;
+}
+#ug-chat .ug-aba-x { color: #9ca3af; padding: 6px 5px; }
+#ug-chat .ug-aba-x:hover { color: #dc2626; }
+
+/* --- modo janela separada ------------------------------------------------ */
+/* Aqui o painel E a janela: ocupa tudo, sem balaozinho e sem cantos soltos. */
+#ug-chat.janela { position: static; }
+#ug-chat.janela .ug-canto { display: none; }
+#ug-chat.janela .ug-janela { display: none; }
+#ug-chat.janela .ug-painel {
+  width: 100vw; height: 100vh; max-height: none;
+  border-radius: 0; box-shadow: none; margin: 0;
+}
+
+/* A pagina da janela separada: sem margem e sem rolagem do documento — quem
+   rola e a lista de mensagens, dentro do painel. */
+body[data-janela] { margin: 0; overflow: hidden; }

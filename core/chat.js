@@ -44,6 +44,40 @@ function podeUsar(usuario, env = process.env) {
   return lista.includes(String(usuario.email || "").toLowerCase());
 }
 
+// As situacoes que a pessoa pode escolher. Nada escolhido = automatico: ela
+// aparece online enquanto estiver com o sistema aberto.
+const STATUS = ["ocupado", "reuniao"];
+
+// Quanto tempo a situacao escolhida vale. Um dia de trabalho.
+//
+// Sem prazo, quem marcou "em reuniao" as 14h de sexta aparece em reuniao na
+// segunda — e situacao que mente faz as pessoas pararem de acreditar em todas,
+// inclusive nas verdadeiras.
+const STATUS_HORAS = 8;
+
+function statusValido(v) {
+  const s = String(v == null ? "" : v).trim();
+  return STATUS.includes(s) ? s : null;
+}
+
+// Como a pessoa aparece para os outros.
+//
+// Estar offline VENCE qualquer situacao escolhida: quem marcou "ocupado" e
+// fechou o navegador esta offline, e nao ocupado. Mostrar "ocupado" faria
+// alguem esperar resposta de quem nem esta no sistema.
+function comoAparece(online, status) {
+  if (!online) return "offline";
+  return statusValido(status) || "online";
+}
+
+// Situacao que silencia o aviso — o "nao perturbe".
+//
+// Silencia som e caixinha, mas NAO o contador: a pessoa escolheu nao ser
+// interrompida, nao deixar de saber.
+function calaOAviso(status) {
+  return statusValido(status) !== null;
+}
+
 function limparTexto(v, max) {
   return String(v == null ? "" : v).trim().slice(0, max);
 }
@@ -123,4 +157,5 @@ module.exports = {
   TEXTO_MAX, SOBRE_MAX, IMAGEM_MAX_BYTES, IMAGEM_TIPOS, ONLINE_SEGUNDOS,
   limparTexto, parDe, linkInterno, validarMensagem, podeApagar, validarResgate,
   liberados, podeUsar,
+  STATUS, STATUS_HORAS, statusValido, comoAparece, calaOAviso,
 };

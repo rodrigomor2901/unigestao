@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Conversas — UniGestão</title>
+<link rel="icon" href="/marca/simbolo-claro.svg">
+<link rel="stylesheet" href="/chat.css">
+</head>
+<!--
+  O chat numa janela so dele.
+
+  Nao e uma segunda implementacao: e o MESMO chat.js. A unica diferenca esta no
+  `data-janela` aqui embaixo — com ele, o chat ocupa a janela inteira e nao
+  desenha o balaozinho flutuante, que aqui nao teria o que abrir ou fechar.
+
+  Duas telas do mesmo chat dariam duas manutencoes e, na pratica, duas telas
+  diferentes: uma ganharia um ajuste que a outra nao ganha, e ninguem
+  perceberia ate alguem reclamar que "na janela e diferente".
+-->
+<body data-janela="1">
+<script src="/chat.js" defer></script>
+</body>
+</html>

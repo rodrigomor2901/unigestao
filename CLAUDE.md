@@ -125,6 +125,19 @@ Ordem acordada: Operacional → Documentos → Eventos → Tarefas → CRM → P
   configuracoes do Chrome. A caixinha do Windows so aparece com a janela ESCONDIDA:
   com a pessoa olhando, o selo e o bip ja avisaram. Coberto por `tests/chat-aviso.test.js`.
 
+- **A janela separada do chat e o MESMO chat.js.** `public/chat-janela.html` so marca
+  `data-janela` no `<body>`; o codigo ve a marca e ocupa a janela inteira. Duas telas do
+  mesmo chat dariam duas manutencoes e, na pratica, duas telas diferentes.
+
+- **As janelas do chat conversam por `BroadcastChannel`.** Com a janela separada aberta,
+  as telas embutidas ficam quietas — senao a pessoa ouve um bip por aba do UniGestao que
+  estiver aberta. Sem suporte ao recurso, o pior caso e bip repetido, nunca falha.
+
+- **A situacao (`ocupado`/`reuniao`) vence em 8 horas, na propria consulta.** Sem prazo,
+  quem marcou "em reuniao" na sexta amanhece em reuniao na segunda — e situacao que mente
+  faz as pessoas pararem de acreditar em todas. Estar offline sempre vence a situacao
+  escolhida.
+
 - **`departamentos` e NOT NULL.** Ao criar acesso sem departamento, mande lista vazia e
   nunca `null` — com `null` a criacao de acesso inteira falhava com 500, e nao escolher
   departamento e o caso comum.

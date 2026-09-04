@@ -243,6 +243,48 @@ const PNG_1x1 =
      "dupla que nunca conversou devolve vazio, e nao erro");
 
   // -------------------------------------------------------------------------
+  console.log("\n=== SITUACAO: DISPONIVEL, OCUPADO, EM REUNIAO ===");
+  const regrasSit = require("../core/chat.js");
+  ok(regrasSit.statusValido("reuniao") === "reuniao", "'reuniao' e uma situacao valida");
+  ok(regrasSit.statusValido("de ferias") === null, "situacao inventada nao entra");
+  ok(regrasSit.comoAparece(false, "ocupado") === "offline",
+     "quem marcou ocupado e fechou o navegador aparece OFFLINE  <-- estar fora vence a marcacao");
+  ok(regrasSit.comoAparece(true, "ocupado") === "ocupado", "com o sistema aberto, vale o que ela marcou");
+  ok(regrasSit.comoAparece(true, null) === "online", "sem marcar nada, e o automatico");
+  ok(regrasSit.calaOAviso("reuniao") === true && regrasSit.calaOAviso(null) === false,
+     "ocupado e em reuniao calam o aviso; disponivel nao");
+
+  const marcou = await post("/api/chat/status", bruno.token, { status: "reuniao" });
+  ok(marcou.status === 200, "o Bruno se marca em reuniao");
+  await pool.query("UPDATE usuarios SET visto_em = NOW() WHERE id=$1", [bruno.id]);
+  let comoVejo = await (await get("/api/chat/pessoas", ana.token)).json();
+  let brunoVisto = comoVejo.pessoas.filter((p) => p.id === bruno.id)[0];
+  ok(brunoVisto.situacao === "reuniao", "e a Ana ve 'em reuniao' na lista dela");
+
+  const meuPainel = await (await get("/api/chat/pessoas", bruno.token)).json();
+  ok(meuPainel.eu.situacao === "reuniao", "e o proprio Bruno ve a situacao dele na tela");
+
+  await pool.query("UPDATE usuarios SET visto_em = NOW() - INTERVAL '10 minutes' WHERE id=$1", [bruno.id]);
+  comoVejo = await (await get("/api/chat/pessoas", ana.token)).json();
+  brunoVisto = comoVejo.pessoas.filter((p) => p.id === bruno.id)[0];
+  ok(brunoVisto.situacao === "offline",
+     "fechou o sistema: some o 'em reuniao'  <-- senao alguem espera resposta de quem nem esta la");
+
+  // A marcacao vence sozinha: ninguem amanhece em reuniao por ter esquecido.
+  await pool.query(
+    "UPDATE usuarios SET visto_em = NOW(), chat_status_em = NOW() - INTERVAL '30 hours' WHERE id=$1",
+    [bruno.id]
+  );
+  comoVejo = await (await get("/api/chat/pessoas", ana.token)).json();
+  brunoVisto = comoVejo.pessoas.filter((p) => p.id === bruno.id)[0];
+  ok(brunoVisto.situacao === "online",
+     "marcacao de ontem nao vale hoje: volta para o automatico sozinha");
+
+  await post("/api/chat/status", bruno.token, { status: null });
+  comoVejo = await (await get("/api/chat/pessoas", ana.token)).json();
+  brunoVisto = comoVejo.pessoas.filter((p) => p.id === bruno.id)[0];
+  ok(brunoVisto.situacao === "online", "voltar para disponivel funciona");
+
   console.log("\n=== PRESENCA ===");
 
   await pool.query("UPDATE usuarios SET visto_em = NOW() WHERE id=$1", [bruno.id]);
