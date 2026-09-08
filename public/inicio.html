@@ -133,13 +133,35 @@
     position: fixed; inset: 0; background: rgba(20,28,44,.55); z-index: 100;
     display: grid; place-items: center; padding: 20px;
   }
-  .popup { width: 100%; max-width: 480px; padding: 0; overflow: hidden; }
-  .popup .cab { background: var(--accent); color: #fff; padding: 14px 20px; font-size: 14px; }
+  /* O cartao NUNCA passa da altura da tela.
+     Ele e uma coluna: cabecalho em cima, botoes embaixo, e so o meio rola.
+     Sem isto, comunicado com imagem alta empurrava o botao "Entendi" para fora
+     da tela — e como a cortina nao rola, a pessoa ficava presa na tela inicial
+     sem nenhum jeito de fechar. Aconteceu com o comunicado do chat (08/09). */
+  .popup {
+    width: 100%; max-width: 480px; padding: 0; overflow: hidden;
+    max-height: calc(100vh - 40px); display: flex; flex-direction: column;
+  }
+  .popup .cab {
+    background: var(--accent); color: #fff; padding: 14px 20px; font-size: 14px;
+    flex: 0 0 auto; display: flex; align-items: center; gap: 12px;
+  }
+  /* Segunda saida, sempre visivel no alto. Uma so porta de saida, la embaixo,
+     e o que criou o problema. */
+  .popup .cab .x {
+    margin-left: auto; background: none; border: 0; color: #fff; cursor: pointer;
+    font-size: 20px; line-height: 1; padding: 0 4px; border-radius: 4px; opacity: .85;
+  }
+  .popup .cab .x:hover { opacity: 1; background: rgba(255,255,255,.15); }
+  .popup .rolagem { overflow-y: auto; flex: 1 1 auto; min-height: 0; }
   .popup .miolo { padding: 22px; }
   .popup h3 { font-size: 18px; margin: 0 0 8px; color: var(--accent); }
   .popup p { margin: 0; font-size: 14.5px; line-height: 1.6; white-space: pre-wrap; }
   .popup img { width: 100%; display: block; }
-  .popup .pe { padding: 0 22px 20px; display: flex; gap: 10px; justify-content: flex-end; }
+  .popup .pe {
+    padding: 14px 22px; display: flex; gap: 10px; justify-content: flex-end;
+    flex: 0 0 auto; border-top: 1px solid var(--borda); background: var(--surface);
+  }
   .titulo { margin-bottom: 6px; font-size: 22px; }
   .sub { color: var(--texto-fraco); margin: 0 0 28px; }
   /* Cartao mais largo que antes porque o icone ocupa uma faixa a esquerda:
@@ -401,11 +423,15 @@ async function mostrarPopup() {
   cortina.className = 'cortina';
   cortina.innerHTML =
     '<div class="card popup">' +
-      '<div class="cab">Comunicado — ' + esc(TIPO_ROTULO[p.tipo] || 'Aviso') + '</div>' +
-      (p.tem_imagem ? '<img src="/api/mural/' + p.id + '/imagem" alt="">' : '') +
-      '<div class="miolo">' +
-        '<h3>' + esc(p.titulo) + '</h3>' +
-        (p.texto ? '<p>' + esc(p.texto) + '</p>' : '') +
+      '<div class="cab">Comunicado — ' + esc(TIPO_ROTULO[p.tipo] || 'Aviso') +
+        '<button class="x" id="fecharPopupX" title="Fechar">&#215;</button>' +
+      '</div>' +
+      '<div class="rolagem">' +
+        (p.tem_imagem ? '<img src="/api/mural/' + p.id + '/imagem" alt="">' : '') +
+        '<div class="miolo">' +
+          '<h3>' + esc(p.titulo) + '</h3>' +
+          (p.texto ? '<p>' + esc(p.texto) + '</p>' : '') +
+        '</div>' +
       '</div>' +
       '<div class="pe">' +
         '<a class="btn btn-sec" href="/mural">Abrir no mural</a>' +
@@ -414,14 +440,27 @@ async function mostrarPopup() {
     '</div>';
   document.body.appendChild(cortina);
 
-  // So o botao fecha. Clicar fora fecharia sem querer, e o pop-up nao volta —
-  // a pessoa perderia o comunicado por um clique distraido.
-  document.getElementById('fecharPopup').addEventListener('click', async function () {
+  // Clicar FORA continua nao fechando: o pop-up nao volta, e a pessoa perderia
+  // o comunicado por um clique distraido. Mas agora ha duas portas de saida —
+  // o "Entendi" embaixo e o "x" no alto, que fica visivel por mais alta que
+  // seja a imagem. Uma porta so, no fim de um cartao comprido, foi o que
+  // prendeu todo mundo na tela inicial.
+  async function fechar() {
     await fetch('/api/mural/' + p.id + '/lido', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ popup: true }),
-    });
+    }).catch(function () { /* fechar nao pode depender da rede */ });
     cortina.remove();
+  }
+
+  document.getElementById('fecharPopup').addEventListener('click', fechar);
+  document.getElementById('fecharPopupX').addEventListener('click', fechar);
+
+  // Esc tambem fecha — e o reflexo de quem se sente preso numa tela.
+  document.addEventListener('keydown', function aoTeclar(ev) {
+    if (ev.key !== 'Escape') return;
+    document.removeEventListener('keydown', aoTeclar);
+    fechar();
   });
 }
 
