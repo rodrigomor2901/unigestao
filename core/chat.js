@@ -78,6 +78,23 @@ function calaOAviso(status) {
   return statusValido(status) !== null;
 }
 
+// O nome do departamento, tratado como chave do canal.
+//
+// Comparacao sem caixa e sem espaco sobrando, igual ao casamento com as equipes
+// da Gestao de Tarefas: quem digitou " comercial " e quem digitou "COMERCIAL"
+// tem que cair no mesmo canal, senao a area se divide em dois sem ninguem
+// entender por que metade da conversa sumiu.
+function mesmoDepartamento(a, b) {
+  const n = (v) => String(v == null ? "" : v).trim().toLowerCase();
+  const x = n(a);
+  return Boolean(x) && x === n(b);
+}
+
+function nomeDeCanal(v) {
+  const s = String(v == null ? "" : v).trim();
+  return s ? s.slice(0, 120) : null;
+}
+
 function limparTexto(v, max) {
   return String(v == null ? "" : v).trim().slice(0, max);
 }
@@ -158,4 +175,5 @@ module.exports = {
   limparTexto, parDe, linkInterno, validarMensagem, podeApagar, validarResgate,
   liberados, podeUsar,
   STATUS, STATUS_HORAS, statusValido, comoAparece, calaOAviso,
+  mesmoDepartamento, nomeDeCanal,
 };

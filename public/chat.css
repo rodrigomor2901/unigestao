@@ -311,3 +311,42 @@
 /* A pagina da janela separada: sem margem e sem rolagem do documento — quem
    rola e a lista de mensagens, dentro do painel. */
 body[data-janela] { margin: 0; overflow: hidden; }
+
+/* --- canal do departamento ---------------------------------------------- */
+#ug-chat .ug-marca-canal {
+  background: #12335e; color: #fff; font-size: 17px; font-weight: 700;
+}
+#ug-chat .ug-canal .ug-nome { letter-spacing: .2px; }
+
+/* No canal, o nome de quem falou vai em cima do balao. So nos balões dos
+   outros: no meu, o nome seria eu me apresentando a mim mesmo. */
+#ug-chat .ug-autor {
+  font-size: 11px; font-weight: 700; color: #12335e;
+  margin-bottom: 2px;
+}
+
+/* --- bandeja de emojis --------------------------------------------------- */
+#ug-chat .ug-emojis {
+  display: none; flex-wrap: wrap; gap: 2px;
+  padding: 8px; border-top: 1px solid #e5e7eb; background: #fff;
+  max-height: 132px; overflow-y: auto; flex: 0 0 auto;
+}
+#ug-chat.emojis-abertos .ug-emojis { display: flex; }
+#ug-chat .ug-emojis button {
+  border: 0; background: none; cursor: pointer;
+  font-size: 19px; line-height: 1; padding: 4px 5px; border-radius: 6px;
+  font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif;
+}
+#ug-chat .ug-emojis button:hover { background: #f1f0ec; }
+#ug-chat .ug-emoji { background: #eef1f5; width: 36px; font-size: 16px;
+  border: 0; border-radius: 8px; cursor: pointer; height: 36px; flex: 0 0 auto; }
+
+/* O texto das mensagens tambem precisa da fonte de emoji na lista, senao o
+   Windows desenha alguns como quadradinho preto e branco. `inherit` nao pode
+   entrar numa lista de fontes — entao a lista vem escrita por inteiro. */
+#ug-chat .ug-bala .ug-txt,
+#ug-chat .ug-previa,
+#ug-chat .ug-escrever textarea {
+  font-family: "Segoe UI", system-ui, -apple-system, Arial, sans-serif,
+               "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji";
+}

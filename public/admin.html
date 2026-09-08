@@ -146,6 +146,13 @@
       </label>
     </div>
 
+    <!-- Ou o canal de uma area inteira. Entra aqui pelo mesmo motivo da dupla:
+         sem ele, "dá para resgatar quando a diretoria pedir" valeria só para
+         metade das conversas do sistema. -->
+    <label class="campo">Ou o canal de um departamento (no lugar da dupla acima)
+      <select id="rgCanal"><option value="">—</option></select>
+    </label>
+
     <label class="campo">Quem pediu o resgate e por quê
       <textarea id="rgMotivo" rows="2" placeholder="Ex.: pedido da diretoria em 03/09 — apuração de conduta no atendimento ao cliente X"></textarea>
     </label>
@@ -329,6 +336,22 @@ function montarSelecaoResgate() {
   var guardaA = a.value, guardaB = b.value;
   a.innerHTML = opcoes; b.innerHTML = opcoes;
   a.value = guardaA; b.value = guardaB;
+
+  // Os canais que existem sao os departamentos que as pessoas tem no cadastro —
+  // nao ha lista separada para sair do lugar.
+  var canal = document.getElementById('rgCanal');
+  if (!canal) return;
+  var areas = [];
+  USUARIOS.forEach(function (u) {
+    var d = (u.departamento_principal || '').trim();
+    if (d && areas.indexOf(d) === -1) areas.push(d);
+  });
+  areas.sort(function (x, y) { return x.localeCompare(y, 'pt-BR'); });
+  var guardaC = canal.value;
+  canal.innerHTML = '<option value="">\u2014</option>' + areas.map(function (d) {
+    return '<option value="' + esc(d) + '">#' + esc(d) + '</option>';
+  }).join('');
+  canal.value = guardaC;
 }
 
 async function resgatar() {
@@ -336,13 +359,18 @@ async function resgatar() {
   document.getElementById('rgSaida').innerHTML = '';
   var aId = document.getElementById('rgA').value;
   var bId = document.getElementById('rgB').value;
+  var canal = document.getElementById('rgCanal').value;
   var motivo = document.getElementById('rgMotivo').value.trim();
 
-  if (!aId || !bId) return alerta('Escolha as duas pessoas.', 'erro', 'rgAlerta');
-  if (aId === bId) return alerta('Escolha duas pessoas diferentes.', 'erro', 'rgAlerta');
+  if (!canal) {
+    if (!aId || !bId) return alerta('Escolha as duas pessoas, ou um canal.', 'erro', 'rgAlerta');
+    if (aId === bId) return alerta('Escolha duas pessoas diferentes.', 'erro', 'rgAlerta');
+  }
 
   try {
-    var d = await api('/api/admin/chat/resgate', 'POST', { aId: aId, bId: bId, motivo: motivo });
+    var pedido = canal ? { departamento: canal, motivo: motivo }
+                       : { aId: aId, bId: bId, motivo: motivo };
+    var d = await api('/api/admin/chat/resgate', 'POST', pedido);
     var nomes = d.pessoas.map(function (p) { return p.nome; }).join(' e ');
 
     if (!d.mensagens.length) {

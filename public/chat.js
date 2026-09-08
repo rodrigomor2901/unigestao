@@ -33,7 +33,8 @@
   var MODO_JANELA = Boolean(document.body && document.body.getAttribute("data-janela"));
 
   var pessoas = [];
-  var atual = null;                 // com quem estou falando
+  var canais = [];                  // o canal do meu departamento (hoje, um so)
+  var atual = null;                 // com quem — ou onde — estou falando
   var conversaId = null;
   var minhaSituacao = "online";     // online | ocupado | reuniao
   var abas = [];                    // conversas deixadas abertas, na ordem
@@ -67,6 +68,19 @@
   function iniciais(nome) {
     var p = String(nome || "?").trim().split(/\s+/);
     return (p[0] || "?").charAt(0).toUpperCase() + (p.length > 1 ? p[p.length - 1].charAt(0).toUpperCase() : "");
+  }
+
+  // Pessoa ou canal — o chat trata os dois como "destino".
+  //
+  // O id do canal comeca com "#" (ex.: "#COMERCIAL"), e nenhum id de pessoa
+  // comeca assim. Com isso as abas, o contador de nao lidas e a busca
+  // continuam valendo para os dois sem nenhum caso especial.
+  function destinos() {
+    return canais.concat(pessoas);
+  }
+
+  function acharDestino(id) {
+    return destinos().filter(function (d) { return d.id === id; })[0] || null;
   }
 
   function api(caminho, opcoes) {
@@ -105,7 +119,9 @@
       '    <div class="ug-balas"></div>',
       '    <div class="ug-anexo"><img alt=""><span></span><button type="button">remover</button></div>',
       '    <div class="ug-aviso"></div>',
+      '    <div class="ug-emojis"></div>',
       '    <div class="ug-escrever">',
+      '      <button class="ug-emoji" title="Emojis">&#128512;</button>',
       '      <button class="ug-clipe" title="Anexar print (ou cole com Ctrl+V)">&#128206;</button>',
       '      <input type="file" class="ug-arquivo" accept="image/png,image/jpeg,image/webp">',
       '      <textarea rows="1" placeholder="Escreva ou cole um print..."></textarea>',
@@ -150,7 +166,10 @@
     });
     // Clicar em qualquer outro lugar fecha o menu — senao ele fica aberto por
     // cima da conversa e a pessoa acha que travou.
-    document.addEventListener("click", function () { raiz.classList.remove("menu-aberto"); });
+    document.addEventListener("click", function () {
+      raiz.classList.remove("menu-aberto");
+      raiz.classList.remove("emojis-abertos");
+    });
     raiz.querySelector(".ug-convite-sim").addEventListener("click", pedirPermissao);
     raiz.querySelector(".ug-convite-nao").addEventListener("click", function () {
       // Adia por uma semana, e nao para sempre: "para sempre" deixaria a pessoa
@@ -159,6 +178,12 @@
       mostrarConvite();
     });
     raiz.querySelector(".ug-voltar").addEventListener("click", voltarParaLista);
+    montarEmojis(raiz.querySelector(".ug-emojis"));
+    raiz.querySelector(".ug-emoji").addEventListener("click", function (ev) {
+      ev.stopPropagation();
+      raiz.classList.toggle("emojis-abertos");
+      if (raiz.classList.contains("emojis-abertos")) caixa.focus();
+    });
     raiz.querySelector(".ug-clipe").addEventListener("click", function () {
       raiz.querySelector(".ug-arquivo").click();
     });
@@ -212,7 +237,7 @@
   function voltarParaLista() {
     atual = null;
     conversaId = null;
-    raiz.classList.remove("na-conversa");
+    raiz.classList.remove("na-conversa", "no-canal");
     raiz.querySelector(".ug-voltar").hidden = true;
     raiz.querySelector(".ug-titulo").textContent = "Conversas";
     raiz.querySelector(".ug-sub").textContent = "";
@@ -310,9 +335,10 @@
     try { ids = JSON.parse(ler(ABAS) || "[]"); } catch (e) { ids = []; }
     if (!Array.isArray(ids)) return;
     abas = ids.map(function (id) {
-      var p = pessoas.filter(function (x) { return x.id === id; })[0];
-      // Pessoa desativada, ou que saiu da empresa, simplesmente nao volta.
-      return p ? { id: p.id, nome: p.nome } : null;
+      var d = acharDestino(id);
+      // Pessoa desativada, ou canal de uma area que nao e mais a sua,
+      // simplesmente nao volta.
+      return d ? { id: d.id, nome: d.canal ? "#" + d.nome : d.nome } : null;
     }).filter(Boolean).slice(0, ABAS_MAX);
     desenharAbas();
   }
@@ -334,8 +360,8 @@
       // Fechou a que estava aberta: vai para a aba do lado, se houver.
       var proxima = abas[abas.length - 1];
       if (proxima) {
-        var p = pessoas.filter(function (x) { return x.id === proxima.id; })[0];
-        if (p) { abrirConversa(p); return; }
+        var d = acharDestino(proxima.id);
+        if (d) { abrirConversa(d); return; }
       }
       voltarParaLista();
       return;
@@ -364,7 +390,7 @@
     faixa.classList.toggle("tem", abas.length > 0);
     var nomes = abas.map(function (a) { return a.nome; });
     faixa.innerHTML = abas.map(function (a) {
-      var p = pessoas.filter(function (x) { return x.id === a.id; })[0] || {};
+      var p = acharDestino(a.id) || {};
       var naoLidas = p.naoLidas || 0;
       return '<span class="ug-aba' + (atual && atual.id === a.id ? " aqui" : "") +
              (naoLidas ? " nova" : "") + '" data-id="' + esc(a.id) +
@@ -377,8 +403,8 @@
     Array.prototype.forEach.call(faixa.querySelectorAll(".ug-aba"), function (el) {
       var id = el.getAttribute("data-id");
       el.querySelector(".ug-aba-nome").addEventListener("click", function () {
-        var p = pessoas.filter(function (x) { return x.id === id; })[0];
-        if (p) abrirConversa(p);
+        var d = acharDestino(id);
+        if (d) abrirConversa(d);
       });
       el.querySelector(".ug-aba-x").addEventListener("click", function (ev) {
         ev.stopPropagation();
@@ -397,6 +423,13 @@
       .then(function (d) {
         if (!d) return;
         pessoas = d.pessoas || [];
+        canais = (d.canais || []).map(function (c) {
+          return {
+            id: "#" + c.nome, nome: c.nome, canal: true,
+            conversaId: c.conversaId, quantos: c.quantos,
+            naoLidas: c.naoLidas, ultima: c.ultima,
+          };
+        });
         if (d.eu && d.eu.situacao) {
           minhaSituacao = d.eu.situacao;
           desenharSituacao();
@@ -408,28 +441,53 @@
       .catch(function () { /* sem rede: a proxima batida tenta de novo */ });
   }
 
+  function previaDe(d) {
+    if (!d.ultima) return "";
+    var t;
+    if (d.ultima.apagada) t = "mensagem apagada";
+    else if (d.ultima.temImagem && !d.ultima.texto) t = "📷 print";
+    else t = d.ultima.texto;
+    if (d.ultima.minha) return "Você: " + t;
+    // No canal, saber QUEM falou e metade da informacao.
+    if (d.canal && d.ultima.autor) return String(d.ultima.autor).split(/\s+/)[0] + ": " + t;
+    return t;
+  }
+
   function desenharLista() {
     var filtro = (painelBusca.value || "").trim().toLowerCase();
+    var combina = function (texto) {
+      return !filtro || String(texto).toLowerCase().indexOf(filtro) >= 0;
+    };
+
+    var meusCanais = canais.filter(function (c) { return combina(c.nome); });
     var mostrar = pessoas.filter(function (p) {
-      if (!filtro) return true;
-      return (p.nome + " " + p.departamento + " " + p.cargo).toLowerCase().indexOf(filtro) >= 0;
+      return combina(p.nome + " " + p.departamento + " " + p.cargo);
     });
 
-    if (!mostrar.length) {
+    if (!meusCanais.length && !mostrar.length) {
       lista.innerHTML = '<div class="ug-vazio">Ninguém encontrado.</div>';
       return;
     }
 
-    lista.innerHTML = mostrar.map(function (p) {
-      var previa = "";
-      if (p.ultima) {
-        if (p.ultima.apagada) previa = "mensagem apagada";
-        else if (p.ultima.temImagem && !p.ultima.texto) previa = "📷 print";
-        else previa = p.ultima.texto;
-        if (p.ultima.minha) previa = "Você: " + previa;
-      } else {
-        previa = p.departamento || p.cargo || "";
-      }
+    // O canal do departamento vem primeiro: e a conversa que a pessoa mais usa
+    // no dia, e procurar por ela no meio de 45 nomes seria trabalho a toa.
+    var topo = meusCanais.map(function (c) {
+      return [
+        '<button class="ug-pessoa ug-canal" data-id="' + esc(c.id) + '">',
+        '  <span class="ug-foto ug-marca-canal">#</span>',
+        '  <span class="ug-quem">',
+        '    <span class="ug-nome">' + esc(c.nome) + "</span>",
+        '    <span class="ug-previa">' +
+          esc(previaDe(c) || (c.quantos + (c.quantos === 1 ? " pessoa" : " pessoas") + " nesta área")) +
+          "</span>",
+        "  </span>",
+        c.naoLidas ? '<span class="ug-conta">' + c.naoLidas + "</span>" : "",
+        "</button>",
+      ].join("");
+    }).join("");
+
+    lista.innerHTML = topo + mostrar.map(function (p) {
+      var previa = p.ultima ? previaDe(p) : (p.departamento || p.cargo || "");
       // Ocupado e Em reunião aparecem no lugar da previa: e a informacao que
       // muda a decisao de quem ia mandar mensagem agora.
       var situacao = p.situacao || (p.online ? "online" : "offline");
@@ -453,8 +511,8 @@
 
     Array.prototype.forEach.call(lista.querySelectorAll(".ug-pessoa"), function (b) {
       b.addEventListener("click", function () {
-        var p = pessoas.filter(function (x) { return x.id === b.getAttribute("data-id"); })[0];
-        if (p) abrirConversa(p);
+        var d = acharDestino(b.getAttribute("data-id"));
+        if (d) abrirConversa(d);
       });
     });
     carregarFotos(lista);
@@ -479,18 +537,26 @@
   }
 
   // ------------------------------------------------------------------ conversa
-  function abrirConversa(pessoa) {
-    atual = pessoa;
+  function abrirConversa(destino) {
+    atual = destino;
     raiz.classList.add("na-conversa");
+    raiz.classList.toggle("no-canal", Boolean(destino.canal));
     raiz.querySelector(".ug-voltar").hidden = false;
-    raiz.querySelector(".ug-titulo").textContent = pessoa.nome;
-    var situacao = pessoa.situacao || (pessoa.online ? "online" : "offline");
-    raiz.querySelector(".ug-sub").textContent =
-      (ROTULO[situacao] || "Offline") + (pessoa.departamento ? " · " + pessoa.departamento : "");
-    abrirAba(pessoa);
+    raiz.querySelector(".ug-titulo").textContent = destino.canal ? "# " + destino.nome : destino.nome;
+
+    if (destino.canal) {
+      raiz.querySelector(".ug-sub").textContent =
+        destino.quantos + (destino.quantos === 1 ? " pessoa" : " pessoas") + " desta área";
+    } else {
+      var situacao = destino.situacao || (destino.online ? "online" : "offline");
+      raiz.querySelector(".ug-sub").textContent =
+        (ROTULO[situacao] || "Offline") + (destino.departamento ? " · " + destino.departamento : "");
+    }
+
+    abrirAba(destino);
     balas.innerHTML = '<div class="ug-vazio">Carregando...</div>';
 
-    api("/com/" + encodeURIComponent(pessoa.id))
+    api(destino.canal ? "/canal" : "/com/" + encodeURIComponent(destino.id))
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {
         if (!d) { balas.innerHTML = '<div class="ug-vazio">Não consegui abrir a conversa.</div>'; return; }
@@ -498,12 +564,15 @@
         balas.innerHTML = "";
         ultimoDia = "";
         if (!d.mensagens.length) {
-          balas.innerHTML = '<div class="ug-vazio">Nenhuma mensagem ainda.</div>';
+          balas.innerHTML = destino.canal
+            ? '<div class="ug-vazio">Ninguém escreveu aqui ainda. Comece você.</div>'
+            : '<div class="ug-vazio">Nenhuma mensagem ainda.</div>';
         }
         d.mensagens.forEach(function (m) { acrescentar(m); });
         rolar();
-        pessoa.naoLidas = 0;
+        destino.naoLidas = 0;
         atualizarSelo();
+        desenharAbas();
         caixa.focus();
       });
   }
@@ -529,6 +598,11 @@
     el.setAttribute("data-id", m.id);
 
     var partes = [];
+    // No canal, cada balao dos outros leva o nome em cima. Sem isso a conversa
+    // de uma area inteira vira um monte de falas sem dono.
+    if (m.autor && !m.minha && atual && atual.canal) {
+      partes.push('<div class="ug-autor">' + esc(m.autor) + "</div>");
+    }
     if (m.sobre) {
       var alvo = m.link ? (BASE && m.link.indexOf(BASE) !== 0 ? BASE + m.link : m.link) : null;
       partes.push(alvo
@@ -594,7 +668,7 @@
     if (anexo) { corpo.imagem = anexo.dados; corpo.imagemTipo = anexo.tipo; }
     if (pendenteSobre) { corpo.sobre = pendenteSobre.sobre; corpo.link = pendenteSobre.link; }
 
-    api("/com/" + encodeURIComponent(atual.id), {
+    api(atual.canal ? "/canal" : "/com/" + encodeURIComponent(atual.id), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(corpo),
@@ -616,6 +690,55 @@
         botaoEnviar.disabled = false;
         mostrarAviso("Sem conexão. Tente de novo.");
       });
+  }
+
+  // ------------------------------------------------------------------ emojis
+  // Uma bandeja curta, escrita a mao.
+  //
+  // Emoji ja funcionava aqui desde o primeiro dia — e texto como qualquer
+  // outro, e quem sabe do atalho do Windows (tecla Windows + ponto) sempre pode
+  // usar. Isto e para quem nao sabe do atalho, que e quase todo mundo.
+  //
+  // Sao os que se usam no trabalho, e nao um catalogo de mil: bandeja grande
+  // vira rolagem, e rolagem para escolher uma carinha e mais trabalho do que
+  // digitar a frase.
+  var EMOJIS = [
+    "\uD83D\uDC4D", "\uD83D\uDC4C", "\uD83D\uDE42", "\uD83D\uDE00", "\uD83D\uDE05",
+    "\uD83D\uDE02", "\uD83E\uDD23", "\uD83D\uDE09", "\uD83D\uDE0E", "\uD83E\uDD14",
+    "\uD83D\uDE44", "\uD83D\uDE10", "\uD83D\uDE13", "\uD83D\uDE22", "\uD83D\uDE21",
+    "\uD83D\uDE31", "\uD83D\uDE4F", "\uD83D\uDCAA", "\uD83D\uDC4F", "\uD83E\uDD1D",
+    "\u2705", "\u274C", "\u26A0\uFE0F", "\u2757", "\u2753",
+    "\uD83D\uDCCC", "\uD83D\uDCC5", "\u23F0", "\uD83D\uDCDE", "\uD83D\uDCE7",
+    "\uD83D\uDCC4", "\uD83D\uDCCA", "\uD83D\uDCB0", "\uD83D\uDE97", "\uD83C\uDFE2",
+    "\uD83D\uDD25", "\u2B50", "\u2764\uFE0F", "\uD83C\uDF89", "\u2615",
+  ];
+
+  function montarEmojis(bandeja) {
+    bandeja.innerHTML = EMOJIS.map(function (e) {
+      return '<button type="button">' + e + "</button>";
+    }).join("");
+
+    Array.prototype.forEach.call(bandeja.querySelectorAll("button"), function (b) {
+      b.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        porNaCaixa(b.textContent);
+      });
+    });
+  }
+
+  // Entra onde o cursor esta, e nao no fim: quem ja escreveu a frase inteira e
+  // volta para por a carinha no meio nao quer ela colada no ponto final.
+  function porNaCaixa(texto) {
+    var ini = caixa.selectionStart;
+    var fim = caixa.selectionEnd;
+    if (typeof ini !== "number") {
+      caixa.value += texto;
+    } else {
+      caixa.value = caixa.value.slice(0, ini) + texto + caixa.value.slice(fim);
+      var pos = ini + texto.length;
+      caixa.setSelectionRange(pos, pos);
+    }
+    caixa.focus();
   }
 
   // ------------------------------------------------------------------- o print
@@ -696,7 +819,7 @@
   function recarregarConversaAberta() {
     if (!atual) return;
     var quem = atual;
-    api("/com/" + encodeURIComponent(quem.id))
+    api(quem.canal ? "/canal" : "/com/" + encodeURIComponent(quem.id))
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {
         if (!d || !atual || atual.id !== quem.id) return;
@@ -711,7 +834,9 @@
     // "Na tela" e "sendo lida" sao coisas diferentes: a conversa pode estar
     // aberta com a janela minimizada. Tratar as duas como a mesma marcaria como
     // lida mensagem que ninguem viu — e o "visto" viraria mentira.
-    var naTela = atual && d.outroId === atual.id && raiz.classList.contains("aberto");
+    // De quem e esta mensagem: de uma pessoa, ou do canal de uma area.
+    var deQuem = d.canal ? "#" + d.canal : d.outroId;
+    var naTela = atual && deQuem === atual.id && raiz.classList.contains("aberto");
     var olhando = !document.hidden;
 
     if (naTela && !balas.querySelector('[data-id="' + d.mensagem.id + '"]')) {
@@ -725,7 +850,7 @@
       return;
     }
 
-    pessoas.forEach(function (p) { if (p.id === d.outroId) p.naoLidas = (p.naoLidas || 0) + 1; });
+    destinos().forEach(function (x) { if (x.id === deQuem) x.naoLidas = (x.naoLidas || 0) + 1; });
     atualizarSelo();
     desenharLista();
     desenharAbas();
@@ -752,7 +877,7 @@
   }
 
   function atualizarSelo() {
-    var total = pessoas.reduce(function (s, p) { return s + (p.naoLidas || 0); }, 0);
+    var total = destinos().reduce(function (s, p) { return s + (p.naoLidas || 0); }, 0);
     selo.textContent = total > 99 ? "99+" : String(total);
     selo.classList.toggle("tem", total > 0);
     // O titulo da aba avisa quem esta em outra janela — sem isso o chat so
@@ -927,7 +1052,7 @@
       pendenteSobre = { sobre: o.sobre || "", link: o.link || "" };
       abrirPainel(true);
       var achar = function () {
-        var p = pessoas.filter(function (x) { return x.id === o.pessoaId; })[0];
+        var p = acharDestino(o.pessoaId);
         if (p) { abrirConversa(p); caixa.focus(); }
       };
       if (pessoas.length) achar(); else carregarPessoas().then(achar);
@@ -948,6 +1073,13 @@
         if (!d) return;
         raiz = montar();
         pessoas = d.pessoas || [];
+        canais = (d.canais || []).map(function (c) {
+          return {
+            id: "#" + c.nome, nome: c.nome, canal: true,
+            conversaId: c.conversaId, quantos: c.quantos,
+            naoLidas: c.naoLidas, ultima: c.ultima,
+          };
+        });
         if (d.eu && d.eu.situacao) minhaSituacao = d.eu.situacao;
         desenharSituacao();
 

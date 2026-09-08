@@ -151,6 +151,14 @@ Ordem acordada: Operacional → Documentos → Eventos → Tarefas → CRM → P
 
   Falta o Precificacao, que e NestJS + SPA em nginx e pede outro formato.
 
+- **O canal do departamento mora na MESMA tabela `conversas`** (coluna `tipo`), e nao
+  numa tabela nova. Mensagem, leitura, imagem, apagar, tempo real e resgate ja rodam em
+  cima de `conversa_id`; em tabela separada, cada uma dessas seis coisas precisaria de uma
+  segunda versao — e a segunda e sempre a que fica para tras quando alguem corrige um
+  defeito na primeira. **Nao existe tabela de membros:** quem esta no canal e quem tem
+  aquele departamento no cadastro, conferido a cada pedido. Lista de membros a parte sairia
+  do lugar no dia em que alguem mudasse de area.
+
 - **`departamentos` e NOT NULL.** Ao criar acesso sem departamento, mande lista vazia e
   nunca `null` — com `null` a criacao de acesso inteira falhava com 500, e nao escolher
   departamento e o caso comum.

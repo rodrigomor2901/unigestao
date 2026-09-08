@@ -1119,17 +1119,57 @@ async function conversaDaDupla(euId, outroId) {
   return doOutro.rows[0] ? doOutro.rows[0].id : null;
 }
 
+// Acha o canal do departamento, ou cria.
+//
+// Ninguem "entra" num canal: quem esta nele e quem tem aquele departamento no
+// cadastro, conferido a cada acesso. Por isso o canal nasce sozinho na primeira
+// vez que alguem daquela area abre o chat — nao ha o que administrar.
+async function canalDoDepartamento(departamento) {
+  const nome = chat.nomeDeCanal(departamento);
+  if (!nome) return null;
+
+  const achado = await db.query(
+    `SELECT id FROM conversas
+      WHERE tipo = 'departamento' AND LOWER(BTRIM(departamento)) = LOWER(BTRIM($1))`,
+    [nome]
+  );
+  if (achado.rows[0]) return achado.rows[0].id;
+
+  const novo = await db.query(
+    `INSERT INTO conversas (tipo, departamento) VALUES ('departamento', $1)
+     ON CONFLICT DO NOTHING RETURNING id`,
+    [nome]
+  );
+  if (novo.rows[0]) return novo.rows[0].id;
+
+  const deOutro = await db.query(
+    `SELECT id FROM conversas
+      WHERE tipo = 'departamento' AND LOWER(BTRIM(departamento)) = LOWER(BTRIM($1))`,
+    [nome]
+  );
+  return deOutro.rows[0] ? deOutro.rows[0].id : null;
+}
+
 // Confere que a pessoa participa da conversa.
 //
 // Roda em TODA leitura, e nao so na abertura. Sem isto, trocar o numero no
 // endereco (/api/chat/conversa/42/...) leria a conversa dos outros — o tipo de
 // falha que ninguem percebe porque a tela nunca oferece esse caminho.
-async function souDaConversa(conversaId, usuarioId) {
+async function souDaConversa(conversaId, usuario) {
   const r = await db.query(
-    "SELECT id, a_id, b_id FROM conversas WHERE id=$1 AND (a_id=$2 OR b_id=$2)",
-    [conversaId, usuarioId]
+    "SELECT id, tipo, a_id, b_id, departamento FROM conversas WHERE id=$1",
+    [conversaId]
   );
-  return r.rows[0] || null;
+  const c = r.rows[0];
+  if (!c) return null;
+
+  if (c.tipo === "departamento") {
+    // No canal, pertencer NAO e uma linha guardada: e o departamento do
+    // cadastro, conferido agora. Quem mudou de area hoje ja nao le a conversa
+    // da area antiga — e e isso que se espera de um canal de departamento.
+    return chat.mesmoDepartamento(c.departamento, usuario.departamento_principal) ? c : null;
+  }
+  return c.a_id === usuario.id || c.b_id === usuario.id ? c : null;
 }
 
 // A lista da esquerda: todo mundo do sistema, quem esta online, o que cada um
@@ -1186,8 +1226,61 @@ app.get("/api/chat/pessoas", exigeChat, async (req, res, next) => {
       [req.usuario.id, String(chat.STATUS_HORAS)]
     );
 
+    // O canal da area da pessoa. Um so: o do departamento em que ela esta
+    // lotada. Quem nao tem departamento no cadastro nao ve canal nenhum — e
+    // isso e visivel na tela, para o administrador saber que falta preencher.
+    const canais = [];
+    const meuDep = req.usuario.departamento_principal || "";
+    if (meuDep) {
+      const canalId = await canalDoDepartamento(meuDep);
+      if (canalId) {
+        const c = await db.query(
+          `SELECT
+             COALESCE((SELECT COUNT(*) FROM mensagens m
+                        WHERE m.conversa_id = $1 AND m.autor_id <> $2
+                          AND m.apagada_em IS NULL
+                          AND m.id > COALESCE((SELECT lido_ate FROM conversa_leitura
+                                                WHERE conversa_id = $1 AND usuario_id = $2), 0)), 0)
+             AS nao_lidas,
+             (SELECT COUNT(*) FROM usuarios u
+               WHERE u.ativo AND LOWER(BTRIM(u.departamento_principal)) = LOWER(BTRIM($3))) AS quantos,
+             ult.texto, ult.criada_em, ult.tem_imagem, ult.apagada_em,
+             (ult.autor_id = $2) AS minha, ult.autor_nome
+           FROM (SELECT 1) _
+           LEFT JOIN LATERAL (
+             SELECT m2.texto, m2.criada_em, m2.tem_imagem, m2.apagada_em, m2.autor_id,
+                    u2.nome AS autor_nome
+               FROM mensagens m2 JOIN usuarios u2 ON u2.id = m2.autor_id
+              WHERE m2.conversa_id = $1 ORDER BY m2.id DESC LIMIT 1
+           ) ult ON TRUE`,
+          [canalId, req.usuario.id, meuDep]
+        );
+        const linha = c.rows[0] || {};
+        canais.push({
+          conversaId: Number(canalId),
+          nome: meuDep,
+          quantos: Number(linha.quantos || 0),
+          naoLidas: Number(linha.nao_lidas || 0),
+          ultima: linha.criada_em
+            ? {
+                texto: linha.apagada_em ? "" : (linha.texto || ""),
+                apagada: Boolean(linha.apagada_em),
+                temImagem: Boolean(linha.tem_imagem),
+                autor: linha.autor_nome || "",
+                minha: Boolean(linha.minha),
+                em: linha.criada_em,
+              }
+            : null,
+        });
+      }
+    }
+
     res.json({
-      eu: { situacao: meu.rows[0] ? (meu.rows[0].status || "online") : "online" },
+      eu: {
+        situacao: meu.rows[0] ? (meu.rows[0].status || "online") : "online",
+        departamento: meuDep,
+      },
+      canais,
       pessoas: visiveis.map((p) => ({
         id: p.id,
         nome: p.nome,
@@ -1254,6 +1347,9 @@ function formatarMensagem(m, euId) {
   return {
     id: Number(m.id),
     minha: m.autor_id === euId,
+    // So o canal usa: numa conversa de dois, dizer o nome a cada balao seria
+    // repetir o obvio. Num canal, sem o nome ninguem sabe quem falou.
+    autor: m.autor_nome || null,
     texto: m.apagada_em ? "" : (m.texto || ""),
     apagada: Boolean(m.apagada_em),
     temImagem: Boolean(m.tem_imagem) && !m.apagada_em,
@@ -1275,7 +1371,7 @@ async function marcarLido(conversaId, usuarioId, ate) {
 
 app.post("/api/chat/conversa/:id/lido", exigeChat, async (req, res, next) => {
   try {
-    const conversa = await souDaConversa(req.params.id, req.usuario.id);
+    const conversa = await souDaConversa(req.params.id, req.usuario);
     if (!conversa) return res.status(404).json({ erro: "Conversa não encontrada" });
     await marcarLido(conversa.id, req.usuario.id, req.body.ate);
     res.json({ ok: true });
@@ -1329,6 +1425,88 @@ app.post("/api/chat/com/:outroId", exigeChat, async (req, res, next) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// O canal do departamento
+// ----------------------------------------------------------------------------
+// Nao existe "entrar" nem "sair": quem le e quem escreve e quem esta lotado
+// naquele departamento, conferido a cada pedido. Trocar de area no cadastro
+// muda o canal da pessoa no acesso seguinte, sem ninguem administrar lista.
+// ---------------------------------------------------------------------------
+async function meuCanal(usuario) {
+  const dep = usuario.departamento_principal || "";
+  if (!dep) return null;
+  const id = await canalDoDepartamento(dep);
+  return id ? { id, nome: dep } : null;
+}
+
+app.get("/api/chat/canal", exigeChat, async (req, res, next) => {
+  try {
+    const canal = await meuCanal(req.usuario);
+    if (!canal) {
+      return res.status(404).json({
+        erro: "Você ainda não tem departamento no cadastro — peça ao Admin Geral.",
+      });
+    }
+
+    const msgs = await db.query(
+      `SELECT m.id, m.autor_id, m.texto, m.tem_imagem, m.sobre, m.link, m.criada_em,
+              m.apagada_em, u.nome AS autor_nome
+         FROM mensagens m JOIN usuarios u ON u.id = m.autor_id
+        WHERE m.conversa_id = $1 ORDER BY m.id DESC LIMIT 60`,
+      [canal.id]
+    );
+
+    await marcarLido(canal.id, req.usuario.id);
+
+    res.json({
+      conversaId: canal.id,
+      nome: canal.nome,
+      mensagens: msgs.rows.reverse().map((m) => formatarMensagem(m, req.usuario.id)),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.post("/api/chat/canal", exigeChat, async (req, res, next) => {
+  try {
+    const v = chat.validarMensagem(req.body || {});
+    if (!v.ok) return res.status(400).json({ erro: v.erro });
+
+    const canal = await meuCanal(req.usuario);
+    if (!canal) return res.status(404).json({ erro: "Você não tem departamento no cadastro." });
+
+    let bytes = null;
+    if (req.body.imagem) {
+      bytes = Buffer.from(String(req.body.imagem), "base64");
+      if (bytes.length > chat.IMAGEM_MAX_BYTES) {
+        return res.status(413).json({ erro: "Print muito grande — reduza a imagem." });
+      }
+    }
+
+    const r = await db.query(
+      `INSERT INTO mensagens (conversa_id, autor_id, texto, tem_imagem, sobre, link)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       RETURNING id, autor_id, texto, tem_imagem, sobre, link, criada_em, apagada_em`,
+      [canal.id, req.usuario.id, v.valores.texto, Boolean(bytes), v.valores.sobre, v.valores.link]
+    );
+    const msg = r.rows[0];
+    msg.autor_nome = req.usuario.nome;
+
+    if (bytes) {
+      await db.query(
+        "INSERT INTO mensagem_imagem (mensagem_id, tipo, bytes) VALUES ($1,$2,$3)",
+        [msg.id, req.body.imagemTipo, bytes]
+      );
+    }
+    await marcarLido(canal.id, req.usuario.id, msg.id);
+
+    res.json({ ok: true, conversaId: canal.id, mensagem: formatarMensagem(msg, req.usuario.id) });
+  } catch (e) {
+    next(e);
+  }
+});
+
 // Trocar a propria situacao. "online" (ou nada) volta para o automatico.
 app.post("/api/chat/status", exigeChat, async (req, res, next) => {
   try {
@@ -1353,8 +1531,10 @@ app.get("/api/chat/mensagem/:id/imagem", exigeChat, async (req, res, next) => {
          JOIN conversas c ON c.id = m.conversa_id
         WHERE i.mensagem_id = $1
           AND m.apagada_em IS NULL
-          AND (c.a_id = $2 OR c.b_id = $2)`,
-      [req.params.id, req.usuario.id]
+          AND (c.a_id = $2 OR c.b_id = $2
+               OR (c.tipo = 'departamento' AND $3 <> ''
+                   AND LOWER(BTRIM(c.departamento)) = LOWER(BTRIM($3))))`,
+      [req.params.id, req.usuario.id, req.usuario.departamento_principal || ""]
     );
     if (!r.rows[0]) return res.status(404).end();
     res.set("Content-Type", r.rows[0].tipo);
@@ -1439,6 +1619,9 @@ app.get("/api/chat/stream", exigeChat, async (req, res, next) => {
     res.write("retry: 5000\n\n");
 
     const euId = req.usuario.id;
+    // Lido uma vez, na abertura do fluxo. Se a pessoa mudar de departamento, o
+    // canal novo entra quando ela recarregar a tela — nao no meio da conexao.
+    const meuDepartamento = req.usuario.departamento_principal || "";
     const inicio = await db.query("SELECT COALESCE(MAX(id),0) AS ultimo FROM mensagens");
     let ultimo = Number(req.query.desde || inicio.rows[0].ultimo);
 
@@ -1451,20 +1634,25 @@ app.get("/api/chat/stream", exigeChat, async (req, res, next) => {
       try {
         const r = await db.query(
           `SELECT m.id, m.conversa_id, m.autor_id, m.texto, m.tem_imagem, m.sobre, m.link,
-                  m.criada_em, m.apagada_em, u.nome AS autor_nome,
-                  CASE WHEN c.a_id = $1 THEN c.b_id ELSE c.a_id END AS outro_id
+                  m.criada_em, m.apagada_em, u.nome AS autor_nome, c.tipo, c.departamento,
+                  CASE WHEN c.tipo = 'direta'
+                       THEN (CASE WHEN c.a_id = $1 THEN c.b_id ELSE c.a_id END) END AS outro_id
              FROM mensagens m
              JOIN conversas c ON c.id = m.conversa_id
              JOIN usuarios  u ON u.id = m.autor_id
-            WHERE (c.a_id = $1 OR c.b_id = $1) AND m.id > $2 AND m.apagada_em IS NULL
+            WHERE (c.a_id = $1 OR c.b_id = $1
+                   OR (c.tipo = 'departamento' AND $3 <> ''
+                       AND LOWER(BTRIM(c.departamento)) = LOWER(BTRIM($3))))
+              AND m.id > $2 AND m.apagada_em IS NULL
             ORDER BY m.id LIMIT 50`,
-          [euId, ultimo]
+          [euId, ultimo, meuDepartamento]
         );
         for (const m of r.rows) {
           ultimo = Number(m.id);
           const dado = {
             conversaId: Number(m.conversa_id),
-            outroId: m.outro_id,
+            outroId: m.outro_id || null,
+            canal: m.tipo === "departamento" ? m.departamento : null,
             autorNome: m.autor_nome,
             mensagem: formatarMensagem(m, euId),
           };
@@ -1518,6 +1706,45 @@ app.post("/api/admin/chat/resgate", exigeSuperAdmin, async (req, res, next) => {
   try {
     const v = chat.validarResgate(req.body || {});
     if (!v.ok) return res.status(400).json({ erro: v.erro });
+
+    // Duas formas de resgate: a conversa de uma dupla, ou o canal de um
+    // departamento. O canal entra aqui pelo mesmo motivo da dupla — sem ele, a
+    // promessa "da para resgatar quando a diretoria pedir" valeria so metade
+    // das conversas do sistema.
+    const canal = chat.nomeDeCanal(req.body.departamento);
+    if (canal) {
+      const conversa = await db.query(
+        `SELECT id FROM conversas
+          WHERE tipo = 'departamento' AND LOWER(BTRIM(departamento)) = LOWER(BTRIM($1))`,
+        [canal]
+      );
+      const canalId = conversa.rows[0] ? conversa.rows[0].id : null;
+      const msgs = canalId
+        ? (await db.query(
+            `SELECT m.id, m.texto, m.tem_imagem, m.sobre, m.link, m.criada_em, m.apagada_em,
+                    u.nome AS autor
+               FROM mensagens m JOIN usuarios u ON u.id = m.autor_id
+              WHERE m.conversa_id = $1 ORDER BY m.id`,
+            [canalId]
+          )).rows
+        : [];
+
+      await auth.auditar(req, "chat_resgatado", {
+        usuarioId: req.usuario.id, email: req.usuario.email,
+        alvo: "canal " + canal,
+        detalhe: { motivo: v.motivo, canal, mensagens: msgs.length },
+      });
+
+      return res.json({
+        pessoas: [{ id: null, nome: "Canal " + canal, email: "" }],
+        conversaId: canalId,
+        mensagens: msgs.map((m) => ({
+          id: Number(m.id), autor: m.autor, texto: m.texto || "",
+          apagada: Boolean(m.apagada_em), temImagem: Boolean(m.tem_imagem),
+          sobre: m.sobre || null, em: m.criada_em,
+        })),
+      });
+    }
 
     const par = chat.parDe(req.body.aId, req.body.bId);
     if (!par) return res.status(400).json({ erro: "Escolha duas pessoas diferentes." });

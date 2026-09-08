@@ -444,3 +444,41 @@ ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS visto_em TIMESTAMPTZ;
 -- de acreditar em todas.
 ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS chat_status    TEXT;
 ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS chat_status_em TIMESTAMPTZ;
+
+-- ------------------------------------------------------------
+-- CANAL DO DEPARTAMENTO
+-- ------------------------------------------------------------
+-- A mesma tabela `conversas` passa a servir tambem ao canal de departamento:
+-- COMERCIAL, CCO, OPERACAO... Um canal por departamento, e dentro dele so quem
+-- esta lotado ali.
+--
+-- Por que na mesma tabela, e nao numa nova: mensagem, leitura, imagem, apagar,
+-- o fluxo em tempo real e o resgate a pedido da diretoria ja funcionam em cima
+-- de `conversa_id`. Em tabela separada, cada uma dessas seis coisas precisaria
+-- de uma segunda versao — e a segunda versao e sempre a que fica para tras
+-- quando alguem corrige um defeito na primeira.
+--
+-- NAO existe tabela de membros: quem esta no canal e quem tem aquele
+-- departamento no cadastro. Lista de membros a parte sairia do lugar no dia em
+-- que alguem mudasse de area, e a conversa continuaria chegando para quem saiu.
+ALTER TABLE conversas ADD COLUMN IF NOT EXISTS tipo         TEXT NOT NULL DEFAULT 'direta';
+ALTER TABLE conversas ADD COLUMN IF NOT EXISTS departamento TEXT;
+ALTER TABLE conversas ALTER COLUMN a_id DROP NOT NULL;
+ALTER TABLE conversas ALTER COLUMN b_id DROP NOT NULL;
+
+-- A regra das duas formas, numa linha so: ou e dupla (dois ids, em ordem), ou
+-- e canal (um departamento e nenhum id). Nada pela metade.
+ALTER TABLE conversas DROP CONSTRAINT IF EXISTS conversa_par_ordenado;
+ALTER TABLE conversas DROP CONSTRAINT IF EXISTS conversa_forma;
+ALTER TABLE conversas ADD  CONSTRAINT conversa_forma CHECK (
+  (tipo = 'direta'       AND a_id IS NOT NULL AND b_id IS NOT NULL AND a_id < b_id
+                         AND departamento IS NULL) OR
+  (tipo = 'departamento' AND a_id IS NULL AND b_id IS NULL AND departamento IS NOT NULL)
+);
+
+-- Um canal por departamento. O indice unico e o arbitro da corrida: se duas
+-- pessoas do COMERCIAL abrirem o canal no mesmo segundo, uma cria e a outra le
+-- o que a primeira criou, em vez de nascerem dois canais paralelos.
+CREATE UNIQUE INDEX IF NOT EXISTS conversa_canal_unico
+  ON conversas (LOWER(BTRIM(departamento)))
+  WHERE tipo = 'departamento';
