@@ -10,6 +10,9 @@ var EU = null;
 var PAGINA = 0;
 var POR_PAGINA = 10;
 var IMAGEM = null;   // { tipo, base64 } enquanto a pessoa nao publica
+var EDITANDO = null; // a publicacao aberta para edicao, ou null
+var TIRAR_IMAGEM = false;
+var PUBS = {};       // o que veio do servidor, por id — para preencher a edicao
 
 var TIPO_ROTULO = { aviso: 'Aviso', mudanca: 'Mudança', evento: 'Evento' };
 
@@ -56,6 +59,7 @@ async function carregar(mais) {
 
   if (d.podePublicar) document.getElementById('compor').style.display = '';
 
+  d.publicacoes.forEach(function (p) { PUBS[p.id] = p; });
   var html = d.publicacoes.map(cartao).join('');
   var lista = document.getElementById('lista');
   if (mais) lista.insertAdjacentHTML('beforeend', html);
@@ -205,11 +209,22 @@ function ligarComposicao() {
     this.value = '';
     if (!arq) return;
     IMAGEM = await reduzir(arq);
+    TIRAR_IMAGEM = false;
+    document.getElementById('btnTirarImagem').style.display = EDITANDO ? '' : 'none';
     var img = document.getElementById('previaImg');
     img.src = 'data:' + IMAGEM.tipo + ';base64,' + IMAGEM.base64;
     img.style.display = 'block';
   });
   document.getElementById('btnPublicar').addEventListener('click', publicar);
+  document.getElementById('btnCancelar').addEventListener('click', limparComposicao);
+  document.getElementById('btnTirarImagem').addEventListener('click', function () {
+    TIRAR_IMAGEM = true;
+    IMAGEM = null;
+    var img = document.getElementById('previaImg');
+    img.style.display = 'none';
+    img.removeAttribute('src');
+    this.style.display = 'none';
+  });
 }
 
 async function publicar() {
@@ -225,37 +240,94 @@ async function publicar() {
   };
   if (IMAGEM) { corpo.imagem = IMAGEM.base64; corpo.imagemTipo = IMAGEM.tipo; }
 
-  var r = await fetch('/api/mural', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
+  if (EDITANDO) {
+    if (TIRAR_IMAGEM) corpo.removerImagem = true;
+    corpo.mostrarDeNovo = document.getElementById('cDeNovo').checked;
+  }
+
+  var r = await fetch(EDITANDO ? '/api/mural/' + EDITANDO.id : '/api/mural', {
+    method: EDITANDO ? 'PATCH' : 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(corpo),
   });
   var d = await r.json().catch(function () { return {}; });
   if (!r.ok) {
-    aviso.innerHTML = '<div class="aviso aviso-erro">' + esc(d.erro || 'Falha ao publicar') + '</div>';
+    aviso.innerHTML = '<div class="aviso aviso-erro">' +
+      esc(d.erro || (EDITANDO ? 'Falha ao salvar' : 'Falha ao publicar')) + '</div>';
     return;
   }
-  document.getElementById('cTitulo').value = '';
-  document.getElementById('cTexto').value = '';
-  document.getElementById('cFixado').checked = false;
-  document.getElementById('cPopup').checked = false;
-  document.getElementById('lblDias').style.display = 'none';
-  document.getElementById('previaImg').style.display = 'none';
-  IMAGEM = null;
+  limparComposicao();
   await carregar(false);
 }
 
-async function editar(id) {
-  var pub = document.getElementById('pub-' + id);
-  var titulo = prompt('Título', pub.querySelector('.pub-corpo h3').textContent);
-  if (titulo === null) return;
-  var pAtual = pub.querySelector('.pub-corpo p');
-  var texto = prompt('Texto', pAtual && !pAtual.className ? pAtual.textContent : '');
-  if (texto === null) return;
-  var r = await fetch('/api/mural/' + id, {
-    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ titulo: titulo, texto: texto }),
-  });
-  if (r.ok) await carregar(false);
+// Editar usa o MESMO formulario de publicar, preenchido.
+//
+// Antes eram duas caixinhas do navegador (prompt), e so titulo e texto: tipo,
+// fixado, pop-up e imagem ficavam presos para sempre no que foram no dia da
+// publicacao. Quem quisesse tirar um pop-up tinha que arquivar e republicar —
+// perdendo curtidas, comentarios e o historico de edicao.
+function editar(id) {
+  var p = PUBS[id];
+  if (!p) return;
+
+  EDITANDO = p;
+  IMAGEM = null;
+  TIRAR_IMAGEM = false;
+
+  document.getElementById('compor').style.display = '';
+  document.getElementById('cTitulo').value = p.titulo || '';
+  document.getElementById('cTexto').value = p.texto || '';
+  document.getElementById('cTipo').value = p.tipo || 'aviso';
+  document.getElementById('cFixado').checked = Boolean(p.fixado);
+
+  // O pop-up: ligado se ainda esta no prazo. Os dias voltam ao padrao, porque
+  // o que importa daqui para a frente e por quanto tempo ele AINDA vai
+  // aparecer, e nao quanto foi pedido no dia da publicacao.
+  var noPrazo = p.popup_ate && new Date(p.popup_ate) > new Date();
+  document.getElementById('cPopup').checked = Boolean(noPrazo);
+  document.getElementById('lblDias').style.display = noPrazo ? '' : 'none';
+
+  var img = document.getElementById('previaImg');
+  if (p.tem_imagem) {
+    img.src = '/api/mural/' + id + '/imagem';
+    img.style.display = 'block';
+  } else {
+    img.style.display = 'none';
+    img.removeAttribute('src');
+  }
+
+  document.getElementById('btnTirarImagem').style.display = p.tem_imagem ? '' : 'none';
+  document.getElementById('btnCancelar').style.display = '';
+  document.getElementById('lblDeNovo').style.display = '';
+  document.getElementById('cDeNovo').checked = false;
+  document.getElementById('btnImagem').textContent = 'Trocar imagem';
+  document.getElementById('btnPublicar').textContent = 'Salvar alterações';
+  document.getElementById('avisoCompor').innerHTML = '';
+
+  document.getElementById('compor').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  document.getElementById('cTitulo').focus();
+}
+
+function limparComposicao() {
+  EDITANDO = null;
+  IMAGEM = null;
+  TIRAR_IMAGEM = false;
+  document.getElementById('cTitulo').value = '';
+  document.getElementById('cTexto').value = '';
+  document.getElementById('cTipo').value = 'aviso';
+  document.getElementById('cFixado').checked = false;
+  document.getElementById('cPopup').checked = false;
+  document.getElementById('cDeNovo').checked = false;
+  document.getElementById('lblDias').style.display = 'none';
+  document.getElementById('lblDeNovo').style.display = 'none';
+  document.getElementById('btnTirarImagem').style.display = 'none';
+  document.getElementById('btnCancelar').style.display = 'none';
+  document.getElementById('btnImagem').textContent = 'Adicionar imagem';
+  document.getElementById('btnPublicar').textContent = 'Publicar';
+  document.getElementById('avisoCompor').innerHTML = '';
+  var img = document.getElementById('previaImg');
+  img.style.display = 'none';
+  img.removeAttribute('src');
 }
 
 async function arquivar(id) {

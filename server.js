@@ -979,11 +979,46 @@ app.patch("/api/mural/:id", exigeLogin, async (req, res, next) => {
          VALUES ($1,$2,$3,$4)`,
         [req.params.id, req.usuario.id, atual.rows[0].titulo, atual.rows[0].texto]
       );
+      // O pop-up entra na edicao como tudo o mais.
+      //
+      // Antes so titulo, texto, tipo e fixado mudavam: uma publicacao nascia
+      // com pop-up e morria com pop-up, e a unica saida era arquivar e
+      // republicar — perdendo curtida, comentario e o historico de edicao.
       await c.query(
-        `UPDATE avisos SET titulo=$1, texto=$2, tipo=$3, fixado=$4, editado_em=NOW()
-          WHERE id=$5`,
-        [d.titulo, d.texto, d.tipo, Boolean(req.body.fixado), req.params.id]
+        `UPDATE avisos SET titulo=$1, texto=$2, tipo=$3, fixado=$4, popup_ate=$5,
+                           editado_em=NOW()
+          WHERE id=$6`,
+        [d.titulo, d.texto, d.tipo, Boolean(req.body.fixado), d.popupAte, req.params.id]
       );
+
+      // A imagem: trocar ou tirar. Sem isto, corrigir uma arte publicada
+      // exigia republicar a publicacao inteira.
+      if (req.body.removerImagem) {
+        await c.query("DELETE FROM aviso_imagem WHERE aviso_id=$1", [req.params.id]);
+      } else if (req.body.imagem && req.body.imagemTipo) {
+        const bytes = Buffer.from(String(req.body.imagem), "base64");
+        if (!mural.IMAGEM_TIPOS.includes(req.body.imagemTipo)) {
+          throw Object.assign(new Error("Formato de imagem não aceito."), { paraOUsuario: true });
+        }
+        if (bytes.length > mural.IMAGEM_MAX_BYTES) {
+          throw Object.assign(new Error("Imagem muito grande."), { paraOUsuario: true });
+        }
+        await c.query("DELETE FROM aviso_imagem WHERE aviso_id=$1", [req.params.id]);
+        await c.query(
+          "INSERT INTO aviso_imagem (aviso_id, tipo, bytes) VALUES ($1,$2,$3)",
+          [req.params.id, req.body.imagemTipo, bytes]
+        );
+      }
+
+      // Mostrar de novo para quem ja fechou o pop-up.
+      //
+      // Serve para o caso de a publicacao ter saido errada: sem isto, quem
+      // fechou o pop-up nunca mais ve a versao corrigida — e foi justamente
+      // quem leu a errada.
+      if (req.body.mostrarDeNovo) {
+        await c.query("UPDATE aviso_leitura SET popup_em = NULL WHERE aviso_id=$1",
+                      [req.params.id]);
+      }
     });
 
     await auth.auditar(req, "mural_editado", {
@@ -991,6 +1026,9 @@ app.patch("/api/mural/:id", exigeLogin, async (req, res, next) => {
     });
     res.json({ ok: true });
   } catch (e) {
+    // Erro de imagem e culpa do que a pessoa mandou, nao do servidor: ela
+    // precisa ler o motivo e tentar de novo, e nao um "erro interno".
+    if (e && e.paraOUsuario) return res.status(400).json({ erro: e.message });
     next(e);
   }
 });

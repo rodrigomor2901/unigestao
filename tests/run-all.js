@@ -21,6 +21,7 @@ const testes = [
   "importacao-partida.test.js",
   "agenda.test.js",
   "mural.test.js",
+  "mural-edicao.test.js",
   "tela-inicial.test.js",
   "destino-login.test.js",
   "shim-links.test.js",

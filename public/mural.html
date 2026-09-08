@@ -141,8 +141,13 @@
       <label id="lblDias" style="display:none">por
         <input id="cPopupDias" type="number" min="1" max="30" value="7" style="width:64px"> dias</label>
     </div>
+    <label id="lblDeNovo" style="display:none">
+      <input type="checkbox" id="cDeNovo"> Mostrar de novo para quem já fechou
+    </label>
     <div class="acoes">
       <button class="btn btn-sec" type="button" id="btnImagem">Adicionar imagem</button>
+      <button class="btn btn-sec" type="button" id="btnTirarImagem" style="display:none">Tirar imagem</button>
+      <button class="btn btn-sec" type="button" id="btnCancelar" style="display:none">Cancelar</button>
       <button class="btn" type="button" id="btnPublicar">Publicar</button>
     </div>
     <input type="file" id="arquivo" accept="image/*">
