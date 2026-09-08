@@ -685,6 +685,7 @@
       .then(function (d) {
         if (!d) { balas.innerHTML = '<div class="ug-vazio">Não consegui abrir a conversa.</div>'; return; }
         conversaId = d.conversaId;
+        lidoAte = Number(d.lidoAte || 0);
         // O grupo traz os membros junto: quem esta nele foi ESCOLHIDO, entao
         // nao da para deduzir a lista do cadastro como se faz no canal.
         membrosDoGrupoAberto = d.membros || null;
@@ -707,6 +708,7 @@
 
   var ultimoDia = "";
   var membrosDoGrupoAberto = null;
+  var lidoAte = 0;                  // ate onde o outro leu, na conversa aberta
 
   // Cada tipo de conversa tem seu endereco. Ficam juntos aqui para nao se
   // espalharem por cinco funcoes e saírem de sincronia.
@@ -755,7 +757,20 @@
       }
       if (m.minha) partes.push('<button class="ug-apagar" title="Apagar">&#128465;</button>');
     }
-    partes.push('<div class="ug-hora">' + hora(m.em) + "</div>");
+    // O "visto", so nas MINHAS mensagens e so na conversa de dois.
+    //
+    // Em grupo e canal isto viraria "visto por quem?", que e outra pergunta e
+    // outra tela — e um tique unico ali mentiria, porque dizer "visto" quando
+    // um leu e cinco nao leram e pior do que nao dizer nada.
+    var risco = "";
+    if (m.minha && !m.apagada && atual && !atual.canal && !atual.grupo) {
+      var visto = m.id <= lidoAte;
+      risco = '<span class="ug-visto' + (visto ? " lido" : "") +
+              '" data-msg="' + m.id + '" title="' +
+              (visto ? "Visto" : "Enviada") + '">' + (visto ? "\u2713\u2713" : "\u2713") +
+              "</span>";
+    }
+    partes.push('<div class="ug-hora">' + risco + hora(m.em) + "</div>");
     el.innerHTML = partes.join("");
 
     var print = el.querySelector(".ug-print");
@@ -904,6 +919,20 @@
         fecharAba(atual.id);
         voltarParaLista();
       });
+  }
+
+  // Alguem leu do outro lado: os tiques das minhas mensagens ate ali viram
+  // duplos. Mexe so no que mudou, em vez de redesenhar a conversa inteira —
+  // redesenhar tiraria a pessoa do lugar onde estava lendo.
+  function marcarVistoAte(ate) {
+    lidoAte = Math.max(lidoAte, Number(ate || 0));
+    Array.prototype.forEach.call(balas.querySelectorAll(".ug-visto"), function (el) {
+      if (Number(el.getAttribute("data-msg")) <= lidoAte) {
+        el.classList.add("lido");
+        el.textContent = "\u2713\u2713";
+        el.setAttribute("title", "Visto");
+      }
+    });
   }
 
   function rolar() { balas.scrollTop = balas.scrollHeight; }
@@ -1079,6 +1108,12 @@
     fluxo.addEventListener("open", function () {
       carregarPessoas();
       if (atual) recarregarConversaAberta();
+    });
+
+    fluxo.addEventListener("leitura", function (ev) {
+      var d;
+      try { d = JSON.parse(ev.data); } catch (e) { return; }
+      if (conversaId && Number(d.conversaId) === Number(conversaId)) marcarVistoAte(d.lidoAte);
     });
 
     fluxo.addEventListener("mensagem", function (ev) {

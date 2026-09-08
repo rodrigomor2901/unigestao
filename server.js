@@ -1392,8 +1392,17 @@ app.get("/api/chat/com/:outroId", exigeChat, async (req, res, next) => {
     // o caso de a tela abrir, a pessoa ler e o contador continuar vermelho.
     await marcarLido(conversaId, req.usuario.id);
 
+    // Ate onde o OUTRO leu. E o unico dado que falta para a tela saber quais
+    // das minhas mensagens ja foram vistas — o resto ja estava guardado desde
+    // o primeiro dia, para zerar o contador.
+    const dele = await db.query(
+      "SELECT lido_ate FROM conversa_leitura WHERE conversa_id=$1 AND usuario_id=$2",
+      [conversaId, req.params.outroId]
+    );
+
     res.json({
       conversaId,
+      lidoAte: dele.rows[0] ? Number(dele.rows[0].lido_ate) : 0,
       outro: outro.rows[0],
       mensagens: msgs.rows.reverse().map((m) => formatarMensagem(m, req.usuario.id)),
     });
@@ -1875,6 +1884,34 @@ app.get("/api/chat/stream", exigeChat, async (req, res, next) => {
 
     await db.query("UPDATE usuarios SET visto_em = NOW() WHERE id=$1", [euId]);
 
+    // Ate onde cada um dos meus interlocutores leu, na ultima vez que avisei.
+    // So o que MUDA vai para a tela: mandar as 44 conversas a cada volta seria
+    // barulho constante numa informacao que muda pouco.
+    const leiturasAvisadas = new Map();
+
+    async function olharLeituras() {
+      if (res.writableEnded) return;
+      try {
+        const r = await db.query(
+          `SELECT c.id, l.lido_ate
+             FROM conversas c
+             JOIN conversa_leitura l ON l.conversa_id = c.id AND l.usuario_id <> $1
+            WHERE c.tipo = 'direta' AND (c.a_id = $1 OR c.b_id = $1) AND l.lido_ate > 0`,
+          [euId]
+        );
+        for (const linha of r.rows) {
+          const id = Number(linha.id);
+          const ate = Number(linha.lido_ate);
+          if (leiturasAvisadas.get(id) === ate) continue;
+          leiturasAvisadas.set(id, ate);
+          res.write("event: leitura\ndata: " +
+                    JSON.stringify({ conversaId: id, lidoAte: ate }) + "\n\n");
+        }
+      } catch (e) {
+        console.error("[chat] falha ao olhar leituras:", e.message);
+      }
+    }
+
     let ocupado = false;
     async function olhar() {
       if (ocupado || res.writableEnded) return;
@@ -1920,6 +1957,11 @@ app.get("/api/chat/stream", exigeChat, async (req, res, next) => {
 
     const olho = setInterval(olhar, 2000);
 
+    // O "visto" anda mais devagar que a mensagem, de proposito: chegar 4
+    // segundos depois nao atrapalha ninguem, e dobrar a consulta do fluxo por
+    // causa dele seria pagar caro por muito pouco.
+    const olhoDaLeitura = setInterval(olharLeituras, 4000);
+
     // A batida do coracao faz duas coisas: mantem a conexao viva atravessando
     // proxy com tempo limite, e e ela que marca a pessoa como online. Por isso
     // "online" quer dizer "esta com o sistema aberto agora", e nao "abriu uma
@@ -1936,6 +1978,7 @@ app.get("/api/chat/stream", exigeChat, async (req, res, next) => {
 
     req.on("close", () => {
       clearInterval(olho);
+      clearInterval(olhoDaLeitura);
       clearInterval(batida);
       res.end();
     });

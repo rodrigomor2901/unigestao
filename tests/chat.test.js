@@ -292,6 +292,28 @@ const PNG_1x1 =
   ok(resgateDoCanal.mensagens.some((m) => m.texto.indexOf("proposta do cliente X") >= 0),
      "o administrador resgata o canal inteiro, com motivo registrado");
 
+  console.log("\n=== O VISTO ===");
+  // O dado ja existia — e o mesmo "li ate aqui" que zera o contador. O que
+  // faltava era a conversa devolver ate onde o OUTRO leu.
+  const paraVer = await (await post(`/api/chat/com/${bruno.id}`, ana.token,
+    { texto: "Bruno, viu o e-mail?" })).json();
+
+  let comoAnaVe = await (await get(`/api/chat/com/${bruno.id}`, ana.token)).json();
+  ok(comoAnaVe.lidoAte < paraVer.mensagem.id,
+     "recem-enviada: o Bruno ainda nao leu, entao fica com um tique so");
+
+  await get(`/api/chat/com/${ana.id}`, bruno.token);   // o Bruno abre a conversa
+
+  comoAnaVe = await (await get(`/api/chat/com/${bruno.id}`, ana.token)).json();
+  ok(comoAnaVe.lidoAte >= paraVer.mensagem.id,
+     "depois que ele abre, a Ana ve que foi lida  <-- e o visto");
+
+  // Abrir a conversa com uma pessoa nao pode dizer nada sobre a conversa dela
+  // com outra: o ponteiro de leitura e por conversa, nao por pessoa.
+  const comOChefe = await (await get(`/api/chat/com/${chefe.id}`, ana.token)).json();
+  ok(comOChefe.lidoAte === 0,
+     "conversa em que o outro nunca entrou nao vem marcada como lida");
+
   console.log("\n=== GRUPO COM GENTE ESCOLHIDA ===");
   // Diferente do canal: aqui a lista de membros e guardada, porque "os gestores
   // de todas as areas" nao e regra nenhuma do cadastro — e uma escolha.

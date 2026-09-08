@@ -435,3 +435,8 @@ body[data-janela] { margin: 0; overflow: hidden; }
 }
 #ug-chat .ug-tirar:hover { color: #dc2626; }
 #ug-chat.no-grupo .ug-sub { cursor: pointer; text-decoration: underline dotted; }
+
+/* --- o "visto" ------------------------------------------------------------ */
+/* Um tique = saiu daqui. Dois tiques = a outra pessoa abriu a conversa. */
+#ug-chat .ug-visto { margin-right: 4px; letter-spacing: -1px; }
+#ug-chat .ug-visto.lido { color: #7dd3fc; opacity: 1; }
