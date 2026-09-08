@@ -1277,6 +1277,10 @@ app.get("/api/chat/pessoas", exigeChat, async (req, res, next) => {
 
     res.json({
       eu: {
+        // O proprio nome vai junto porque a lista de pessoas exclui quem esta
+        // pedindo — e sem ele a pessoa nao apareceria entre os membros do
+        // proprio canal, que e o primeiro nome que ela procura ali.
+        nome: req.usuario.nome,
         situacao: meu.rows[0] ? (meu.rows[0].status || "online") : "online",
         departamento: meuDep,
       },

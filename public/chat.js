@@ -37,6 +37,7 @@
   var atual = null;                 // com quem — ou onde — estou falando
   var conversaId = null;
   var minhaSituacao = "online";     // online | ocupado | reuniao
+  var euSou = null;                 // { nome, situacao, departamento }
   var abas = [];                    // conversas deixadas abertas, na ordem
   var anexo = null;                 // { dados: base64, tipo, previa }
   var tituloOriginal = document.title;
@@ -116,6 +117,7 @@
       '  <div class="ug-busca"><input type="text" placeholder="Buscar pessoa..."></div>',
       '  <div class="ug-lista"></div>',
       '  <div class="ug-conversa">',
+      '    <div class="ug-membros"></div>',
       '    <div class="ug-balas"></div>',
       '    <div class="ug-anexo"><img alt=""><span></span><button type="button">remover</button></div>',
       '    <div class="ug-aviso"></div>',
@@ -154,6 +156,12 @@
       abrirPainel(false);
     });
     raiz.querySelector(".ug-janela").addEventListener("click", abrirEmJanela);
+    raiz.querySelector(".ug-sub").addEventListener("click", function () {
+      // So no canal: numa conversa de dois, "quem esta aqui" nao e pergunta.
+      if (!atual || !atual.canal) return;
+      raiz.classList.toggle("vendo-membros");
+      if (raiz.classList.contains("vendo-membros")) desenharMembros();
+    });
     raiz.querySelector(".ug-situacao").addEventListener("click", function (ev) {
       ev.stopPropagation();
       raiz.classList.toggle("menu-aberto");
@@ -430,9 +438,9 @@
             naoLidas: c.naoLidas, ultima: c.ultima,
           };
         });
-        if (d.eu && d.eu.situacao) {
-          minhaSituacao = d.eu.situacao;
-          desenharSituacao();
+        if (d.eu) {
+          euSou = d.eu;
+          if (d.eu.situacao) { minhaSituacao = d.eu.situacao; desenharSituacao(); }
         }
         desenharLista();
         desenharAbas();
@@ -544,9 +552,11 @@
     raiz.querySelector(".ug-voltar").hidden = false;
     raiz.querySelector(".ug-titulo").textContent = destino.canal ? "# " + destino.nome : destino.nome;
 
+    raiz.classList.remove("vendo-membros");
     if (destino.canal) {
       raiz.querySelector(".ug-sub").textContent =
-        destino.quantos + (destino.quantos === 1 ? " pessoa" : " pessoas") + " desta área";
+        destino.quantos + (destino.quantos === 1 ? " pessoa" : " pessoas") +
+        " desta área — ver quem";
     } else {
       var situacao = destino.situacao || (destino.online ? "online" : "offline");
       raiz.querySelector(".ug-sub").textContent =
@@ -632,6 +642,62 @@
     if (apagar) apagar.addEventListener("click", function () { apagarMensagem(m.id, el); });
 
     balas.appendChild(el);
+  }
+
+  // Quem esta no canal.
+  //
+  // Sai da lista que ja veio carregada — os membros de um canal sao exatamente
+  // as pessoas com aquele departamento no cadastro. Nao ha consulta nova a
+  // fazer, e nao ha lista guardada que possa discordar da verdade.
+  function membrosDoCanal(nomeDaArea) {
+    var mesma = function (a, b) {
+      return String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
+    };
+    var lista = pessoas.filter(function (p) { return mesma(p.departamento, nomeDaArea); });
+
+    // A lista de pessoas nao inclui quem esta pedindo — e o proprio nome e o
+    // primeiro que se procura ao abrir "quem esta aqui".
+    if (euSou && mesma(euSou.departamento, nomeDaArea)) {
+      lista = lista.concat([{
+        id: "eu", nome: euSou.nome || "Você", souEu: true,
+        situacao: minhaSituacao, cargo: "", temFoto: false,
+      }]);
+    }
+    return lista.sort(function (a, b) { return a.nome.localeCompare(b.nome, "pt-BR"); });
+  }
+
+  function desenharMembros() {
+    var caixaMembros = raiz.querySelector(".ug-membros");
+    if (!atual || !atual.canal) { caixaMembros.innerHTML = ""; return; }
+
+    var gente = membrosDoCanal(atual.nome);
+    if (!gente.length) {
+      caixaMembros.innerHTML =
+        '<div class="ug-vazio">Ninguém com este departamento no cadastro.</div>';
+      return;
+    }
+
+    caixaMembros.innerHTML =
+      '<div class="ug-membros-titulo">Quem está em # ' + esc(atual.nome) + "</div>" +
+      gente.map(function (p) {
+        var situacao = p.situacao || (p.online ? "online" : "offline");
+        return [
+          '<div class="ug-membro">',
+          '  <span class="ug-foto"' + (p.temFoto ? ' data-foto="' + esc(p.id) + '"' : "") + ">",
+          '    <span class="ug-iniciais">' + esc(iniciais(p.nome)) + "</span>",
+          '    <span class="ug-luz ' + esc(situacao) + '"></span>',
+          "  </span>",
+          '  <span class="ug-quem">',
+          '    <span class="ug-nome">' + esc(p.nome) +
+            (p.souEu ? " <b>(você)</b>" : "") + "</span>",
+          '    <span class="ug-previa">' +
+            esc((ROTULO[situacao] || "Offline") + (p.cargo ? " · " + p.cargo : "")) + "</span>",
+          "  </span>",
+          "</div>",
+        ].join("");
+      }).join("");
+
+    carregarFotos(caixaMembros);
   }
 
   function rolar() { balas.scrollTop = balas.scrollHeight; }
@@ -1080,6 +1146,7 @@
             naoLidas: c.naoLidas, ultima: c.ultima,
           };
         });
+        if (d.eu) euSou = d.eu;
         if (d.eu && d.eu.situacao) minhaSituacao = d.eu.situacao;
         desenharSituacao();
 

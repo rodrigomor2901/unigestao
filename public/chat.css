@@ -350,3 +350,28 @@ body[data-janela] { margin: 0; overflow: hidden; }
   font-family: "Segoe UI", system-ui, -apple-system, Arial, sans-serif,
                "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji";
 }
+
+/* --- quem está no canal --------------------------------------------------- */
+/* Abre por cima da conversa, e nao empurrando as mensagens: quem clicou quer
+   olhar quem esta ali e voltar, nao perder o lugar da leitura. */
+#ug-chat .ug-membros { display: none; }
+#ug-chat.vendo-membros .ug-membros {
+  display: block; flex: 1 1 auto; overflow-y: auto; background: #fff;
+}
+#ug-chat.vendo-membros .ug-balas,
+#ug-chat.vendo-membros .ug-escrever,
+#ug-chat.vendo-membros .ug-emojis,
+#ug-chat.vendo-membros .ug-anexo { display: none; }
+
+#ug-chat .ug-membros-titulo {
+  padding: 10px 12px; font-size: 12px; font-weight: 600; color: #6b7280;
+  border-bottom: 1px solid #e5e7eb; position: sticky; top: 0; background: #fff;
+}
+#ug-chat .ug-membro {
+  display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+}
+#ug-chat .ug-membro:hover { background: #f7f8fa; }
+
+/* No canal o subtitulo e clicavel — e precisa parecer clicavel. */
+#ug-chat.no-canal .ug-sub { cursor: pointer; text-decoration: underline dotted; }
+#ug-chat.no-canal .ug-sub:hover { opacity: 1; }
