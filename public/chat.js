@@ -567,6 +567,33 @@
     return t;
   }
 
+  // A ordem da lista.
+  //
+  // Tres blocos, e dentro de cada um a ordem alfabetica de sempre:
+  //
+  //   1. quem tem mensagem nao lida — precisa de resposta, e some no meio de
+  //      45 nomes se ficar na ordem alfabetica pura. Este bloco existe porque
+  //      quem te escreveu pode ter saido logo depois: sem ele, a mensagem nova
+  //      de quem ficou offline cai para o fim da lista.
+  //   2. quem esta com o sistema aberto agora — inclusive ocupado e em reuniao,
+  //      que estao presentes; a bolinha ja diz a diferenca.
+  //   3. o resto.
+  //
+  // Pura de proposito: e a regra que decide o que a pessoa ve primeiro, e da
+  // para conferi-la sem abrir o navegador.
+  function ordenarPessoas(lista) {
+    var faixa = function (p) {
+      if (p.naoLidas) return 0;
+      var situacao = p.situacao || (p.online ? "online" : "offline");
+      return situacao === "offline" ? 2 : 1;
+    };
+    return lista.slice().sort(function (a, b) {
+      var fa = faixa(a), fb = faixa(b);
+      if (fa !== fb) return fa - fb;
+      return String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR");
+    });
+  }
+
   function desenharLista() {
     var filtro = (painelBusca.value || "").trim().toLowerCase();
     var combina = function (texto) {
@@ -575,9 +602,9 @@
 
     var meusCanais = canais.filter(function (c) { return combina(c.nome); });
     var meusGrupos = grupos.filter(function (g) { return combina(g.nome); });
-    var mostrar = pessoas.filter(function (p) {
+    var mostrar = ordenarPessoas(pessoas.filter(function (p) {
       return combina(p.nome + " " + p.departamento + " " + p.cargo);
-    });
+    }));
 
     if (!meusCanais.length && !meusGrupos.length && !mostrar.length) {
       lista.innerHTML = '<div class="ug-vazio">Ninguém encontrado.</div>';
@@ -1354,6 +1381,7 @@
     _deveAvisarNaTela: deveAvisarNaTela,
     _estadoDoConvite: estadoDoConvite,
     _rotuloDaAba: rotuloDaAba,
+    _ordenarPessoas: ordenarPessoas,
     conversarSobre: function (o) {
       o = o || {};
       pendenteSobre = { sobre: o.sobre || "", link: o.link || "" };

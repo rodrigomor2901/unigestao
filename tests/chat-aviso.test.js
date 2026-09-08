@@ -150,6 +150,46 @@ function criarDocumento() {
      "quem so tem um nome no cadastro nao vira 'Gisele undefined.'");
   ok(rotulo("", []) === "?", "cadastro sem nome nao quebra a barra de abas");
 
+  // ---------------------------------------------------------------------------
+  // A ORDEM DA LISTA
+  //
+  // Quem esta online aparece primeiro, em ordem alfabetica — e quem tem
+  // mensagem nao lida vem antes de todo mundo. Este ultimo bloco existe por um
+  // caso concreto: alguem escreve e sai; sem ele, a mensagem nova cairia para o
+  // fim de uma lista de 45 nomes e ninguem responderia.
+  console.log("\n=== QUEM APARECE PRIMEIRO NA LISTA ===");
+  const ordenar = janela.window.UGChat._ordenarPessoas;
+  const nomes = (lista) => ordenar(lista).map((p) => p.nome).join(", ");
+
+  ok(nomes([
+       { nome: "Carlos", situacao: "offline" },
+       { nome: "Ana", situacao: "online" },
+       { nome: "Beatriz", situacao: "offline" },
+     ]) === "Ana, Beatriz, Carlos",
+     "quem esta online sobe; o resto segue em ordem alfabetica");
+
+  ok(nomes([
+       { nome: "Zelia", situacao: "online" },
+       { nome: "Ana", situacao: "online" },
+     ]) === "Ana, Zelia",
+     "entre os presentes, continua alfabetico");
+
+  ok(nomes([
+       { nome: "Ana", situacao: "online" },
+       { nome: "Zelia", situacao: "offline", naoLidas: 2 },
+     ]) === "Zelia, Ana",
+     "mas quem te escreveu vem antes, mesmo tendo saido  <-- senao a mensagem some");
+
+  ok(nomes([
+       { nome: "Bruno", situacao: "ocupado" },
+       { nome: "Ana", situacao: "offline" },
+     ]) === "Bruno, Ana",
+     "ocupado e reuniao contam como presentes: a pessoa esta ai, a bolinha explica o resto");
+
+  ok(nomes([{ nome: "Ávila", situacao: "online" }, { nome: "Alberto", situacao: "online" }])
+       === "Alberto, Ávila",
+     "acento nao joga o nome para o fim da lista");
+
   console.log("\n" + (falhas === 0 ? "TODOS OS TESTES PASSARAM" : falhas + " TESTE(S) FALHARAM"));
   process.exit(falhas === 0 ? 0 : 1);
 })().catch((e) => { console.error(e); process.exit(1); });
