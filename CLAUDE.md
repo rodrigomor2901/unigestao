@@ -159,6 +159,18 @@ Ordem acordada: Operacional → Documentos → Eventos → Tarefas → CRM → P
   aquele departamento no cadastro, conferido a cada pedido. Lista de membros a parte sairia
   do lugar no dia em que alguem mudasse de area.
 
+- **Grupo x canal: a diferenca e de ONDE vem a lista de gente.** No canal do
+  departamento ela e derivada do cadastro e nao se guarda. No grupo ("os gestores de todas
+  as areas") nao existe regra que a produza — e escolha — entao existe `conversa_membros`.
+  Guardar membro do canal criaria uma segunda verdade sobre quem participa, e as duas
+  discordariam no dia em que alguem mudasse de area.
+
+- **A forma de uma conversa (`conversa_forma`) e definida UMA vez no schema.** Ja esteve
+  em dois lugares: a versao de duas formas rodava antes da de tres e derrubou o boot no
+  dia em que o primeiro grupo apareceu — a linha nova violava a regra que ainda nao
+  conhecia grupos. Constraint escrita em dois pontos passa meses quieta e falha
+  exatamente quando o dado novo chega.
+
 - **`departamentos` e NOT NULL.** Ao criar acesso sem departamento, mande lista vazia e
   nunca `null` — com `null` a criacao de acesso inteira falhava com 500, e nao escolher
   departamento e o caso comum.

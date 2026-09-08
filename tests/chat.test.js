@@ -292,6 +292,67 @@ const PNG_1x1 =
   ok(resgateDoCanal.mensagens.some((m) => m.texto.indexOf("proposta do cliente X") >= 0),
      "o administrador resgata o canal inteiro, com motivo registrado");
 
+  console.log("\n=== GRUPO COM GENTE ESCOLHIDA ===");
+  // Diferente do canal: aqui a lista de membros e guardada, porque "os gestores
+  // de todas as areas" nao e regra nenhuma do cadastro — e uma escolha.
+  const criado = await (await post("/api/chat/grupos", ana.token, {
+    nome: "Gestores", membros: [bruno.id],
+  })).json();
+  ok(criado.ok === true && criado.quantos === 2,
+     "a Ana cria um grupo com o Bruno — e ela mesma entra junto");
+
+  const semNome = await post("/api/chat/grupos", ana.token, { nome: "  ", membros: [bruno.id] });
+  ok(semNome.status === 400, "grupo sem nome nao passa");
+  const sozinho = await post("/api/chat/grupos", ana.token, { nome: "Eu comigo", membros: [] });
+  ok(sozinho.status === 400, "grupo so com quem criou nao faz sentido, e nao passa");
+
+  const doGrupo = await (await get(`/api/chat/grupo/${criado.conversaId}`, bruno.token)).json();
+  ok(doGrupo.nome === "Gestores" && doGrupo.membros.length === 2,
+     "o Bruno abre o grupo e ve quem esta nele");
+  ok(doGrupo.souDono === false, "e sabe que nao e o dono");
+
+  const deFora = await get(`/api/chat/grupo/${criado.conversaId}`, curioso.token);
+  ok(deFora.status === 404,
+     "quem nao foi incluido nao abre o grupo, nem sabendo o numero  <-- o furo classico");
+
+  const falou = await (await post(`/api/chat/grupo/${criado.conversaId}`, bruno.token, {
+    texto: "Reuniao de gestores as 14h" })).json();
+  ok(falou.ok === true, "quem esta no grupo escreve nele");
+  const invadindo = await post(`/api/chat/grupo/${criado.conversaId}`, curioso.token,
+                               { texto: "oi" });
+  ok(invadindo.status === 404, "e quem nao esta, nao escreve");
+
+  const listaDaAna = await (await get("/api/chat/pessoas", ana.token)).json();
+  const meuGrupo = listaDaAna.grupos.filter((x) => x.conversaId === criado.conversaId)[0];
+  ok(meuGrupo && meuGrupo.souDono === true, "o grupo aparece na lista de quem participa");
+  ok(meuGrupo.naoLidas === 1 && meuGrupo.ultima.autor === bruno.nome,
+     "com a nao lida e o nome de quem falou por ultimo");
+
+  console.log("\n=== QUEM MEXE NA LISTA DO GRUPO ===");
+  const tentouIncluir = await post(`/api/chat/grupo/${criado.conversaId}/membros`, bruno.token,
+                                   { membros: [curioso.id] });
+  ok(tentouIncluir.status === 403, "quem nao criou o grupo nao inclui gente");
+
+  const incluiu = await (await post(`/api/chat/grupo/${criado.conversaId}/membros`, ana.token,
+                                    { membros: [curioso.id] })).json();
+  ok(incluiu.membros.length === 3, "o dono inclui");
+
+  const tirar = (token, quem) =>
+    fetch(`${CORE}/api/chat/grupo/${criado.conversaId}/membros/${quem}`,
+          { method: "DELETE", ...C(token) });
+
+  ok((await tirar(bruno.token, curioso.id)).status === 403,
+     "quem nao e dono nao tira ninguem");
+  ok((await tirar(bruno.token, bruno.id)).status === 200,
+     "mas qualquer um sai sozinho  <-- grupo do qual nao se pode sair e armadilha");
+
+  const semOBruno = await (await get(`/api/chat/grupo/${criado.conversaId}`, ana.token)).json();
+  ok(!semOBruno.membros.some((m) => m.id === bruno.id), "e ele sai mesmo da lista");
+  ok(semOBruno.mensagens.some((m) => m.texto === "Reuniao de gestores as 14h"),
+     "mas o que ele escreveu FICA  <-- sair nao apaga o que se disse");
+  ok((await get(`/api/chat/grupo/${criado.conversaId}`, bruno.token)).status === 404,
+     "e depois de sair ele nao le mais o grupo");
+
   console.log("\n=== SITUACAO: DISPONIVEL, OCUPADO, EM REUNIAO ===");
   const regrasSit = require("../core/chat.js");
   ok(regrasSit.statusValido("reuniao") === "reuniao", "'reuniao' e uma situacao valida");

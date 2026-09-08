@@ -1157,11 +1157,19 @@ async function canalDoDepartamento(departamento) {
 // falha que ninguem percebe porque a tela nunca oferece esse caminho.
 async function souDaConversa(conversaId, usuario) {
   const r = await db.query(
-    "SELECT id, tipo, a_id, b_id, departamento FROM conversas WHERE id=$1",
+    "SELECT id, tipo, a_id, b_id, departamento, nome, criador_id FROM conversas WHERE id=$1",
     [conversaId]
   );
   const c = r.rows[0];
   if (!c) return null;
+
+  if (c.tipo === "grupo") {
+    const m = await db.query(
+      "SELECT 1 FROM conversa_membros WHERE conversa_id=$1 AND usuario_id=$2",
+      [conversaId, usuario.id]
+    );
+    return m.rows[0] ? c : null;
+  }
 
   if (c.tipo === "departamento") {
     // No canal, pertencer NAO e uma linha guardada: e o departamento do
@@ -1275,11 +1283,58 @@ app.get("/api/chat/pessoas", exigeChat, async (req, res, next) => {
       }
     }
 
+    // Os grupos de que a pessoa participa. Diferente do canal, aqui a lista de
+    // membros e guardada — "os gestores de todas as areas" nao e regra nenhuma
+    // do cadastro, e uma escolha de alguem.
+    const g = await db.query(
+      `SELECT c.id, c.nome, c.criador_id,
+              (SELECT COUNT(*)::int FROM conversa_membros x WHERE x.conversa_id = c.id) AS quantos,
+              COALESCE((SELECT COUNT(*) FROM mensagens m
+                         WHERE m.conversa_id = c.id AND m.autor_id <> $1
+                           AND m.apagada_em IS NULL
+                           AND m.id > COALESCE((SELECT lido_ate FROM conversa_leitura
+                                                 WHERE conversa_id = c.id AND usuario_id = $1), 0)), 0)
+              AS nao_lidas,
+              ult.texto, ult.criada_em, ult.tem_imagem, ult.apagada_em,
+              (ult.autor_id = $1) AS minha, ult.autor_nome
+         FROM conversas c
+         JOIN conversa_membros meu ON meu.conversa_id = c.id AND meu.usuario_id = $1
+         LEFT JOIN LATERAL (
+           SELECT m2.texto, m2.criada_em, m2.tem_imagem, m2.apagada_em, m2.autor_id,
+                  u2.nome AS autor_nome
+             FROM mensagens m2 JOIN usuarios u2 ON u2.id = m2.autor_id
+            WHERE m2.conversa_id = c.id ORDER BY m2.id DESC LIMIT 1
+         ) ult ON TRUE
+        WHERE c.tipo = 'grupo'
+        ORDER BY ult.criada_em DESC NULLS LAST, c.nome`,
+      [req.usuario.id]
+    );
+
+    const grupos = g.rows.map((x) => ({
+      conversaId: Number(x.id),
+      nome: x.nome,
+      souDono: x.criador_id === req.usuario.id,
+      quantos: Number(x.quantos || 0),
+      naoLidas: Number(x.nao_lidas || 0),
+      ultima: x.criada_em
+        ? {
+            texto: x.apagada_em ? "" : (x.texto || ""),
+            apagada: Boolean(x.apagada_em),
+            temImagem: Boolean(x.tem_imagem),
+            autor: x.autor_nome || "",
+            minha: Boolean(x.minha),
+            em: x.criada_em,
+          }
+        : null,
+    }));
+
     res.json({
+      grupos,
       eu: {
         // O proprio nome vai junto porque a lista de pessoas exclui quem esta
         // pedindo — e sem ele a pessoa nao apareceria entre os membros do
         // proprio canal, que e o primeiro nome que ela procura ali.
+        id: req.usuario.id,
         nome: req.usuario.nome,
         situacao: meu.rows[0] ? (meu.rows[0].status || "online") : "online",
         departamento: meuDep,
@@ -1511,6 +1566,192 @@ app.post("/api/chat/canal", exigeChat, async (req, res, next) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Grupos — conversa com gente escolhida a dedo
+// ----------------------------------------------------------------------------
+// Qualquer pessoa cria. Nao ha aprovacao de administrador de proposito: com 45
+// pessoas, uma fila para criar um grupo de tres significa que o grupo nao vai
+// existir, e a conversa acontece no WhatsApp — que e exatamente o que este
+// comunicador veio evitar.
+//
+// Quem criou e o dono: inclui e tira gente. Sair, qualquer um sai sozinho.
+// ---------------------------------------------------------------------------
+async function membrosDoGrupo(conversaId) {
+  const r = await db.query(
+    `SELECT u.id, u.nome, u.cargo, u.departamento_principal AS departamento,
+            (u.visto_em > NOW() - ($2 || ' seconds')::interval) AS online,
+            CASE WHEN u.chat_status_em > NOW() - ($3 || ' hours')::interval
+                 THEN u.chat_status END AS status,
+            EXISTS (SELECT 1 FROM usuario_foto f WHERE f.usuario_id = u.id) AS tem_foto
+       FROM conversa_membros m JOIN usuarios u ON u.id = m.usuario_id
+      WHERE m.conversa_id = $1
+      ORDER BY u.nome`,
+    [conversaId, String(chat.ONLINE_SEGUNDOS), String(chat.STATUS_HORAS)]
+  );
+  return r.rows.map((p) => ({
+    id: p.id, nome: p.nome, cargo: p.cargo || "", departamento: p.departamento || "",
+    situacao: chat.comoAparece(Boolean(p.online), p.status), temFoto: p.tem_foto,
+  }));
+}
+
+app.post("/api/chat/grupos", exigeChat, async (req, res, next) => {
+  try {
+    const nome = chat.nomeDeCanal(req.body.nome);
+    if (!nome) return res.status(400).json({ erro: "Dê um nome ao grupo." });
+
+    const pedidos = Array.isArray(req.body.membros) ? req.body.membros.map(String) : [];
+    // Quem cria entra sempre — grupo sem o dono dentro seria um grupo que ele
+    // monta e nao consegue abrir.
+    const ids = pedidos.filter((id) => id !== req.usuario.id).concat([req.usuario.id]);
+
+    const gente = await db.query(
+      "SELECT id FROM usuarios WHERE id = ANY($1) AND ativo", [ids]
+    );
+    if (gente.rows.length < 2) {
+      return res.status(400).json({ erro: "Escolha ao menos uma pessoa além de você." });
+    }
+
+    const nova = await db.query(
+      `INSERT INTO conversas (tipo, nome, criador_id) VALUES ('grupo', $1, $2) RETURNING id`,
+      [nome, req.usuario.id]
+    );
+    const grupoId = nova.rows[0].id;
+
+    for (const linha of gente.rows) {
+      await db.query(
+        `INSERT INTO conversa_membros (conversa_id, usuario_id) VALUES ($1,$2)
+         ON CONFLICT DO NOTHING`,
+        [grupoId, linha.id]
+      );
+    }
+
+    res.json({ ok: true, conversaId: Number(grupoId), nome, quantos: gente.rows.length });
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.get("/api/chat/grupo/:id", exigeChat, async (req, res, next) => {
+  try {
+    const grupo = await souDaConversa(req.params.id, req.usuario);
+    if (!grupo || grupo.tipo !== "grupo") {
+      return res.status(404).json({ erro: "Grupo não encontrado" });
+    }
+
+    const msgs = await db.query(
+      `SELECT m.id, m.autor_id, m.texto, m.tem_imagem, m.sobre, m.link, m.criada_em,
+              m.apagada_em, u.nome AS autor_nome
+         FROM mensagens m JOIN usuarios u ON u.id = m.autor_id
+        WHERE m.conversa_id = $1 ORDER BY m.id DESC LIMIT 60`,
+      [grupo.id]
+    );
+
+    await marcarLido(grupo.id, req.usuario.id);
+
+    res.json({
+      conversaId: Number(grupo.id),
+      nome: grupo.nome,
+      souDono: grupo.criador_id === req.usuario.id,
+      membros: await membrosDoGrupo(grupo.id),
+      mensagens: msgs.rows.reverse().map((m) => formatarMensagem(m, req.usuario.id)),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.post("/api/chat/grupo/:id", exigeChat, async (req, res, next) => {
+  try {
+    const v = chat.validarMensagem(req.body || {});
+    if (!v.ok) return res.status(400).json({ erro: v.erro });
+
+    const grupo = await souDaConversa(req.params.id, req.usuario);
+    if (!grupo || grupo.tipo !== "grupo") {
+      return res.status(404).json({ erro: "Grupo não encontrado" });
+    }
+
+    let bytes = null;
+    if (req.body.imagem) {
+      bytes = Buffer.from(String(req.body.imagem), "base64");
+      if (bytes.length > chat.IMAGEM_MAX_BYTES) {
+        return res.status(413).json({ erro: "Print muito grande — reduza a imagem." });
+      }
+    }
+
+    const r = await db.query(
+      `INSERT INTO mensagens (conversa_id, autor_id, texto, tem_imagem, sobre, link)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       RETURNING id, autor_id, texto, tem_imagem, sobre, link, criada_em, apagada_em`,
+      [grupo.id, req.usuario.id, v.valores.texto, Boolean(bytes), v.valores.sobre, v.valores.link]
+    );
+    const msg = r.rows[0];
+    msg.autor_nome = req.usuario.nome;
+
+    if (bytes) {
+      await db.query(
+        "INSERT INTO mensagem_imagem (mensagem_id, tipo, bytes) VALUES ($1,$2,$3)",
+        [msg.id, req.body.imagemTipo, bytes]
+      );
+    }
+    await marcarLido(grupo.id, req.usuario.id, msg.id);
+
+    res.json({ ok: true, conversaId: Number(grupo.id),
+               mensagem: formatarMensagem(msg, req.usuario.id) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Incluir gente: so o dono.
+app.post("/api/chat/grupo/:id/membros", exigeChat, async (req, res, next) => {
+  try {
+    const grupo = await souDaConversa(req.params.id, req.usuario);
+    if (!grupo || grupo.tipo !== "grupo") {
+      return res.status(404).json({ erro: "Grupo não encontrado" });
+    }
+    if (grupo.criador_id !== req.usuario.id) {
+      return res.status(403).json({ erro: "Só quem criou o grupo pode incluir gente." });
+    }
+
+    const ids = Array.isArray(req.body.membros) ? req.body.membros.map(String) : [];
+    const gente = await db.query("SELECT id FROM usuarios WHERE id = ANY($1) AND ativo", [ids]);
+    for (const linha of gente.rows) {
+      await db.query(
+        `INSERT INTO conversa_membros (conversa_id, usuario_id) VALUES ($1,$2)
+         ON CONFLICT DO NOTHING`,
+        [grupo.id, linha.id]
+      );
+    }
+    res.json({ ok: true, membros: await membrosDoGrupo(grupo.id) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Tirar alguem (dono) ou sair (qualquer um, de si mesmo).
+app.delete("/api/chat/grupo/:id/membros/:usuarioId", exigeChat, async (req, res, next) => {
+  try {
+    const grupo = await souDaConversa(req.params.id, req.usuario);
+    if (!grupo || grupo.tipo !== "grupo") {
+      return res.status(404).json({ erro: "Grupo não encontrado" });
+    }
+
+    const alvo = String(req.params.usuarioId);
+    const souEu = alvo === req.usuario.id;
+    if (!souEu && grupo.criador_id !== req.usuario.id) {
+      return res.status(403).json({ erro: "Só quem criou o grupo pode tirar alguém." });
+    }
+
+    await db.query("DELETE FROM conversa_membros WHERE conversa_id=$1 AND usuario_id=$2",
+                   [grupo.id, alvo]);
+    // As mensagens ficam. Sair de um grupo nao apaga o que se disse nele — e o
+    // mesmo motivo pelo qual apagar mensagem esconde em vez de sumir.
+    res.json({ ok: true, sai: souEu });
+  } catch (e) {
+    next(e);
+  }
+});
+
 // Trocar a propria situacao. "online" (ou nada) volta para o automatico.
 app.post("/api/chat/status", exigeChat, async (req, res, next) => {
   try {
@@ -1537,7 +1778,10 @@ app.get("/api/chat/mensagem/:id/imagem", exigeChat, async (req, res, next) => {
           AND m.apagada_em IS NULL
           AND (c.a_id = $2 OR c.b_id = $2
                OR (c.tipo = 'departamento' AND $3 <> ''
-                   AND LOWER(BTRIM(c.departamento)) = LOWER(BTRIM($3))))`,
+                   AND LOWER(BTRIM(c.departamento)) = LOWER(BTRIM($3)))
+               OR (c.tipo = 'grupo' AND EXISTS (
+                     SELECT 1 FROM conversa_membros cm
+                      WHERE cm.conversa_id = c.id AND cm.usuario_id = $2)))`,
       [req.params.id, req.usuario.id, req.usuario.departamento_principal || ""]
     );
     if (!r.rows[0]) return res.status(404).end();
@@ -1638,7 +1882,7 @@ app.get("/api/chat/stream", exigeChat, async (req, res, next) => {
       try {
         const r = await db.query(
           `SELECT m.id, m.conversa_id, m.autor_id, m.texto, m.tem_imagem, m.sobre, m.link,
-                  m.criada_em, m.apagada_em, u.nome AS autor_nome, c.tipo, c.departamento,
+                  m.criada_em, m.apagada_em, u.nome AS autor_nome, c.tipo, c.departamento, c.nome,
                   CASE WHEN c.tipo = 'direta'
                        THEN (CASE WHEN c.a_id = $1 THEN c.b_id ELSE c.a_id END) END AS outro_id
              FROM mensagens m
@@ -1646,7 +1890,10 @@ app.get("/api/chat/stream", exigeChat, async (req, res, next) => {
              JOIN usuarios  u ON u.id = m.autor_id
             WHERE (c.a_id = $1 OR c.b_id = $1
                    OR (c.tipo = 'departamento' AND $3 <> ''
-                       AND LOWER(BTRIM(c.departamento)) = LOWER(BTRIM($3))))
+                       AND LOWER(BTRIM(c.departamento)) = LOWER(BTRIM($3)))
+                   OR (c.tipo = 'grupo' AND EXISTS (
+                         SELECT 1 FROM conversa_membros cm
+                          WHERE cm.conversa_id = c.id AND cm.usuario_id = $1)))
               AND m.id > $2 AND m.apagada_em IS NULL
             ORDER BY m.id LIMIT 50`,
           [euId, ultimo, meuDepartamento]
@@ -1657,6 +1904,8 @@ app.get("/api/chat/stream", exigeChat, async (req, res, next) => {
             conversaId: Number(m.conversa_id),
             outroId: m.outro_id || null,
             canal: m.tipo === "departamento" ? m.departamento : null,
+            grupo: m.tipo === "grupo" ? Number(m.conversa_id) : null,
+            grupoNome: m.tipo === "grupo" ? m.nome : null,
             autorNome: m.autor_nome,
             mensagem: formatarMensagem(m, euId),
           };

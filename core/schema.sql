@@ -466,15 +466,15 @@ ALTER TABLE conversas ADD COLUMN IF NOT EXISTS departamento TEXT;
 ALTER TABLE conversas ALTER COLUMN a_id DROP NOT NULL;
 ALTER TABLE conversas ALTER COLUMN b_id DROP NOT NULL;
 
--- A regra das duas formas, numa linha so: ou e dupla (dois ids, em ordem), ou
--- e canal (um departamento e nenhum id). Nada pela metade.
+-- A regra da forma de uma conversa e definida UMA vez, mais abaixo, junto com os
+-- grupos — e nao aqui e la.
+--
+-- Aqui ficam so as remocoes. A versao de duas formas ja existiu neste ponto do
+-- arquivo e quebrou o boot no dia em que o primeiro grupo foi criado: ela roda
+-- ANTES da definitiva, e nesse instante a linha do grupo violava a regra que
+-- ainda nao conhecia grupos. Constraint escrita em dois lugares e assim —
+-- passa meses sem incomodar e falha exatamente quando o dado novo aparece.
 ALTER TABLE conversas DROP CONSTRAINT IF EXISTS conversa_par_ordenado;
-ALTER TABLE conversas DROP CONSTRAINT IF EXISTS conversa_forma;
-ALTER TABLE conversas ADD  CONSTRAINT conversa_forma CHECK (
-  (tipo = 'direta'       AND a_id IS NOT NULL AND b_id IS NOT NULL AND a_id < b_id
-                         AND departamento IS NULL) OR
-  (tipo = 'departamento' AND a_id IS NULL AND b_id IS NULL AND departamento IS NOT NULL)
-);
 
 -- Um canal por departamento. O indice unico e o arbitro da corrida: se duas
 -- pessoas do COMERCIAL abrirem o canal no mesmo segundo, uma cria e a outra le
@@ -482,3 +482,39 @@ ALTER TABLE conversas ADD  CONSTRAINT conversa_forma CHECK (
 CREATE UNIQUE INDEX IF NOT EXISTS conversa_canal_unico
   ON conversas (LOWER(BTRIM(departamento)))
   WHERE tipo = 'departamento';
+
+-- ------------------------------------------------------------
+-- GRUPO — conversa com gente escolhida a dedo
+-- ------------------------------------------------------------
+-- O canal do departamento tem membros DERIVADOS (quem esta lotado na area). O
+-- grupo e o contrario: "os gestores de todas as areas" nao e regra nenhuma do
+-- cadastro, e uma escolha. Por isso, e SO por isso, aqui existe lista guardada.
+--
+-- Quem criou fica como dono: e quem inclui e tira gente. Sair, qualquer um sai
+-- sozinho — grupo do qual nao se pode sair vira lugar onde a pessoa e obrigada
+-- a receber conversa que nao lhe diz respeito.
+ALTER TABLE conversas ADD COLUMN IF NOT EXISTS nome       TEXT;
+ALTER TABLE conversas ADD COLUMN IF NOT EXISTS criador_id TEXT REFERENCES usuarios(id) ON DELETE SET NULL;
+
+-- Agora sao TRES formas na mesma tabela, e a regra continua sendo "nada pela
+-- metade": dupla (dois ids), canal (um departamento) ou grupo (um nome).
+ALTER TABLE conversas DROP CONSTRAINT IF EXISTS conversa_forma;
+ALTER TABLE conversas ADD  CONSTRAINT conversa_forma CHECK (
+  (tipo = 'direta'       AND a_id IS NOT NULL AND b_id IS NOT NULL AND a_id < b_id
+                         AND departamento IS NULL AND nome IS NULL) OR
+  (tipo = 'departamento' AND a_id IS NULL AND b_id IS NULL
+                         AND departamento IS NOT NULL AND nome IS NULL) OR
+  (tipo = 'grupo'        AND a_id IS NULL AND b_id IS NULL
+                         AND departamento IS NULL AND nome IS NOT NULL)
+);
+
+-- Quem esta no grupo. Existe so para o grupo: no canal do departamento, criar
+-- esta tabela seria criar uma segunda verdade sobre quem participa — e as duas
+-- discordariam no dia em que alguem mudasse de area.
+CREATE TABLE IF NOT EXISTS conversa_membros (
+  conversa_id BIGINT NOT NULL REFERENCES conversas(id) ON DELETE CASCADE,
+  usuario_id  TEXT   NOT NULL REFERENCES usuarios(id)  ON DELETE CASCADE,
+  entrou_em   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (conversa_id, usuario_id)
+);
+CREATE INDEX IF NOT EXISTS idx_conversa_membros_usuario ON conversa_membros (usuario_id);

@@ -34,6 +34,7 @@
 
   var pessoas = [];
   var canais = [];                  // o canal do meu departamento (hoje, um so)
+  var grupos = [];                  // grupos com gente escolhida a dedo
   var atual = null;                 // com quem — ou onde — estou falando
   var conversaId = null;
   var minhaSituacao = "online";     // online | ocupado | reuniao
@@ -77,7 +78,7 @@
   // comeca assim. Com isso as abas, o contador de nao lidas e a busca
   // continuam valendo para os dois sem nenhum caso especial.
   function destinos() {
-    return canais.concat(pessoas);
+    return canais.concat(grupos, pessoas);
   }
 
   function acharDestino(id) {
@@ -114,7 +115,19 @@
       '    <button class="ug-convite-sim">Ativar</button>',
       '    <button class="ug-convite-nao">Agora não</button>',
       "  </div>",
-      '  <div class="ug-busca"><input type="text" placeholder="Buscar pessoa..."></div>',
+      '  <div class="ug-busca">',
+      '    <input type="text" placeholder="Buscar pessoa...">',
+      '    <button class="ug-novo-grupo" title="Criar um grupo">+ grupo</button>',
+      "  </div>",
+      '  <div class="ug-criar">',
+      '    <input class="ug-grupo-nome" type="text" placeholder="Nome do grupo (ex.: Gestores)">',
+      '    <div class="ug-grupo-gente"></div>',
+      '    <div class="ug-grupo-aviso"></div>',
+      '    <div class="ug-grupo-acoes">',
+      '      <button class="ug-grupo-cancelar">Cancelar</button>',
+      '      <button class="ug-grupo-criar">Criar grupo</button>',
+      "    </div>",
+      "  </div>",
       '  <div class="ug-lista"></div>',
       '  <div class="ug-conversa">',
       '    <div class="ug-membros"></div>',
@@ -156,9 +169,15 @@
       abrirPainel(false);
     });
     raiz.querySelector(".ug-janela").addEventListener("click", abrirEmJanela);
+    raiz.querySelector(".ug-novo-grupo").addEventListener("click", abrirCriacaoDeGrupo);
+    raiz.querySelector(".ug-grupo-cancelar").addEventListener("click", function () {
+      raiz.classList.remove("criando-grupo", "so-incluir");
+    });
+    raiz.querySelector(".ug-grupo-criar").addEventListener("click", criarGrupo);
     raiz.querySelector(".ug-sub").addEventListener("click", function () {
-      // So no canal: numa conversa de dois, "quem esta aqui" nao e pergunta.
-      if (!atual || !atual.canal) return;
+      // So em canal e grupo: numa conversa de dois, "quem esta aqui" nao e
+      // pergunta.
+      if (!atual || (!atual.canal && !atual.grupo)) return;
       raiz.classList.toggle("vendo-membros");
       if (raiz.classList.contains("vendo-membros")) desenharMembros();
     });
@@ -421,6 +440,84 @@
     });
   }
 
+  // ------------------------------------------------------------ criar grupo
+  // Qualquer pessoa cria, sem passar por administrador.
+  //
+  // Com 45 pessoas, uma fila para criar um grupo de tres significa que o grupo
+  // nao vai existir — a conversa acontece no WhatsApp, que e exatamente o que
+  // este comunicador veio evitar.
+  function abrirCriacaoDeGrupo() {
+    raiz.classList.add("criando-grupo");
+    raiz.classList.remove("so-incluir");
+    raiz.querySelector(".ug-grupo-nome").value = "";
+    mostrarAvisoDoGrupo("");
+
+    var gente = raiz.querySelector(".ug-grupo-gente");
+    gente.innerHTML = pessoas.map(function (p) {
+      return '<label class="ug-escolher"><input type="checkbox" value="' + esc(p.id) + '"> ' +
+             "<span>" + esc(p.nome) +
+             (p.departamento ? ' <small>' + esc(p.departamento) + "</small>" : "") +
+             "</span></label>";
+    }).join("");
+
+    raiz.querySelector(".ug-grupo-nome").focus();
+  }
+
+  function mostrarAvisoDoGrupo(texto) {
+    var el = raiz.querySelector(".ug-grupo-aviso");
+    el.textContent = texto || "";
+    el.classList.toggle("tem", Boolean(texto));
+  }
+
+  function criarGrupo() {
+    var nome = raiz.querySelector(".ug-grupo-nome").value.trim();
+    var marcados = Array.prototype.filter.call(
+      raiz.querySelectorAll(".ug-grupo-gente input"), function (c) { return c.checked; }
+    ).map(function (c) { return c.value; });
+
+    if (!marcados.length) return mostrarAvisoDoGrupo("Escolha ao menos uma pessoa.");
+
+    // A mesma tela serve para INCLUIR gente num grupo que ja existe: a pergunta
+    // e a mesma ("quem?"), e duas telas para a mesma pergunta seriam duas telas
+    // para manter em pe.
+    if (raiz.classList.contains("so-incluir")) {
+      api("/grupo/" + encodeURIComponent(atual.conversaId) + "/membros", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ membros: marcados }),
+      })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (d) {
+          if (!d) return mostrarAvisoDoGrupo("Não consegui incluir.");
+          membrosDoGrupoAberto = d.membros || membrosDoGrupoAberto;
+          atual.quantos = (membrosDoGrupoAberto || []).length;
+          raiz.classList.remove("criando-grupo", "so-incluir");
+          desenharMembros();
+          carregarPessoas();
+        })
+        .catch(function () { mostrarAvisoDoGrupo("Sem conexão. Tente de novo."); });
+      return;
+    }
+
+    if (!nome) return mostrarAvisoDoGrupo("Dê um nome ao grupo.");
+
+    api("/grupos", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ nome: nome, membros: marcados }),
+    })
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (res) {
+        if (!res.ok) return mostrarAvisoDoGrupo(res.d.erro || "Não consegui criar o grupo.");
+        raiz.classList.remove("criando-grupo");
+        return carregarPessoas().then(function () {
+          var novo = acharDestino("g" + res.d.conversaId);
+          if (novo) abrirConversa(novo);
+        });
+      })
+      .catch(function () { mostrarAvisoDoGrupo("Sem conexão. Tente de novo."); });
+  }
+
   // --------------------------------------------------------------------- lista
   function carregarPessoas() {
     return api("/pessoas")
@@ -436,6 +533,13 @@
             id: "#" + c.nome, nome: c.nome, canal: true,
             conversaId: c.conversaId, quantos: c.quantos,
             naoLidas: c.naoLidas, ultima: c.ultima,
+          };
+        });
+        grupos = (d.grupos || []).map(function (g) {
+          return {
+            id: "g" + g.conversaId, nome: g.nome, grupo: true,
+            conversaId: g.conversaId, quantos: g.quantos, souDono: g.souDono,
+            naoLidas: g.naoLidas, ultima: g.ultima,
           };
         });
         if (d.eu) {
@@ -457,7 +561,9 @@
     else t = d.ultima.texto;
     if (d.ultima.minha) return "Você: " + t;
     // No canal, saber QUEM falou e metade da informacao.
-    if (d.canal && d.ultima.autor) return String(d.ultima.autor).split(/\s+/)[0] + ": " + t;
+    if ((d.canal || d.grupo) && d.ultima.autor) {
+      return String(d.ultima.autor).split(/\s+/)[0] + ": " + t;
+    }
     return t;
   }
 
@@ -468,25 +574,27 @@
     };
 
     var meusCanais = canais.filter(function (c) { return combina(c.nome); });
+    var meusGrupos = grupos.filter(function (g) { return combina(g.nome); });
     var mostrar = pessoas.filter(function (p) {
       return combina(p.nome + " " + p.departamento + " " + p.cargo);
     });
 
-    if (!meusCanais.length && !mostrar.length) {
+    if (!meusCanais.length && !meusGrupos.length && !mostrar.length) {
       lista.innerHTML = '<div class="ug-vazio">Ninguém encontrado.</div>';
       return;
     }
 
     // O canal do departamento vem primeiro: e a conversa que a pessoa mais usa
     // no dia, e procurar por ela no meio de 45 nomes seria trabalho a toa.
-    var topo = meusCanais.map(function (c) {
+    var topo = meusCanais.concat(meusGrupos).map(function (c) {
       return [
         '<button class="ug-pessoa ug-canal" data-id="' + esc(c.id) + '">',
-        '  <span class="ug-foto ug-marca-canal">#</span>',
+        '  <span class="ug-foto ug-marca-canal">' + (c.grupo ? "\u25CF" : "#") + "</span>",
         '  <span class="ug-quem">',
         '    <span class="ug-nome">' + esc(c.nome) + "</span>",
         '    <span class="ug-previa">' +
-          esc(previaDe(c) || (c.quantos + (c.quantos === 1 ? " pessoa" : " pessoas") + " nesta área")) +
+          esc(previaDe(c) || (c.quantos + (c.quantos === 1 ? " pessoa" : " pessoas") +
+              (c.grupo ? " neste grupo" : " nesta área"))) +
           "</span>",
         "  </span>",
         c.naoLidas ? '<span class="ug-conta">' + c.naoLidas + "</span>" : "",
@@ -550,10 +658,16 @@
     raiz.classList.add("na-conversa");
     raiz.classList.toggle("no-canal", Boolean(destino.canal));
     raiz.querySelector(".ug-voltar").hidden = false;
-    raiz.querySelector(".ug-titulo").textContent = destino.canal ? "# " + destino.nome : destino.nome;
+    raiz.querySelector(".ug-titulo").textContent =
+      destino.canal ? "# " + destino.nome : destino.nome;
 
     raiz.classList.remove("vendo-membros");
-    if (destino.canal) {
+    raiz.classList.toggle("no-grupo", Boolean(destino.grupo));
+    if (destino.grupo) {
+      raiz.querySelector(".ug-sub").textContent =
+        destino.quantos + (destino.quantos === 1 ? " pessoa" : " pessoas") +
+        " no grupo \u2014 ver quem";
+    } else if (destino.canal) {
       raiz.querySelector(".ug-sub").textContent =
         destino.quantos + (destino.quantos === 1 ? " pessoa" : " pessoas") +
         " desta área — ver quem";
@@ -566,15 +680,19 @@
     abrirAba(destino);
     balas.innerHTML = '<div class="ug-vazio">Carregando...</div>';
 
-    api(destino.canal ? "/canal" : "/com/" + encodeURIComponent(destino.id))
+    api(caminhoDe(destino))
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {
         if (!d) { balas.innerHTML = '<div class="ug-vazio">Não consegui abrir a conversa.</div>'; return; }
         conversaId = d.conversaId;
+        // O grupo traz os membros junto: quem esta nele foi ESCOLHIDO, entao
+        // nao da para deduzir a lista do cadastro como se faz no canal.
+        membrosDoGrupoAberto = d.membros || null;
+        if (d.souDono !== undefined) destino.souDono = d.souDono;
         balas.innerHTML = "";
         ultimoDia = "";
         if (!d.mensagens.length) {
-          balas.innerHTML = destino.canal
+          balas.innerHTML = (destino.canal || destino.grupo)
             ? '<div class="ug-vazio">Ninguém escreveu aqui ainda. Comece você.</div>'
             : '<div class="ug-vazio">Nenhuma mensagem ainda.</div>';
         }
@@ -588,6 +706,15 @@
   }
 
   var ultimoDia = "";
+  var membrosDoGrupoAberto = null;
+
+  // Cada tipo de conversa tem seu endereco. Ficam juntos aqui para nao se
+  // espalharem por cinco funcoes e saírem de sincronia.
+  function caminhoDe(d) {
+    if (d.canal) return "/canal";
+    if (d.grupo) return "/grupo/" + encodeURIComponent(d.conversaId);
+    return "/com/" + encodeURIComponent(d.id);
+  }
 
   function acrescentar(m) {
     var vazio = balas.querySelector(".ug-vazio");
@@ -610,7 +737,7 @@
     var partes = [];
     // No canal, cada balao dos outros leva o nome em cima. Sem isso a conversa
     // de uma area inteira vira um monte de falas sem dono.
-    if (m.autor && !m.minha && atual && atual.canal) {
+    if (m.autor && !m.minha && atual && (atual.canal || atual.grupo)) {
       partes.push('<div class="ug-autor">' + esc(m.autor) + "</div>");
     }
     if (m.sobre) {
@@ -668,19 +795,36 @@
 
   function desenharMembros() {
     var caixaMembros = raiz.querySelector(".ug-membros");
-    if (!atual || !atual.canal) { caixaMembros.innerHTML = ""; return; }
+    if (!atual || (!atual.canal && !atual.grupo)) { caixaMembros.innerHTML = ""; return; }
 
-    var gente = membrosDoCanal(atual.nome);
+    // No canal a lista se deduz do cadastro; no grupo ela veio do servidor,
+    // porque foi escolhida a dedo.
+    var gente = atual.canal ? membrosDoCanal(atual.nome) : (membrosDoGrupoAberto || []);
     if (!gente.length) {
-      caixaMembros.innerHTML =
-        '<div class="ug-vazio">Ninguém com este departamento no cadastro.</div>';
+      caixaMembros.innerHTML = atual.canal
+        ? '<div class="ug-vazio">Ningu\u00e9m com este departamento no cadastro.</div>'
+        : '<div class="ug-vazio">Grupo sem ningu\u00e9m.</div>';
       return;
     }
 
+    var rodape = atual.grupo
+      ? '<div class="ug-membros-acoes">' +
+        (atual.souDono
+          ? '<button class="ug-add-membro">+ incluir gente</button>'
+          : "") +
+        '<button class="ug-sair-grupo">Sair do grupo</button></div>'
+      : "";
+
     caixaMembros.innerHTML =
-      '<div class="ug-membros-titulo">Quem está em # ' + esc(atual.nome) + "</div>" +
+      '<div class="ug-membros-titulo">Quem est\u00e1 em ' +
+        (atual.canal ? "# " : "") + esc(atual.nome) + "</div>" + rodape +
       gente.map(function (p) {
         var situacao = p.situacao || (p.online ? "online" : "offline");
+        // No canal a propria pessoa vem marcada; no grupo a lista vem do
+        // servidor, sem marca nenhuma — por isso a comparacao pelo id, que
+        // vale nos dois casos. Sem ela, o dono ganhava um botao para se tirar
+        // do proprio grupo, ao lado do "Sair" que ja existe logo acima.
+        var ehEu = p.souEu || Boolean(euSou && p.id === euSou.id);
         return [
           '<div class="ug-membro">',
           '  <span class="ug-foto"' + (p.temFoto ? ' data-foto="' + esc(p.id) + '"' : "") + ">",
@@ -689,15 +833,77 @@
           "  </span>",
           '  <span class="ug-quem">',
           '    <span class="ug-nome">' + esc(p.nome) +
-            (p.souEu ? " <b>(você)</b>" : "") + "</span>",
+            (ehEu ? " <b>(você)</b>" : "") + "</span>",
           '    <span class="ug-previa">' +
             esc((ROTULO[situacao] || "Offline") + (p.cargo ? " · " + p.cargo : "")) + "</span>",
           "  </span>",
+          atual.grupo && atual.souDono && !ehEu
+            ? '<button class="ug-tirar" data-id="' + esc(p.id) + '" title="Tirar do grupo">&#215;</button>'
+            : "",
           "</div>",
         ].join("");
       }).join("");
 
+    var incluir = caixaMembros.querySelector(".ug-add-membro");
+    if (incluir) incluir.addEventListener("click", abrirInclusaoNoGrupo);
+
+    var sair = caixaMembros.querySelector(".ug-sair-grupo");
+    if (sair) sair.addEventListener("click", sairDoGrupo);
+
+    Array.prototype.forEach.call(caixaMembros.querySelectorAll(".ug-tirar"), function (b) {
+      b.addEventListener("click", function () { tirarDoGrupo(b.getAttribute("data-id")); });
+    });
+
     carregarFotos(caixaMembros);
+  }
+
+  // Incluir gente reaproveita a mesma tela de criar grupo, so que sem o nome:
+  // a pergunta e a mesma ("quem?"), e duas telas para a mesma pergunta seriam
+  // duas telas para manter.
+  function abrirInclusaoNoGrupo() {
+    var jaEstao = (membrosDoGrupoAberto || []).map(function (m) { return m.id; });
+    var deFora = pessoas.filter(function (p) { return jaEstao.indexOf(p.id) === -1; });
+    if (!deFora.length) return mostrarAviso("Todo mundo já está neste grupo.");
+
+    raiz.classList.add("criando-grupo", "so-incluir");
+    raiz.querySelector(".ug-grupo-nome").value = atual.nome;
+    mostrarAvisoDoGrupo("");
+    raiz.querySelector(".ug-grupo-gente").innerHTML = deFora.map(function (p) {
+      return '<label class="ug-escolher"><input type="checkbox" value="' + esc(p.id) + '"> ' +
+             "<span>" + esc(p.nome) +
+             (p.departamento ? ' <small>' + esc(p.departamento) + "</small>" : "") +
+             "</span></label>";
+    }).join("");
+  }
+
+  function tirarDoGrupo(id) {
+    var quem = (membrosDoGrupoAberto || []).filter(function (m) { return m.id === id; })[0];
+    if (!quem || !window.confirm("Tirar " + quem.nome + " do grupo?")) return;
+
+    api("/grupo/" + encodeURIComponent(atual.conversaId) + "/membros/" + encodeURIComponent(id),
+        { method: "DELETE" })
+      .then(function (r) {
+        if (!r.ok) return;
+        membrosDoGrupoAberto = (membrosDoGrupoAberto || [])
+          .filter(function (m) { return m.id !== id; });
+        atual.quantos = membrosDoGrupoAberto.length;
+        desenharMembros();
+      });
+  }
+
+  function sairDoGrupo() {
+    if (!euSou || !euSou.id) return;
+    if (!window.confirm("Sair do grupo " + atual.nome + "?\n\n" +
+                        "As mensagens que você escreveu continuam lá.")) return;
+
+    api("/grupo/" + encodeURIComponent(atual.conversaId) +
+        "/membros/" + encodeURIComponent(euSou.id), { method: "DELETE" })
+      .then(function (r) {
+        if (!r.ok) return;
+        // Sair fecha a conversa e tira a aba: o grupo deixou de ser meu.
+        fecharAba(atual.id);
+        voltarParaLista();
+      });
   }
 
   function rolar() { balas.scrollTop = balas.scrollHeight; }
@@ -734,7 +940,7 @@
     if (anexo) { corpo.imagem = anexo.dados; corpo.imagemTipo = anexo.tipo; }
     if (pendenteSobre) { corpo.sobre = pendenteSobre.sobre; corpo.link = pendenteSobre.link; }
 
-    api(atual.canal ? "/canal" : "/com/" + encodeURIComponent(atual.id), {
+    api(caminhoDe(atual), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(corpo),
@@ -885,7 +1091,7 @@
   function recarregarConversaAberta() {
     if (!atual) return;
     var quem = atual;
-    api(quem.canal ? "/canal" : "/com/" + encodeURIComponent(quem.id))
+    api(caminhoDe(quem))
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {
         if (!d || !atual || atual.id !== quem.id) return;
@@ -901,7 +1107,7 @@
     // aberta com a janela minimizada. Tratar as duas como a mesma marcaria como
     // lida mensagem que ninguem viu — e o "visto" viraria mentira.
     // De quem e esta mensagem: de uma pessoa, ou do canal de uma area.
-    var deQuem = d.canal ? "#" + d.canal : d.outroId;
+    var deQuem = d.canal ? "#" + d.canal : (d.grupo ? "g" + d.grupo : d.outroId);
     var naTela = atual && deQuem === atual.id && raiz.classList.contains("aberto");
     var olhando = !document.hidden;
 
@@ -1144,6 +1350,13 @@
             id: "#" + c.nome, nome: c.nome, canal: true,
             conversaId: c.conversaId, quantos: c.quantos,
             naoLidas: c.naoLidas, ultima: c.ultima,
+          };
+        });
+        grupos = (d.grupos || []).map(function (g) {
+          return {
+            id: "g" + g.conversaId, nome: g.nome, grupo: true,
+            conversaId: g.conversaId, quantos: g.quantos, souDono: g.souDono,
+            naoLidas: g.naoLidas, ultima: g.ultima,
           };
         });
         if (d.eu) euSou = d.eu;
