@@ -672,7 +672,11 @@ async function salvar() {
     var destinatario = corpo.email;
     fechar();
     await listar();
-    alerta(recadoDoEnvio(r && r.email, destinatario), 'ok');
+    // Verde so quando o e-mail saiu. A falha aparecia em verde, com cara de
+    // sucesso — e o administrador fechava a tela achando que a pessoa tinha
+    // recebido a senha.
+    var envio = r && r.email;
+    alerta(recadoDoEnvio(envio, destinatario), envio && envio.ok === false ? 'erro' : 'ok');
   } catch (e) {
     alerta(e.message, 'erro', 'modalAlerta');
   } finally {
@@ -698,8 +702,11 @@ async function reenviarConvite() {
     var r = await api('/api/admin/usuarios/' + editando.id + '/reenviar-convite', 'POST',
                       { avisar: document.getElementById('fAvisar').checked });
     var caixa = document.getElementById('avisoConvite');
+    var saiu = !(r.email && r.email.ok === false);
     caixa.innerHTML =
-      '<b>Convite reenviado.</b> ' + esc(recadoDoEnvio(r.email)) +
+      (saiu ? '<b>Convite reenviado.</b> '
+            : '<b>Senha nova gerada — mas o e-mail não saiu.</b> Passe a senha abaixo por WhatsApp. ') +
+      esc(recadoDoEnvio(r.email)) +
       '<br>Senha provisória: <span class="senha">' + esc(r.senha) + '</span>' +
       '<br><small>Ela troca de senha no primeiro acesso. Esta janela é o único lugar ' +
       'onde a senha aparece — se fechar, é só reenviar de novo.</small>';
@@ -717,7 +724,10 @@ async function reenviarConvite() {
 function recadoDoEnvio(envio) {
   if (!envio) return '';
   if (envio.ignorado) return 'E-mail não enviado (' + (envio.motivo || 'não solicitado') + ').';
-  if (envio.ok === false) return 'O e-mail falhou: ' + (envio.erro || 'motivo desconhecido') + '.';
+  if (envio.ok === false) {
+    return 'O cadastro foi salvo, mas o e-mail NÃO saiu: ' + (envio.erro || 'motivo desconhecido') +
+           '. Avise a pessoa por outro meio.';
+  }
   if (envio.rascunho) return 'Ambiente local: a mensagem foi gravada em arquivo, não saiu.';
   return 'E-mail enviado.';
 }

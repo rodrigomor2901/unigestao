@@ -6,21 +6,31 @@
 // O Core e quem gera as senhas, entao e o Core quem avisa a pessoa. Nenhum
 // modulo precisa saber de senha para isso.
 //
-// Reaproveita a conta SendGrid que a Gestao de Tarefas ja usa: o dominio
-// uniseter.com.br esta autenticado la (Settings > Sender Authentication, com
-// os CNAME/TXT na Locaweb). E por isso que o remetente precisa ser um endereco
-// @uniseter.com.br — mandar de um dominio nao autenticado cai em spam por
-// DMARC, que foi exatamente o problema que o Tarefas ja teve.
+// Usa a MESMA conta Brevo da Gestao de Tarefas. O Grupo trocou o SendGrid
+// pelo Brevo (plano gratuito de 300 e-mails/dia cobre o volume), e o Core
+// ficou para tras: continuou mandando com a chave do SendGrid, que foi
+// desativada na mudanca — e todo cadastro novo passou a sair sem e-mail, com o
+// administrador lendo um erro em ingles na tela (11/09/2026).
+//
+// O dominio uniseter.com.br esta autenticado no Brevo (Senders & IP > Domains,
+// com SPF/DKIM na Locaweb). E por isso que o remetente precisa ser um endereco
+// @uniseter.com.br — mandar de dominio nao autenticado cai em spam por DMARC.
+//
+// Sem biblioteca: a API do Brevo e um POST HTTPS simples, e o fetch do proprio
+// Node resolve. Uma dependencia a menos para atualizar e para quebrar.
 //
 // Nada aqui lanca excecao. Falha de e-mail nao pode derrubar a criacao de um
 // usuario: a conta existe do mesmo jeito, e sempre da para reenviar o aviso.
 // Por isso as funcoes devolvem {ok, erro} em vez de estourar.
 // ============================================================================
 
-const sgMail = require("@sendgrid/mail");
+const CHAVE = (process.env.BREVO_API_KEY || "").trim();
+const API_BREVO = "https://api.brevo.com/v3/smtp/email";
 
-const CHAVE = (process.env.SENDGRID_API_KEY || "").trim();
-if (CHAVE) sgMail.setApiKey(CHAVE);
+// Quanto esperar o Brevo responder. Sem limite, um Brevo lento prenderia a
+// tela de "Nova pessoa" girando — e o cadastro ja esta salvo, o e-mail e so o
+// aviso. Dez segundos e folga de sobra para um POST que costuma levar um.
+const ESPERA_MS = 10000;
 
 // Modo rascunho: com EMAIL_ARQUIVO definido, nada sai para o mundo — cada
 // mensagem vira uma linha num arquivo. E o que roda em desenvolvimento e nos
@@ -30,7 +40,6 @@ if (CHAVE) sgMail.setApiKey(CHAVE);
 const ARQUIVO = (process.env.EMAIL_ARQUIVO || "").trim();
 
 const REMETENTE_ENDERECO = (process.env.EMAIL_FROM || "naoresponda@uniseter.com.br").trim();
-const REMETENTE = "UniGestão <" + REMETENTE_ENDERECO + ">";
 // Endereco publico do portal. `botao(texto, destino)` aceita um destino
 // proprio — o link de recuperacao de senha vai para /redefinir?token=...
 const URL_PORTAL_PADRAO = (process.env.URL_PUBLICA || "https://unigestao.up.railway.app").replace(/\/+$/, "");
@@ -73,18 +82,57 @@ async function enviar(para, assunto, html) {
     }
   }
   if (!configurado()) {
-    return { ok: false, erro: "SENDGRID_API_KEY nao configurada" };
+    return { ok: false, erro: "a chave do Brevo (BREVO_API_KEY) não está configurada no Railway" };
   }
   try {
-    await sgMail.send({ from: REMETENTE, to: para, subject: assunto, html });
-    return { ok: true };
+    const resp = await fetch(API_BREVO, {
+      method: "POST",
+      headers: { "api-key": CHAVE, "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({
+        sender: { name: "UniGestão", email: REMETENTE_ENDERECO },
+        to: [{ email: para }],
+        subject: assunto,
+        htmlContent: html,
+      }),
+      signal: AbortSignal.timeout(ESPERA_MS),
+    });
+    if (resp.ok) return { ok: true };
+
+    const status = resp.status;
+    const detalhe = await resp.text().catch(() => "");
+    console.warn("Falha ao enviar e-mail para " + mascarar(para) + " (" + status + "): " + detalhe);
+    return { ok: false, erro: explicarFalha(status, detalhe), status };
   } catch (e) {
-    const detalhe = e.response && e.response.body
-      ? JSON.stringify(e.response.body)
-      : e.message;
-    console.warn("Falha ao enviar e-mail para " + mascarar(para) + ": " + detalhe);
-    return { ok: false, erro: detalhe };
+    // Aqui so chega falha de rede ou tempo esgotado — recusa do Brevo volta
+    // acima, com status.
+    const status = 0;
+    const detalhe = e.name === "TimeoutError" ? "o Brevo não respondeu a tempo" : e.message;
+    // O motivo tecnico fica no log, para quem for investigar. Para o
+    // administrador vai uma frase que diz o que fazer.
+    console.warn("Falha ao enviar e-mail para " + mascarar(para) + " (" + status + "): " + detalhe);
+    return { ok: false, erro: explicarFalha(status, detalhe), status };
   }
+}
+
+// Traduz a recusa do servico de e-mail para quem nao e tecnico.
+//
+// Antes o administrador lia `{"errors":[{"message":"The provided authorization
+// grant is invalid, expired, or revoked"...}]}` — e nao tinha como saber que o
+// problema nao era o cadastro nem o endereco, e sim a chave do servico, que
+// ninguem na tela consegue consertar. O texto cru continua no log.
+function explicarFalha(status, detalhe) {
+  if (status === 401 || status === 403) {
+    return "a chave do Brevo não vale (errada, apagada ou sem permissão de envio). " +
+           "Confira a BREVO_API_KEY do serviço core no Railway";
+  }
+  if (status === 402 || status === 429) {
+    return "o limite de envios do Brevo acabou por hoje. Tente de novo amanhã";
+  }
+  if (status === 400 && /sender/i.test(String(detalhe || ""))) {
+    return "o Brevo recusou o remetente " + REMETENTE_ENDERECO +
+           " — o endereço precisa ser do domínio autenticado lá (uniseter.com.br)";
+  }
+  return "o serviço de e-mail recusou o envio (" + String(detalhe || "").slice(0, 120) + ")";
 }
 
 // ---------------------------------------------------------------------------

@@ -3,7 +3,7 @@
 //
 // Nada e enviado de verdade: o Core roda com EMAIL_ARQUIVO apontando para um
 // arquivo (ver dev-local.js), entao cada mensagem vira uma linha la em vez de
-// ir para o SendGrid. O teste le esse arquivo. Isso tambem garante que rodar a
+// ir para o Brevo. O teste le esse arquivo. Isso tambem garante que rodar a
 // suite nunca alcance uma pessoa de verdade.
 //
 // O que precisa valer:

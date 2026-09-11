@@ -18,6 +18,7 @@ const testes = [
   "bloqueio-login.test.js",
   "papel-admin.test.js",
   "aviso-email.test.js",
+  "email-brevo.test.js",
   "importacao-partida.test.js",
   "agenda.test.js",
   "mural.test.js",
