@@ -200,6 +200,8 @@ deixa de viajar e o bilhete passa a ter dono e prazo.
 | `UG_PORTA_ABERTA` | cada módulo | opcional: `true` **destranca** a porta da frente do módulo, voltando a atendê-lo pelo endereço próprio dele. É a saída de emergência do dia em que o portal cair — sem ela, uma falha na Fachada torna os seis sistemas inalcançáveis ao mesmo tempo. Deixe **desligado** |
 | `BREVO_API_KEY` | Core | **obrigatória para sair e-mail** (senha de acesso novo, módulo liberado, recuperação de senha). É a MESMA chave da Gestão de Tarefas — a conta Brevo é do Grupo. Substituiu a `SENDGRID_API_KEY`, que pode ser apagada |
 | `EMAIL_FROM` | Core | remetente; precisa ser `@uniseter.com.br`, o domínio autenticado no Brevo |
+| `URL_CRM` | Core (e Fachada) | liga a **sincronia de pessoas com o CRM**: o Core avisa o CRM de quem tem acesso a ele assim que o cadastro é salvo, sem esperar a primeira visita. No core, use a referência `${{fachada.URL_CRM}}` |
+| `UG_ASSINATURA_SEGREDO` (no Core) | Core | assina o pacote da sincronia com o CRM. No core, use a referência `${{fachada.UG_ASSINATURA_SEGREDO}}` — assim o valor nunca é copiado à mão. Sem ela e a `URL_CRM`, a sincronia fica desligada e o CRM continua criando a pessoa só na primeira visita |
 | `CHAT_EMAILS` | Core | opcional: e-mails (separados por vírgula) que enxergam o comunicador interno. **Vazio = todo mundo.** Serve para testar com três pessoas antes de abrir para as 45 — quem não está na lista não vê o chat *e* não aparece na lista de quem vê |
 
 ### A virada

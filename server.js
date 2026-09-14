@@ -25,6 +25,7 @@ const perfil = require("./core/perfil");
 const mural = require("./core/mural");
 const checklists = require("./core/checklists");
 const chat = require("./core/chat");
+const sincroniaCrm = require("./core/sincronia-crm");
 
 const app = express();
 
@@ -2326,6 +2327,9 @@ app.post("/api/admin/usuarios", exigeSuperAdmin, async (req, res, next) => {
       correio.avisarContaNova({ nome, email, senha, modulos: paraEmail(req.body.modulos) })
     );
     res.json({ ok: true, id, email: aviso });
+    // O CRM fica sabendo da pessoa ja agora, e nao so na primeira visita dela —
+    // e o que permite passar um negocio a um vendedor que ainda nao entrou.
+    sincroniaCrm.agendar();
   } catch (e) {
     if (e.code === "23505") return res.status(409).json({ erro: "Já existe usuário com esse e-mail" });
     next(e);
@@ -2454,6 +2458,8 @@ app.patch("/api/admin/usuarios/:id", exigeSuperAdmin, async (req, res, next) => 
       );
     }
     res.json({ ok: true, email: aviso });
+    // Ativar, desativar, trocar papel ou tirar o CRM: o CRM acompanha agora.
+    sincroniaCrm.agendar();
   } catch (e) {
     if (e.code === "23505") return res.status(409).json({ erro: "Já existe usuário com esse e-mail" });
     next(e);
@@ -2593,6 +2599,10 @@ async function bootstrap() {
     // Escuta em "::" (IPv6, com IPv4 mapeado): e o que a rede privada do
     // Railway exige para um servico sem dominio publico ser alcancavel.
     app.listen(PORT, "::", () => console.log(`[core] UniGestao ouvindo na porta ${PORT}`));
+    // Ao ligar, manda a lista inteira ao CRM: corrige o que ficou para tras
+    // enquanto um dos dois estava fora do ar (e quem foi cadastrado antes disto
+    // existir). Espera um pouco para nao disputar com o proprio boot.
+    sincroniaCrm.agendar(15000);
   } catch (e) {
     console.error("[core] falha ao iniciar:", e);
     process.exit(1);
