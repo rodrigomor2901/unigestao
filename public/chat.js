@@ -89,6 +89,152 @@
     return fetch(API + caminho, Object.assign({ headers: { accept: "application/json" } }, opcoes || {}));
   }
 
+  // --------------------------------------------------------- o lugar do balao
+  // O balao nasce no canto de baixo a direita e as vezes cai bem em cima de um
+  // botao do modulo (15/09/2026). Arrastando, cada pessoa o poe onde nao
+  // atrapalha, e o lugar fica gravado no navegador dela — so dela.
+  //
+  // Guarda-se a DISTANCIA ate a direita e ate o fundo, e nao a coordenada: com
+  // a janela menor, ou em outra tela, o balao continua perto do canto que a
+  // pessoa escolheu em vez de sumir fora da area visivel.
+  var CHAVE_LUGAR = "ug_chat_lugar";
+  var BOTAO = 52;            // o mesmo .ug-abrir do chat.css
+  var PAINEL_LARGURA = 360;
+  var PAINEL_ALTURA = 520;
+  var MARGEM = 8;
+  var raizDoBalao = null;
+  var lugar = { direita: 18, baixo: 18 };
+
+  function tamanhoDaJanela() {
+    return { largura: window.innerWidth || 1280, altura: window.innerHeight || 800 };
+  }
+
+  function lerLugar() {
+    try {
+      var salvo = JSON.parse(window.localStorage.getItem(CHAVE_LUGAR) || "null");
+      if (salvo && isFinite(salvo.direita) && isFinite(salvo.baixo)) return salvo;
+    } catch (e) { /* sem localStorage, ou lixo gravado: fica o padrao */ }
+    return null;
+  }
+
+  function gravarLugar(l) {
+    try { window.localStorage.setItem(CHAVE_LUGAR, JSON.stringify(l)); } catch (e) { /* nada */ }
+  }
+
+  // O balao nunca sai da tela: nem pela metade, nem escondido atras da borda —
+  // de onde nao daria mais para arrasta-lo de volta.
+  function limitarLugar(l, janela) {
+    var maxDireita = Math.max(MARGEM, janela.largura - BOTAO - MARGEM);
+    var maxBaixo = Math.max(MARGEM, janela.altura - BOTAO - MARGEM);
+    return {
+      direita: Math.min(Math.max(Math.round(l.direita), MARGEM), maxDireita),
+      baixo: Math.min(Math.max(Math.round(l.baixo), MARGEM), maxBaixo),
+    };
+  }
+
+  // Para que lado o painel abre a partir do balao, e que altura ele pode ter.
+  // Com o balao no alto, ou encostado na esquerda, manter o painel "para cima e
+  // para a esquerda" o jogaria metade fora da tela.
+  //
+  // A altura entra junto porque escolher o lado nao basta: com o balao perto do
+  // meio, nenhum dos dois lados tem os 520px inteiros, e o painel vazava pelo
+  // rodape. Aqui ele encolhe ate o espaco que existe — rolar a lista de dentro
+  // sempre funcionou; ficar meio fora da tela, nao.
+  var PAINEL_MINIMO = 180;
+  var VAO = 10;              // o mesmo margin do .ug-painel no chat.css
+
+  function ladosDoPainel(l, janela) {
+    var teto = Math.max(PAINEL_MINIMO, janela.altura - 110);   // max-height do chat.css
+    var acima = janela.altura - l.baixo - BOTAO - VAO - MARGEM;
+    var abaixo = l.baixo - VAO - MARGEM;
+    var paraBaixo = acima < PAINEL_ALTURA && abaixo > acima;
+    var cabeAEsquerda = janela.largura - l.direita >= PAINEL_LARGURA + MARGEM;
+    return {
+      direita: cabeAEsquerda ? l.direita : null,
+      esquerda: cabeAEsquerda ? null : Math.max(MARGEM, janela.largura - l.direita - BOTAO),
+      baixo: paraBaixo ? null : l.baixo,
+      topo: paraBaixo ? Math.max(MARGEM, janela.altura - l.baixo - BOTAO) : null,
+      aDireita: !cabeAEsquerda,
+      paraBaixo: paraBaixo,
+      altura: Math.max(PAINEL_MINIMO, Math.min(PAINEL_ALTURA, teto, paraBaixo ? abaixo : acima)),
+    };
+  }
+
+  function aplicarLugar() {
+    // Na janela separada nao ha balao: o painel e a janela inteira.
+    if (!raizDoBalao || MODO_JANELA) return;
+    var janela = tamanhoDaJanela();
+    lugar = limitarLugar(lugar, janela);
+    var lados = ladosDoPainel(lugar, janela);
+    var estilo = raizDoBalao.style;
+    estilo.right = lados.direita === null ? "auto" : lados.direita + "px";
+    estilo.left = lados.esquerda === null ? "auto" : lados.esquerda + "px";
+    estilo.bottom = lados.baixo === null ? "auto" : lados.baixo + "px";
+    estilo.top = lados.topo === null ? "auto" : lados.topo + "px";
+    // A altura vai por variavel de CSS, e nao por regra fixa: e ela que faz o
+    // painel caber quando o balao esta perto do meio da tela.
+    estilo.setProperty("--ug-altura-painel", lados.altura + "px");
+    raizDoBalao.classList.toggle("ug-a-direita", lados.aDireita);
+    raizDoBalao.classList.toggle("ug-para-baixo", lados.paraBaixo);
+  }
+
+  function ligarArrasto(el, botao) {
+    raizDoBalao = el;
+    lugar = lerLugar() || lugar;
+    aplicarLugar();
+
+    var pegada = null;
+    var arrastou = false;
+
+    botao.addEventListener("pointerdown", function (ev) {
+      if (ev.button > 0) return;
+      var r = botao.getBoundingClientRect();
+      var janela = tamanhoDaJanela();
+      pegada = {
+        x: ev.clientX, y: ev.clientY, moveu: false,
+        direita: janela.largura - (r.right || 0),
+        baixo: janela.altura - (r.bottom || 0),
+      };
+      // Prende o ponteiro ao botao: sem isso, arrastar depressa solta o balao no
+      // meio do caminho, porque o ponteiro sai de cima dele.
+      try { botao.setPointerCapture(ev.pointerId); } catch (e) { /* nada */ }
+    });
+
+    botao.addEventListener("pointermove", function (ev) {
+      if (!pegada) return;
+      var dx = ev.clientX - pegada.x;
+      var dy = ev.clientY - pegada.y;
+      // Tremida de dedo ou de mao nao e arrasto. Sem esta folga, todo clique
+      // viraria um micro-arrasto e o painel nunca abriria.
+      if (!pegada.moveu && Math.abs(dx) + Math.abs(dy) < 5) return;
+      pegada.moveu = true;
+      el.classList.add("arrastando");
+      lugar = { direita: pegada.direita - dx, baixo: pegada.baixo - dy };
+      aplicarLugar();
+    });
+
+    function soltar() {
+      if (!pegada) return;
+      arrastou = pegada.moveu;
+      pegada = null;
+      el.classList.remove("arrastando");
+      if (arrastou) gravarLugar(lugar);
+    }
+    botao.addEventListener("pointerup", soltar);
+    botao.addEventListener("pointercancel", soltar);
+
+    botao.addEventListener("click", function () {
+      // Soltar depois de arrastar dispara um clique. Sem esta guarda, mudar o
+      // balao de lugar abriria o chat toda vez.
+      if (arrastou) { arrastou = false; return; }
+      alternar();
+    });
+
+    // A janela mudou de tamanho (ou a pessoa abriu noutro monitor): o balao
+    // volta para dentro sozinho.
+    window.addEventListener("resize", aplicarLugar);
+  }
+
   // ------------------------------------------------------------------- montagem
   function montar() {
     var raiz = document.createElement("div");
@@ -145,7 +291,7 @@
       "  </div>",
       "</div>",
       '<div class="ug-canto">',
-      '  <button class="ug-abrir" title="Conversas">&#128172;</button>',
+      '  <button class="ug-abrir" title="Conversas (arraste para mudar de lugar)">&#128172;</button>',
       '  <span class="ug-selo"></span>',
       "</div>",
       '<div class="ug-lupa"><img alt="Print"></div>',
@@ -162,7 +308,9 @@
     lupa = raiz.querySelector(".ug-lupa");
     anexoBarra = raiz.querySelector(".ug-anexo");
 
-    raiz.querySelector(".ug-abrir").addEventListener("click", alternar);
+    // O clique de abrir mora dentro do ligarArrasto, junto com a guarda que
+    // separa "clicou" de "arrastou".
+    ligarArrasto(raiz, raiz.querySelector(".ug-abrir"));
     raiz.querySelector(".ug-fechar").addEventListener("click", function () {
       // Na janela separada o "x" fecha a janela; embutido, fecha so o painel.
       if (MODO_JANELA) { try { window.close(); } catch (e) { /* nada */ } return; }
@@ -1382,6 +1530,10 @@
     _estadoDoConvite: estadoDoConvite,
     _rotuloDaAba: rotuloDaAba,
     _ordenarPessoas: ordenarPessoas,
+    // Expostas para tests/chat-balao.test.js: sao as contas que decidem se o
+    // balao continua alcancavel e se o painel abre para dentro da tela.
+    _limitarLugar: limitarLugar,
+    _ladosDoPainel: ladosDoPainel,
     conversarSobre: function (o) {
       o = o || {};
       pendenteSobre = { sobre: o.sobre || "", link: o.link || "" };

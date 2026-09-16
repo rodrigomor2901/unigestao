@@ -32,6 +32,7 @@ const testes = [
   "checklists.test.js",
   "chat.test.js",
   "chat-aviso.test.js",
+  "chat-balao.test.js",
   "identidade-assinada.test.js",
   "sincronia-crm.test.js",
   "fachada.test.js",

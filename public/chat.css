@@ -24,6 +24,14 @@
   color: #1f2937;
 }
 
+/* O balao pode ser ARRASTADO: o chat.js escreve right/left/top/bottom em
+   pixels e marca de que lado o painel cabe. Aqui embaixo fica so o
+   alinhamento — e o que evita o painel abrir metade fora da tela. */
+#ug-chat { display: flex; flex-direction: column; align-items: flex-end; }
+#ug-chat.ug-a-direita { align-items: flex-start; }
+#ug-chat.ug-para-baixo { flex-direction: column-reverse; }
+#ug-chat.ug-para-baixo .ug-painel { margin-bottom: 0; margin-top: 10px; }
+
 /* --- botao redondo que abre --------------------------------------------- */
 #ug-chat .ug-abrir {
   width: 52px; height: 52px;
@@ -38,6 +46,9 @@
   transition: transform .12s ease;
 }
 #ug-chat .ug-abrir:hover { transform: scale(1.06); }
+/* touch-action: no celular, arrastar o balao nao pode rolar a pagina junto. */
+#ug-chat .ug-abrir { touch-action: none; }
+#ug-chat.arrastando .ug-abrir { cursor: grabbing; transform: none; }
 
 #ug-chat .ug-selo {
   position: absolute; top: -2px; right: -2px;
@@ -54,8 +65,12 @@
 #ug-chat .ug-painel {
   display: none;
   width: 360px;
-  height: 520px;
+  /* A altura vem do chat.js (--ug-altura-painel): com o balao arrastado para
+     perto do meio da tela, o painel encolhe ate o espaco que sobra em vez de
+     vazar pelo rodape. O 520px e o tamanho de sempre, quando ha espaco. */
+  height: var(--ug-altura-painel, 520px);
   max-height: calc(100vh - 110px);
+  max-width: calc(100vw - 16px);
   background: #fff;
   border-radius: 12px;
   box-shadow: 0 14px 44px rgba(0,0,0,.3);
@@ -300,7 +315,7 @@
 
 /* --- modo janela separada ------------------------------------------------ */
 /* Aqui o painel E a janela: ocupa tudo, sem balaozinho e sem cantos soltos. */
-#ug-chat.janela { position: static; }
+#ug-chat.janela { position: static; align-items: stretch; flex-direction: column; }
 #ug-chat.janela .ug-canto { display: none; }
 #ug-chat.janela .ug-janela { display: none; }
 #ug-chat.janela .ug-painel {
