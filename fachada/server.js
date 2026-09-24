@@ -338,7 +338,12 @@ color:#26357A;opacity:1;font-size:13.5px;white-space:nowrap}
 #ug-barra .ug-menu a.ug-aqui{color:#6b7280;font-weight:600;cursor:default}
 #ug-barra .ug-menu a.ug-aqui:hover{background:none}
 #ug-barra .ug-menu a.ug-todos{border-top:1px solid #eceff3;margin-top:4px;
-padding-top:10px;color:#6b7280;font-size:13px}`;
+padding-top:10px;color:#6b7280;font-size:13px}
+
+/* A barra e da tela, nao do papel. Modulo que imprime documento — a Ordem de
+   Servico e o Disparo da Precificacao — saia com "Trocar de modulo", o nome de
+   quem imprimiu e o "Sair" carimbados no topo do PDF que vai para o cliente. */
+@media print{#ug-barra{display:none !important}}`;
 
 // O menu de troca de modulo usa <details>/<summary>, nao JavaScript.
 //

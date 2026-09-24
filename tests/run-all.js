@@ -28,6 +28,7 @@ const testes = [
   "shim-links.test.js",
   "modulo-externo.test.js",
   "barra-modal.test.js",
+  "impressao.test.js",
   "nexti.test.js",
   "checklists.test.js",
   "chat.test.js",
