@@ -58,6 +58,17 @@ const MODULOS = {
     destino: process.env.URL_PRECIFICACAO || "",
     sub: [{ prefixo: "/api", destino: process.env.URL_PRECIFICACAO_API || "" }],
   },
+  // Outra porta para o MESMO servico da Precificacao: o acesso restrito a
+  // consulta e impressao de disparos. Mesmos destinos, inclusive a mesma
+  // divisao entre tela e API — sem o `sub`, o navegador chamaria a API no
+  // dominio dela, fora da Fachada, e a identidade nunca chegaria la.
+  disparos: {
+    destino: process.env.URL_DISPAROS || process.env.URL_PRECIFICACAO || "",
+    sub: [{
+      prefixo: "/api",
+      destino: process.env.URL_DISPAROS_API || process.env.URL_PRECIFICACAO_API || "",
+    }],
+  },
 };
 
 // Escolhe o destino conforme o caminho DENTRO do modulo. Sem `sub`, e sempre
