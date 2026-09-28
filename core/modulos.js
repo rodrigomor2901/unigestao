@@ -148,20 +148,49 @@ const MODULOS = {
     // Confere com enum UserRole em packages/shared-types/src/enums.ts.
     // Atencao: MAIUSCULAS. A lista anterior ("admin","editor","consulta") tinha
     // os tres errados — nenhum existe naquele sistema.
-    // Os dois ultimos sao de acesso restrito: quem recebe um deles ve SO os
-    // disparos, e so para abrir e imprimir. O operacional nem recebe valor de
-    // faturamento — a poda e feita la, no servidor da precificacao.
-    papeis: [
-      "ADMIN", "MANAGER", "ANALYST", "VIEWER",
-      "DISPARO_COMERCIAL", "DISPARO_OPERACIONAL",
-    ],
+    papeis: ["ADMIN", "MANAGER", "ANALYST", "VIEWER"],
     rotulos: {
       ADMIN: "Administrador", MANAGER: "Gerente",
       ANALYST: "Analista", VIEWER: "Consulta",
-      DISPARO_COMERCIAL: "Disparos — comercial e operacional",
-      DISPARO_OPERACIONAL: "Disparos — somente operacional",
     },
     papelAdmin: "ADMIN",
+    ativo: true,
+  },
+  disparos: {
+    nome: "Disparos",
+    descricao: "Consulta e impressão dos disparos de contrato",
+    base: "/disparos",
+    /**
+     * MESMO sistema da Precificacao, outra porta.
+     *
+     * Os disparos nascem da precificacao e moram no banco dela — separar o
+     * sistema significaria copiar proposta, posto e escopo para outro lugar e
+     * manter os dois em dia. O que se separa aqui e o ACESSO: quem recebe este
+     * modulo entra no mesmo sistema, mas so enxerga a tela de disparos, e so
+     * para abrir e imprimir.
+     *
+     * Por isso o cartao no portal diz "Disparos" e nao "Precificacao": antes,
+     * quem so consultava disparo recebia um cartao que prometia o motor de
+     * precificacao inteiro e abria uma tela so.
+     */
+    interno: process.env.URL_DISPAROS || process.env.URL_PRECIFICACAO || "",
+    icone: "send",
+    /**
+     * Os papeis dizem O QUE SE VE, nao quanto poder se tem — os dois so leem.
+     * O operacional nao recebe valor de faturamento: a poda e feita no
+     * servidor da precificacao, antes da resposta sair.
+     */
+    papeis: ["comercial", "operacional"],
+    rotulos: {
+      comercial: "Comercial e operacional",
+      operacional: "Somente operacional (sem valores)",
+    },
+    /**
+     * O administrador geral entra por "comercial", o de maior alcance daqui.
+     * Ele tambem tem a Precificacao inteira pelo outro cartao; este modulo nao
+     * e onde ele administra nada.
+     */
+    papelAdmin: "comercial",
     ativo: true,
   },
 };
