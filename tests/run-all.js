@@ -17,6 +17,7 @@ const testes = [
   "reenviar-convite.test.js",
   "bloqueio-login.test.js",
   "papel-admin.test.js",
+  "papeis-de-disparo.test.js",
   "aviso-email.test.js",
   "email-brevo.test.js",
   "importacao-partida.test.js",

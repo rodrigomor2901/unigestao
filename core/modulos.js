@@ -148,10 +148,18 @@ const MODULOS = {
     // Confere com enum UserRole em packages/shared-types/src/enums.ts.
     // Atencao: MAIUSCULAS. A lista anterior ("admin","editor","consulta") tinha
     // os tres errados — nenhum existe naquele sistema.
-    papeis: ["ADMIN", "MANAGER", "ANALYST", "VIEWER"],
+    // Os dois ultimos sao de acesso restrito: quem recebe um deles ve SO os
+    // disparos, e so para abrir e imprimir. O operacional nem recebe valor de
+    // faturamento — a poda e feita la, no servidor da precificacao.
+    papeis: [
+      "ADMIN", "MANAGER", "ANALYST", "VIEWER",
+      "DISPARO_COMERCIAL", "DISPARO_OPERACIONAL",
+    ],
     rotulos: {
       ADMIN: "Administrador", MANAGER: "Gerente",
       ANALYST: "Analista", VIEWER: "Consulta",
+      DISPARO_COMERCIAL: "Disparos — comercial e operacional",
+      DISPARO_OPERACIONAL: "Disparos — somente operacional",
     },
     papelAdmin: "ADMIN",
     ativo: true,
