@@ -55,8 +55,12 @@ const MODULOS = [
 // Quantos quadrados de icone existem no HTML desenhado.
 const quantosIcones = (html) => (html.match(/class="ic"/g) || []).length;
 
-async function rodarTela({ usuario, modulos, publicacoes = [], reservas = null, euNasTarefas = 7 }) {
+async function rodarTela({ usuario, modulos, publicacoes = [], reservas = null,
+                           euNasTarefas = 7, disparos = null }) {
   const documento = criarDocumento();
+  // Tudo o que a pagina foi buscar. Em dois casos o que importa e ela NAO ter
+  // perguntado: consultar um modulo que a pessoa nao tem volta 403.
+  const pedidos = [];
   const respostas = {
     "/api/eu": { usuario, modulos },
     "/api/mural?limite=5": { publicacoes },
@@ -66,9 +70,15 @@ async function rodarTela({ usuario, modulos, publicacoes = [], reservas = null, 
   // As reservas vem das Tarefas, atraves da Fachada. A URL leva as datas
   // calculadas na hora, entao o casamento aqui e por prefixo.
   const fetchFalso = async (url) => {
+    pedidos.push(String(url));
     if (String(url).startsWith("/tarefas/api/reservas-sala")) {
       if (reservas === null) throw new Error("Tarefas fora do ar");
       return { ok: true, json: async () => reservas, headers: { get: () => null } };
+    }
+    // Os disparos podem vir por duas portas — /disparos ou /precificacao.
+    if (String(url).indexOf("/api/disparos/recentes") >= 0) {
+      if (disparos === null) throw new Error("Disparos fora do ar");
+      return { ok: true, json: async () => disparos, headers: { get: () => null } };
     }
     return {
       ok: true,
@@ -82,8 +92,11 @@ async function rodarTela({ usuario, modulos, publicacoes = [], reservas = null, 
   // Espera tambem o painel de reservas, que a pagina dispara sem segurar o
   // desenho — senao o teste olharia a tela antes de ele chegar.
   const fn = new Function("document", "fetch", "location", "window",
-    script + "\nreturn carregar().then(function () { return reservasPendentes; });");
+    script + "\nreturn carregar().then(function () {" +
+             "  return Promise.all([reservasPendentes, disparosPendentes]);" +
+             "});");
   await fn(documento, fetchFalso, { href: "/" }, { location: {} });
+  documento.pedidos = pedidos;
   return documento;
 }
 
@@ -302,6 +315,60 @@ async function rodarTela({ usuario, modulos, publicacoes = [], reservas = null, 
   });
   ok(!semTarefasNoPainel.getElementById("salasLista").innerHTML.includes("Nao deveria aparecer"),
      "sem o modulo Tarefas, o painel nem e consultado");
+
+  console.log("\n=== OS ULTIMOS DISPAROS EMITIDOS ===");
+  // Entre a agenda de salas e o mural. Quem acompanha contrato precisa saber o
+  // que saiu para a operacao sem abrir outro sistema.
+  //
+  // A regra dificil aqui e a PORTA: os disparos moram no servico da
+  // Precificacao, alcancavel por /disparos (so consulta) ou /precificacao
+  // (sistema inteiro). Pedir pela porta errada volta 403 — e o bloco ficaria
+  // vazio sem ninguem entender por que.
+  const PESSOA = { nome: "Fulana", superAdmin: false, senhaTemp: false, exigirPerfil: false };
+  const MOD_DISPAROS = [{ id: "disparos", nome: "Disparos", descricao: "Consulta",
+                          base: "/disparos", papelRotulo: "Consulta", icone: "file" }];
+  const MOD_PRECIFICACAO = [{ id: "precificacao", nome: "Precificação", descricao: "Motor",
+                              base: "/precificacao", papelRotulo: "Analista", icone: "calc" }];
+  const DISPAROS = [
+    { id: "d1", numero: "0042", tipo: "AJUSTE_ESCOPO", natureza: "MENSAL",
+      cliente: "CONDOMINIO IMPROVAVEL", emitidoEm: new Date().toISOString() },
+    { id: "d2", numero: "0041", tipo: "IMPLANTACAO", natureza: "EXTRA",
+      cliente: "FABRICA IMPROVAVEL", emitidoEm: "2026-01-10T13:00:00.000Z" },
+  ];
+
+  const comDisparos = await rodarTela({ usuario: PESSOA, modulos: MOD_DISPAROS, disparos: DISPAROS });
+  const painelDisparos = comDisparos.getElementById("disparosLista").innerHTML;
+  ok(comDisparos.getElementById("disparos").style.display === "", "o bloco aparece para quem tem o modulo");
+  ok(painelDisparos.includes("CONDOMINIO IMPROVAVEL") && painelDisparos.includes("0042"),
+     "com o cliente e o numero do disparo");
+  ok(painelDisparos.includes("Ajuste de Escopo"),
+     "o tipo sai com o nome da tela de Disparos, nao 'AJUSTE_ESCOPO'");
+  ok(painelDisparos.includes('href="/disparos/disparos/d1/edit"'),
+     "e o cartao abre aquele disparo, dentro do modulo");
+  ok(painelDisparos.includes("hoje"), "o emitido hoje diz 'hoje', em vez de uma data para a pessoa comparar");
+  ok(painelDisparos.includes("extra"),
+     "o disparo de servico avulso vem marcado  <-- chega diferente na operacao");
+  ok(!/R\$|valor/i.test(painelDisparos),
+     "e nenhum valor em dinheiro aparece  <-- o acesso restrito existe para isso");
+
+  const soPrecificacao = await rodarTela({ usuario: PESSOA, modulos: MOD_PRECIFICACAO, disparos: DISPAROS });
+  ok(soPrecificacao.pedidos.some(function (u) { return u.indexOf("/precificacao/api/disparos/recentes") === 0; }),
+     "quem tem so a Precificacao pergunta pela porta DELA  <-- pela outra, 403");
+  ok(soPrecificacao.getElementById("disparosLista").innerHTML.includes('href="/precificacao/disparos/d1/edit"'),
+     "e os cartoes abrem por essa mesma porta");
+
+  const semAcesso = await rodarTela({ usuario: PESSOA, modulos: MODULOS, disparos: DISPAROS });
+  ok(!semAcesso.pedidos.some(function (u) { return u.indexOf("/api/disparos/recentes") >= 0; }),
+     "quem nao tem nenhuma das duas nem consulta");
+  ok(semAcesso.getElementById("disparos").style.display !== "", "e o bloco nao aparece para ela");
+
+  const semDisparoNenhum = await rodarTela({ usuario: PESSOA, modulos: MOD_DISPAROS, disparos: [] });
+  ok(semDisparoNenhum.getElementById("disparos").style.display !== "",
+     "sem disparo emitido, o bloco nem aparece  <-- painel vazio ensina a ignorar o canto");
+
+  const disparosForaDoAr = await rodarTela({ usuario: PESSOA, modulos: MOD_DISPAROS, disparos: null });
+  ok(disparosForaDoAr.getElementById("grade").innerHTML.includes("Disparos"),
+     "e com a Precificacao fora do ar a tela inicial continua inteira");
 
   console.log("\n=== SEM MODULO LIBERADO, A PESSOA NAO FICA NO VAZIO ===");
   const vazio = await rodarTela({

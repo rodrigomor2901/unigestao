@@ -103,6 +103,28 @@
                   color: var(--accent); text-decoration: none; }
   .salas .todos:hover { text-decoration: underline; }
 
+  /* Ultimos disparos emitidos: entre a agenda e o mural. Depois da agenda
+     porque nao tem hora marcada; antes do mural porque e trabalho que acabou de
+     sair — quem acompanha contrato quer ver isso sem abrir outro sistema.
+     So aparece para quem alcanca os Disparos (ou a Precificacao). */
+  .disparos { margin-bottom: 26px; }
+  .disparos h3 { font-size: 15px; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
+  .disparos .disparo { padding: 11px 14px; margin-bottom: 8px; display: flex; gap: 12px;
+                       align-items: baseline; text-decoration: none; color: inherit; }
+  .disparos .disparo:hover { background: var(--accent-soft); }
+  .disparos .numero { flex: 0 0 auto; min-width: 46px; text-align: center;
+                      font-size: 13px; font-weight: 700; color: var(--accent); }
+  .disparos .oque { flex: 1; min-width: 0; }
+  /* display:block nos dois: sao <span>, e sem isto o cliente e o detalhe saem
+     na mesma linha, grudados. */
+  .disparos .cliente { display: block; font-size: 13.5px; color: var(--texto); line-height: 1.35;
+                       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .disparos .detalhe { display: block; font-size: 12px; color: var(--texto-fraco); margin-top: 2px;
+                       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .disparos .todos { display: block; text-align: center; font-size: 13px; padding: 8px;
+                     color: var(--accent); text-decoration: none; }
+  .disparos .todos:hover { text-decoration: underline; }
+
   .mural h3 { font-size: 15px; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
   .mural .conta {
     background: var(--laranja); color: #fff; border-radius: 999px;
@@ -267,6 +289,13 @@
       <div id="salasLista"></div>
     </aside>
 
+    <!-- Os ultimos disparos EMITIDOS. So aparece para quem alcanca os Disparos
+         ou a Precificacao: e de la que os dados vem, e pela porta de la. -->
+    <aside class="disparos" id="disparos" style="display:none">
+      <h3><a id="disparosTitulo" href="/disparos" style="color:inherit;text-decoration:none">Últimos disparos</a></h3>
+      <div id="disparosLista"></div>
+    </aside>
+
     <!-- O mural so aparece quando ha o que mostrar: painel vazio na tela toda
          vez ensina a pessoa a ignorar aquele canto. -->
     <aside class="mural" id="mural" style="display:none">
@@ -353,6 +382,15 @@ async function carregar() {
   ligarArrasto();
 
   if (temTarefas) reservasPendentes = carregarReservas();
+
+  // Os disparos moram no mesmo servico da Precificacao, atras de DUAS portas:
+  // quem so consulta entra por /disparos, quem precifica entra por
+  // /precificacao. O pedido tem que sair pela porta que a pessoa tem — pela
+  // outra, a Fachada recusa e o bloco ficaria vazio sem explicacao.
+  var portaDisparos = ['disparos', 'precificacao'].filter(function (id) {
+    return d.modulos.some(function (m) { return m.id === id; });
+  })[0];
+  if (portaDisparos) disparosPendentes = carregarDisparos(portaDisparos);
 
   carregarMural();
 }
@@ -697,7 +735,73 @@ var MAX_RESERVAS = 4;
 // A busca das reservas NAO segura o desenho da tela: os modulos aparecem na
 // hora e o painel entra quando chegar. Esta variavel guarda a promessa so para
 // o teste conseguir esperar por ela — sem isso, ele terminaria antes.
+// ---------------------------------------------------------------------------
+// Ultimos disparos emitidos
+//
+// Os mesmos nomes de tipo da tela de Disparos: ler "AJUSTE_ESCOPO" no portal e
+// "Ajuste de Escopo" no sistema faz a pessoa achar que sao coisas diferentes.
+var MAX_DISPAROS = 4;
+var TIPOS_DE_DISPARO = {
+  IMPLANTACAO: 'Implantação', ALTERACAO: 'Alteração', ENCERRAMENTO: 'Encerramento',
+  AUMENTO: 'Aumento', REDUCAO: 'Redução', AJUSTE_VALOR: 'Ajuste de Valor',
+  AJUSTE_ESCOPO: 'Ajuste de Escopo', REAJUSTE: 'Reajuste',
+};
+
+async function carregarDisparos(porta) {
+  try {
+    var base = '/' + porta;
+    var lista = await pedirJson(base + '/api/disparos/recentes?limite=' + MAX_DISPAROS);
+    // Sem disparo emitido, o bloco nao aparece: painel vazio na tela toda vez
+    // ensina a pessoa a ignorar aquele canto — a mesma regra do mural.
+    if (!Array.isArray(lista) || !lista.length) return;
+
+    document.getElementById('disparosTitulo').href = base;
+    var html = lista.map(function (x) {
+      var tipo = TIPOS_DE_DISPARO[x.tipo] || x.tipo || 'Disparo';
+      var partes = [tipo];
+      // "extra" e o disparo de um servico a parte, nao da mensalidade. Quem
+      // recebe precisa saber disso de cara; o mensal e o caso comum e nao
+      // precisa de etiqueta.
+      if (String(x.natureza || '').toUpperCase() === 'EXTRA') partes.push('extra');
+      var dia = diaDoDisparo(x.emitidoEm);
+      if (dia) partes.push(dia);
+      return '<a class="card disparo" href="' + base + '/disparos/' + encodeURIComponent(x.id) + '/edit">' +
+        '<span class="numero">' + esc(x.numero || '—') + '</span>' +
+        '<span class="oque">' +
+          '<span class="cliente">' + esc(x.cliente || 'Sem cliente') + '</span>' +
+          '<span class="detalhe">' + esc(partes.join(' · ')) + '</span>' +
+        '</span></a>';
+    }).join('');
+
+    document.getElementById('disparosLista').innerHTML =
+      html + '<a class="todos" href="' + base + '">Ver todos os disparos →</a>';
+    document.getElementById('disparos').style.display = '';
+  } catch (e) {
+    // Silencio de proposito, como nas reservas: a tela inicial nao pode
+    // quebrar porque um dos sistemas esta fora do ar.
+    console.warn('Nao consegui carregar os disparos:', e);
+  }
+}
+
+// A data vem do banco em UTC. Cortar o texto ("2026-09-28T23:10:00Z") mostraria
+// o dia seguinte para tudo que foi emitido depois das 21h no horario daqui.
+function diaDoDisparo(valor) {
+  var d = new Date(valor);
+  if (!valor || isNaN(d.getTime())) return '';
+  var hoje = new Date();
+  var mesmoDia = function (a, b) {
+    return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth()
+      && a.getDate() === b.getDate();
+  };
+  if (mesmoDia(d, hoje)) return 'hoje';
+  var ontem = new Date(hoje.getTime() - 86400000);
+  if (mesmoDia(d, ontem)) return 'ontem';
+  var dois = function (n) { return (n < 10 ? '0' : '') + n; };
+  return dois(d.getDate()) + '/' + dois(d.getMonth() + 1);
+}
+
 var reservasPendentes = null;
+var disparosPendentes = null;
 
 async function carregarReservas() {
   try {
