@@ -287,7 +287,11 @@ async function concluirLogin(req, res, u) {
   await db.query("UPDATE usuarios SET ultimo_login = NOW() WHERE id = $1", [u.id]);
   auth.definirCookie(res, token);
   await auth.auditar(req, "login", { usuarioId: u.id, email: u.email });
-  res.json({ ok: true, senhaTemp: u.senha_temp });
+  // Clientes mobile não conseguem ler Set-Cookie no iOS; devolvemos o token
+  // no body para que o app possa enviá-lo via x-unigestao-token.
+  const payload = { ok: true, senhaTemp: u.senha_temp };
+  if (req.headers["x-mobile-client"]) payload.sessionToken = token;
+  res.json(payload);
 }
 
 app.post("/api/logout", async (req, res, next) => {
