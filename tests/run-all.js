@@ -33,6 +33,8 @@ const testes = [
   "impressao.test.js",
   "nexti.test.js",
   "checklists.test.js",
+  "visitas-previstas.test.js",
+  "visitas-previstas-painel.test.js",
   "chat.test.js",
   "chat-aviso.test.js",
   "chat-balao.test.js",

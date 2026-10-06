@@ -518,3 +518,41 @@ CREATE TABLE IF NOT EXISTS conversa_membros (
   PRIMARY KEY (conversa_id, usuario_id)
 );
 CREATE INDEX IF NOT EXISTS idx_conversa_membros_usuario ON conversa_membros (usuario_id);
+
+-- ---------------------------------------------------------------------------
+-- AGENDA DE VISITAS — o PREVISTO dos supervisores
+-- ---------------------------------------------------------------------------
+-- O realizado vem da API do Nexti (nexti_visita). O previsto NAO vem: a API
+-- tem 386 enderecos e nenhum deles e o roteiro (apurado em 06/10/2026; pedir o
+-- roteiro 18073, que existe na tela, responde "nao encontrado"). Entao ele
+-- entra pelo relatorio "Relacao de visitas", exportado em planilha e enviado
+-- no painel de checklists.
+--
+-- Guarda-se o PADRAO (quem visita o que, em que dia da semana), e nao as datas
+-- do arquivo: o roteiro do Nexti e semanal e se repete, entao a agenda enviada
+-- uma vez vale nos meses seguintes, ate subirem outra.
+CREATE TABLE IF NOT EXISTS agenda_envio (
+  id             BIGSERIAL   PRIMARY KEY,
+  arquivo        TEXT,
+  usuario_id     TEXT,
+  usuario_nome   TEXT,
+  enviado_em     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  periodo_inicio DATE,
+  periodo_fim    DATE,
+  visitas        INT         NOT NULL DEFAULT 0,
+  pontos         INT         NOT NULL DEFAULT 0,
+  -- So uma agenda vale por vez: subir outra aposenta a anterior, que fica no
+  -- historico para explicar numeros de meses passados.
+  ativo          BOOLEAN     NOT NULL DEFAULT TRUE
+);
+
+CREATE TABLE IF NOT EXISTS agenda_ponto (
+  id         BIGSERIAL PRIMARY KEY,
+  envio_id   BIGINT    NOT NULL REFERENCES agenda_envio(id) ON DELETE CASCADE,
+  supervisor TEXT      NOT NULL,
+  posto      TEXT      NOT NULL,
+  cliente    TEXT,
+  -- 0 = domingo, igual ao getDay() do JavaScript.
+  dia_semana SMALLINT  NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_agenda_ponto_envio ON agenda_ponto (envio_id);

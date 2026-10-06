@@ -175,6 +175,30 @@ Ordem acordada: Operacional → Documentos → Eventos → Tarefas → CRM → P
   nunca `null` — com `null` a criacao de acesso inteira falhava com 500, e nao escolher
   departamento e o caso comum.
 
+### O previsto das visitas não vem da API do Nexti
+
+Apurado em 06/10/2026, contra a API de produção: ela tem **386 endereços e
+nenhum é o roteiro**. Pedir o roteiro `18073` (que existe na tela *Nexti Control
+→ Roteiro*) responde "não encontrado"; `/routes`, `/roteiros`, `/agendas`,
+`/taskschedules`, `/visits` e mais quarenta nomes dão 404; `/control/...` dá 404
+com a nossa credencial. O que a API chama de `schedules` é **escala de trabalho**
+("das 06:00 às 15:48, 5X2"), não roteiro de visita.
+
+Por isso o previsto entra por planilha — o relatório *Relação de visitas* — no
+painel de checklists (`core/visitas-previstas.js`). Três decisões que não devem
+ser desfeitas sem motivo:
+
+- **só vira roteiro o que se repete em 2+ semanas.** O relatório mistura visita
+  semanal, visita "não se repete" e tarefa de demanda (CC - SOLICITACAO). Tratar
+  tudo como roteiro dava 501 pontos/semana onde 10 se repetiam.
+- **a conta é por semana, não por dia.** Visita de quinta feita na sexta cumpriu
+  o roteiro; cobrar o dia exato transforma remarcação em falta.
+- **a semana corrente não entra na conta.** Visita combinada para depois de hoje
+  não é visita perdida.
+
+Cuidado com nomes: a *Agenda de Contatos* do portal (`core/perfil.js`,
+`tests/agenda.test.js`) não tem nada a ver com a *agenda de visitas*.
+
 ---
 
 ## Comandos

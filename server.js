@@ -26,6 +26,7 @@ const mural = require("./core/mural");
 const checklists = require("./core/checklists");
 const chat = require("./core/chat");
 const sincroniaCrm = require("./core/sincronia-crm");
+const visitasPrevistas = require("./core/visitas-previstas");
 
 const app = express();
 
@@ -658,6 +659,70 @@ app.get("/api/checklists/visitas", exigeVerChecklists, async (req, res, next) =>
       dia: /^\d{4}-\d{2}-\d{2}$/.test(req.query.dia || "") ? req.query.dia : null,
     });
     res.json(dados);
+  } catch (e) {
+    next(e);
+  }
+});
+
+
+// ---------------------------------------------------------------------------
+// AGENDA DE VISITAS — o PREVISTO, que a API do Nexti nao entrega
+// ---------------------------------------------------------------------------
+// O realizado chega pela API. O roteiro nao: a API tem 386 enderecos e nenhum
+// deles e o agendamento (apurado em 06/10/2026 — pedir o roteiro 18073, que
+// existe na tela do Nexti, responde "nao encontrado"). Entao o previsto sobe
+// aqui, pelo relatorio "Relacao de visitas" exportado em planilha.
+
+app.get("/api/checklists/agenda", exigeVerChecklists, async (req, res, next) => {
+  try {
+    const atual = await visitasPrevistas.agendaAtual();
+    res.json(atual ? { ...atual.envio, pontos: atual.padrao.length } : null);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// A planilha sobe em base64 dentro do JSON, e nao como formulario de arquivo:
+// e um upload so, de um arquivo pequeno, e assim o Core nao ganha dependencia
+// de multipart so por causa desta tela.
+app.post("/api/checklists/agenda", exigeVerChecklists, async (req, res, next) => {
+  try {
+    const bruto = String(req.body.arquivo || "");
+    if (!bruto) return res.status(400).json({ erro: "Escolha a planilha exportada do Nexti." });
+
+    const buf = Buffer.from(bruto.replace(/^data:[^,]*,/, ""), "base64");
+    if (!buf.length) return res.status(400).json({ erro: "Não consegui ler o arquivo enviado." });
+
+    const visitas = visitasPrevistas.lerRelatorio(visitasPrevistas.lerPlanilha(buf));
+    const salvo = await visitasPrevistas.guardar({
+      visitas,
+      arquivo: String(req.body.nome || "").slice(0, 200),
+      usuarioId: req.usuario.id,
+      usuarioNome: req.usuario.nome,
+    });
+    await auth.auditar(req, "agenda_visitas_enviada", {
+      detalhe: { arquivo: req.body.nome, visitas: salvo.visitas, pontos: salvo.pontos },
+    });
+    res.json({ ok: true, ...salvo });
+  } catch (e) {
+    // Planilha errada e erro de quem enviou, nao defeito do sistema: a pessoa
+    // precisa ler o que fazer, e nao um "erro interno".
+    if (e.name === "ErroAgenda" || e.name === "ErroPlanilha") {
+      return res.status(400).json({ erro: e.message });
+    }
+    next(e);
+  }
+});
+
+app.get("/api/checklists/previsto", exigeVerChecklists, async (req, res, next) => {
+  try {
+    const m = String(req.query.mes || "").match(/^(\d{4})-(\d{2})$/);
+    const hoje = new Date();
+    const ano = m ? Number(m[1]) : hoje.getFullYear();
+    const mes = m ? Number(m[2]) : hoje.getMonth() + 1;
+    const p2 = (n) => String(n).padStart(2, "0");
+    const hojeISO = hoje.getFullYear() + "-" + p2(hoje.getMonth() + 1) + "-" + p2(hoje.getDate());
+    res.json(await visitasPrevistas.painelDoMes(ano, mes, hojeISO));
   } catch (e) {
     next(e);
   }

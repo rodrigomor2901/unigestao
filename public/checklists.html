@@ -146,6 +146,24 @@
                   font-size: 10.5px; color: var(--texto-fraco);
                   overflow: visible; white-space: nowrap; }
 
+  /* Previsto x realizado. A agenda sobe por planilha porque a API do Nexti nao
+     entrega roteiro nenhum — ver core/agenda.js. */
+  .agendaBarra { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+                 padding: 11px 18px; border-bottom: 1px solid var(--borda); font-size: 13px; }
+  .agendaBarra input[type=month] { font: inherit; padding: 5px 8px; border: 1px solid var(--borda);
+                                   border-radius: 7px; color: inherit; background: #fff; }
+  .agendaBarra .quando { color: var(--texto-fraco); flex: 1 1 220px; }
+  .agendaBarra .recado { flex-basis: 100%; }
+  .agendaBarra .recado.erro { color: #b42318; }
+  .agendaBarra .recado.feito { color: #0a7d3f; }
+  .semAgenda { padding: 16px 18px; font-size: 13px; line-height: 1.65; color: var(--texto-fraco); }
+  .semAgenda b { color: var(--texto); }
+  .semAgenda ol { margin: 8px 0 0; padding-left: 20px; }
+  td.falta b { color: #b42318; }
+  .faltas { font-size: 12.5px; color: var(--texto-fraco); line-height: 1.6; }
+  .faltas summary { cursor: pointer; color: var(--accent); }
+  .faltas ul { margin: 6px 0 0; padding-left: 18px; }
+
   .aviso-fonte { margin-top: 18px; font-size: 12.5px; color: var(--texto-fraco);
                  line-height: 1.6; padding: 14px 18px; }
 
@@ -211,6 +229,22 @@
     <div id="grafico"></div>
   </div>
 
+  <!-- Previsto x realizado. Vem logo depois do grafico porque e a leitura que o
+       relatorio do Nexti so entrega no fim do mes: aqui ela esta junto do que
+       ja aconteceu. -->
+  <div class="card" id="cardPrevisto">
+    <h2>Previsto × realizado <small id="subPrevisto"></small></h2>
+    <div class="agendaBarra">
+      <label for="mesPrevisto">Mês</label>
+      <input type="month" id="mesPrevisto">
+      <span class="quando" id="agendaQuando">—</span>
+      <input type="file" id="arquivoAgenda" accept=".xls,.xlsx" hidden>
+      <button class="btnAtualizar" id="btnAgenda">Enviar agenda</button>
+      <span class="recado" id="agendaRecado"></span>
+    </div>
+    <div id="previstoCorpo"></div>
+  </div>
+
   <div class="colunas">
     <div>
       <div class="card">
@@ -248,10 +282,11 @@
   <div class="card aviso-fonte">
     <b>Sobre o que este painel mostra.</b> A API do Nexti entrega apenas as visitas
     <b>concluídas</b> — conferido contra o relatório deles, 422 de um lado e 422 do outro
-    no mesmo período. As visitas <b>não realizadas</b> só existem no relatório
-    “Relação de visitas”, que sai por download, e por isso não aparecem aqui.
-    Enquanto isso, este painel cobre o que o relatório não cobre: o <b>dia de hoje</b>,
-    enquanto ainda dá para agir.
+    no mesmo período. O <b>roteiro</b> (o que estava previsto) não vem por API nenhuma:
+    procurei, e a API tem 386 endereços sem nenhum de agendamento. Por isso o previsto
+    entra por planilha, no quadro “Previsto × realizado” — e o resto do painel continua
+    cobrindo o que o relatório do Nexti não cobre: o <b>dia de hoje</b>, enquanto ainda
+    dá para agir.
   </div>
 </main>
 
@@ -555,7 +590,145 @@ document.getElementById('periodos').addEventListener('click', function (ev) {
 
 document.getElementById('btnAtualizar').addEventListener('click', function () { carregar(true); });
 
+// ---------------------------------------------------------------------------
+// Previsto x realizado
+// ---------------------------------------------------------------------------
+// O realizado vem da API do Nexti. O previsto nao vem de la: a API tem 386
+// enderecos e o roteiro nao e um deles (apurado em 06/10/2026). Por isso a
+// agenda sobe por planilha — o relatorio "Relacao de visitas" do Nexti Control.
+function mesAtual() {
+  var d = new Date();
+  return d.getFullYear() + '-' + p2(d.getMonth() + 1);
+}
+
+function recado(texto, tipo) {
+  var el = document.getElementById('agendaRecado');
+  el.textContent = texto || '';
+  el.className = 'recado' + (tipo ? ' ' + tipo : '');
+}
+
+async function carregarPrevisto() {
+  var mes = document.getElementById('mesPrevisto').value || mesAtual();
+  var corpo = document.getElementById('previstoCorpo');
+  try {
+    var r = await fetch('/api/checklists/previsto?mes=' + mes, { headers: { accept: 'application/json' } });
+    var d = await r.json();
+    desenharPrevisto(d);
+  } catch (e) {
+    corpo.innerHTML = '<div class="semAgenda">Não consegui carregar o previsto agora.</div>';
+  }
+}
+
+function desenharPrevisto(d) {
+  var corpo = document.getElementById('previstoCorpo');
+  var sub = document.getElementById('subPrevisto');
+  var quando = document.getElementById('agendaQuando');
+
+  if (!d || !d.temAgenda) {
+    sub.textContent = '';
+    quando.textContent = 'Nenhuma agenda enviada ainda.';
+    corpo.innerHTML =
+      '<div class="semAgenda"><b>Para comparar o previsto com o realizado, envie a agenda.</b>' +
+      '<ol><li>No Nexti: <b>Nexti Control → Relatório → Relação de visitas</b>.</li>' +
+      '<li>Escolha o período e exporte em planilha.</li>' +
+      '<li>Clique em <b>Enviar agenda</b> aqui em cima.</li></ol>' +
+      'O que sobe vira a agenda padrão e vale nos meses seguintes, até você enviar outra. ' +
+      'O roteiro do Nexti é semanal, então o que fica guardado é o padrão: quem visita qual ' +
+      'posto, em que dia da semana.</div>';
+    return;
+  }
+
+  var e = d.envio;
+  quando.textContent = 'Agenda de ' + (e.usuario_nome || 'alguém') + ', enviada em ' +
+    dataCurta(String(e.enviado_em).slice(0, 10)) + ' — ' + e.pontos + ' pontos de roteiro' +
+    (e.periodo_inicio ? ' (base: ' + dataCurta(String(e.periodo_inicio).slice(0, 10)) + ' a ' +
+      dataCurta(String(e.periodo_fim).slice(0, 10)) + ')' : '');
+
+  var sup = d.supervisores || [];
+  if (!sup.length) {
+    sub.textContent = '';
+    corpo.innerHTML = '<div class="semAgenda">Nenhuma semana fechada neste mês ainda. ' +
+      'A semana que está correndo não entra na conta: visita combinada para os próximos ' +
+      'dias não é visita perdida.</div>';
+    return;
+  }
+
+  var previstas = sup.reduce(function (s, x) { return s + x.previstas; }, 0);
+  var feitas = sup.reduce(function (s, x) { return s + x.feitas; }, 0);
+  sub.textContent = feitas + ' de ' + previstas + ' visitas do roteiro' +
+    (previstas ? ' · ' + Math.round(feitas / previstas * 100) + '%' : '') +
+    (d.foraDoRoteiro ? ' · ' + d.foraDoRoteiro + ' fora do roteiro' : '');
+
+  corpo.innerHTML = '<div class="rolagem"><table><thead><tr>' +
+    '<th>Supervisor</th><th class="n">Previstas</th><th class="n">Feitas</th>' +
+    '<th class="n">Fora do dia</th><th class="n">Faltaram</th><th class="n">Aderência</th>' +
+    '</tr></thead><tbody>' +
+    sup.map(function (s) {
+      var faltas = (s.postos || []).map(function (p) {
+        return '<li>' + esc(p.posto || p.cliente || '—') + ' — ' + dataCurta(p.data) + '</li>';
+      }).join('');
+      return '<tr>' +
+        '<td>' + esc(s.supervisor) +
+          (faltas ? '<details class="faltas"><summary>ver o que faltou</summary><ul>' +
+                    faltas + '</ul></details>' : '') +
+        '</td>' +
+        '<td class="n">' + s.previstas + '</td>' +
+        '<td class="n">' + s.feitas + '</td>' +
+        '<td class="n">' + (s.foraDoDia || '—') + '</td>' +
+        '<td class="n falta">' + (s.faltaram ? '<b>' + s.faltaram + '</b>' : '—') + '</td>' +
+        '<td class="n">' + (s.aderencia == null ? '—' : s.aderencia + '%') + '</td>' +
+      '</tr>';
+    }).join('') + '</tbody></table></div>' +
+    '<div class="semAgenda">A conta é por <b>semana</b>, e não por dia: visita de quinta feita ' +
+    'na sexta cumpriu o roteiro — ela aparece em “fora do dia”, não em “faltaram”. A semana ' +
+    'que ainda está correndo fica de fora.</div>';
+}
+
+async function enviarAgenda(arquivo) {
+  var btn = document.getElementById('btnAgenda');
+  btn.disabled = true;
+  recado('Lendo a planilha…');
+  try {
+    var base64 = await new Promise(function (ok, erro) {
+      var fr = new FileReader();
+      fr.onload = function () { ok(String(fr.result).split(',')[1] || ''); };
+      fr.onerror = function () { erro(new Error('Não consegui ler o arquivo.')); };
+      fr.readAsDataURL(arquivo);
+    });
+    var r = await fetch('/api/checklists/agenda', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({ arquivo: base64, nome: arquivo.name }),
+    });
+    var d = await r.json();
+    if (!r.ok) { recado(d.erro || 'Não consegui ler esta planilha.', 'erro'); return; }
+    recado('Agenda recebida: ' + d.visitas + ' linhas em ' + d.semanas + ' semanas, ' +
+           d.pontos + ' pontos de roteiro.' +
+           // Poucos pontos quase sempre significam planilha de periodo curto ou
+           // so com tarefa avulsa: e melhor dizer agora do que a pessoa achar
+           // que o roteiro dela e minusculo.
+           (d.pontos < 20 ? ' Parece pouco: se o roteiro é maior, exporte as próximas 8 semanas.' : ''),
+           'feito');
+    await carregarPrevisto();
+  } catch (e) {
+    recado(e.message || 'Falhou o envio.', 'erro');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.getElementById('btnAgenda').addEventListener('click', function () {
+  document.getElementById('arquivoAgenda').click();
+});
+document.getElementById('arquivoAgenda').addEventListener('change', function () {
+  if (this.files && this.files[0]) enviarAgenda(this.files[0]);
+  this.value = '';
+});
+document.getElementById('mesPrevisto').addEventListener('change', carregarPrevisto);
+document.getElementById('mesPrevisto').value = mesAtual();
+
 carregar(false);
+carregarPrevisto();
 </script>
 <!-- Comunicador interno. O mesmo arquivo que a Fachada injeta nos modulos:
      a conversa acompanha a pessoa do portal para dentro dos sistemas. -->
