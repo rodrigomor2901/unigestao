@@ -84,6 +84,15 @@
   .acoes { display: flex; gap: 10px; flex-wrap: wrap; }
   .enviados { font-size: 12.5px; color: var(--texto-fraco); margin-top: 12px; line-height: 1.6; }
 
+  .plano { border-left: 4px solid var(--ok); }
+  .plano.mudar { border-left-color: var(--laranja); background: #FFFAF3; }
+  .plano .rot { font-size: 12px; color: var(--texto-fraco); font-weight: 600;
+                text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
+  .plano ul { margin: 8px 0 0; padding-left: 18px; font-size: 13.5px; line-height: 1.55; color: #344054; }
+  .plano li + li { margin-top: 4px; }
+  .plano .valor { margin-top: 10px; font-size: 13px; font-weight: 600; }
+  .plano .valor:empty { display: none; }
+
   .passos { font-size: 14px; line-height: 1.7; padding-left: 20px; margin: 8px 0 0; }
   code { background: #f2f1ee; padding: 1px 6px; border-radius: 4px; font-size: 13px; }
 
@@ -160,6 +169,13 @@
     </div>
 
     <div>
+      <div class="card bloco plano" id="blocoPlano" style="display:none">
+        <div class="rot">Plano do Railway</div>
+        <h3 id="planoTitulo"></h3>
+        <ul id="planoMotivos"></ul>
+        <div class="valor" id="planoValor"></div>
+      </div>
+
       <div class="card bloco">
         <h3>Alerta por e-mail</h3>
         <p class="sub">Cada aviso sai uma vez por ciclo: quando a projeção passar do limite, e de novo se o gasto real passar.</p>
@@ -307,10 +323,24 @@ function desenhar() {
       Math.round(x[1] / tot * 100) + '%</td></tr>';
   }).join('');
 
+  // Recomendacao de plano: verde quando e para manter, laranja quando sugere troca.
+  var rec = rel.recomendacao;
+  if (rec) {
+    var bp = document.getElementById('blocoPlano');
+    bp.style.display = '';
+    bp.classList.toggle('mudar', rec.acao !== 'manter');
+    document.getElementById('planoTitulo').textContent = rec.titulo;
+    document.getElementById('planoMotivos').innerHTML = rec.motivos.map(function (m) { return '<li>' + esc(m) + '</li>'; }).join('');
+    document.getElementById('planoValor').textContent =
+      rec.acao === 'descer' ? 'Economia estimada: ' + us(rec.economia) + ' por mês' :
+      rec.acao === 'subir' ? (rec.diferenca > 0 ? 'Custo a mais: ' + us(rec.diferenca) + ' por mês' : 'Sem custo a mais neste mês') : '';
+  }
+
   var env = dados.alertasEnviados || [];
   document.getElementById('enviados').innerHTML = env.length
     ? 'Neste ciclo já saiu: ' + env.map(function (a) {
-        return ({ projecao: 'projeção acima do limite', gasto: 'gasto acima do limite', plano: 'passou do plano' })[a.tipo] +
+        return ({ projecao: 'projeção acima do limite', gasto: 'gasto acima do limite', plano: 'passou do plano',
+                  mudar_plano: 'sugestão de troca de plano' })[a.tipo] +
           ' (' + new Date(a.enviado_em).toLocaleDateString('pt-BR') + ')';
       }).join(', ')
     : 'Nenhum aviso enviado neste ciclo.';

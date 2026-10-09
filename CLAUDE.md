@@ -214,6 +214,10 @@ mais muda.
 - **Cada alerta sai uma vez por ciclo** (`custos_alerta`, chave `ciclo_inicio + tipo`).
   A linha é inserida ANTES do envio: com duas instâncias do Core, só uma consegue
   inserir e só ela manda o e-mail. Não trocar por controle em memória.
+- **Sugestão de plano (`recomendarPlano`)**: a fatura é `max(uso, incluído)` e os preços
+  por recurso são iguais no Hobby e no Pro — então o Pro **nunca** sai mais barato.
+  Ele só é sugerido por limite (banco perto dos 5 GB do Hobby) ou quando o uso passa de
+  US$ 20 por dois ciclos (aí custa o mesmo). No Pro com uso abaixo de 20, sugere voltar.
 - **Foto diária em `custos_dia`**, gravada a cada 6 h no fuso de Brasília — é o que
   desenha a curva do mês, que a tela do Railway não guarda.
 

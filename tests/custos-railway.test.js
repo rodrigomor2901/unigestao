@@ -93,5 +93,27 @@ const email = c.htmlAlerta("projecao", { ...rel, projetos: [{ nome: "<script>x</
 ok(!email.html.includes("<script>x"), "nome de projeto vai escapado no e-mail");
 ok(/^A fatura do Railway deve passar do limite — US\$ /.test(email.assunto), "assunto diz o que aconteceu e o valor");
 
+// --- 5. Recomendacao de plano --------------------------------------------------
+function relCom(usoMes, usoAnt, volumeGb) {
+  return {
+    estimado: { uso: usoMes, fatura: Math.max(usoMes, 5) }, atual: { uso: 1, fatura: 5 },
+    anterior: usoAnt == null ? null : { uso: usoAnt, fatura: Math.max(usoAnt, 5) }, incluido: 5,
+    projetos: [{ nome: "SGC - RLM", servicos: [{ nome: "Postgres", volumeGb }] }],
+  };
+}
+ok(c.recomendarPlano(relCom(10.27, 24.18, 0.3), "HOBBY").acao === "manter", "Hobby com uso de US$ 10 e banco pequeno -> manter");
+ok(c.recomendarPlano(relCom(10.27, 24.18, 0.3), "HOBBY").diferenca > 9, "e diz quanto o Pro custaria a mais");
+const vol = c.recomendarPlano(relCom(3, 3, 4.2), "HOBBY");
+ok(vol.acao === "subir" && /4,2 GB/.test(vol.motivos[0]), "banco com 4,2 de 5 GB no Hobby -> sugere Pro, citando o banco");
+ok(c.recomendarPlano(relCom(25, 22, 1), "HOBBY").acao === "subir", "uso acima de 20 por dois ciclos -> Pro sem custo a mais");
+ok(c.recomendarPlano(relCom(25, 8, 1), "HOBBY").acao === "manter", "um mes so acima de 20 nao basta para trocar");
+const desce = c.recomendarPlano(relCom(10, 12, 1), "PRO");
+ok(desce.acao === "descer" && Math.abs(desce.economia - 10) < 0.01, "Pro com uso de US$ 10 -> voltar ao Hobby, economia de US$ 10");
+ok(c.recomendarPlano(relCom(10, 12, 20), "PRO").acao === "manter", "Pro com banco de 20 GB nao cabe no Hobby -> manter");
+ok(JSON.stringify(c.alertasDevidos({ ...base, recomendacao: { acao: "descer" } }, { ...cfg, limite_usd: 50 }, [])) === '["mudar_plano"]',
+   "sugestao de troca vira aviso, mesmo dentro do limite");
+ok(c.alertasDevidos({ ...base, recomendacao: { acao: "descer" } }, { ...cfg, limite_usd: 50 }, ["mudar_plano"]).length === 0,
+   "e nao repete no mesmo ciclo");
+
 console.log(falhas ? `\n${falhas} FALHA(S)` : "\nTudo certo");
 process.exit(falhas ? 1 : 0);

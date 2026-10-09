@@ -121,7 +121,7 @@ function montarRelatorio({ ciclo, uso, estimado, projetos, anterior, agora, incl
     if (!p.servicos.has(sid)) {
       p.servicos.set(sid, {
         id: sid, nome: nomeServico.get(sid) || "Serviço removido",
-        custo: 0, cpu: 0, ram: 0, rede: 0, disco: 0, ramGbMin: 0,
+        custo: 0, cpu: 0, ram: 0, rede: 0, disco: 0, ramGbMin: 0, discoGbMin: 0,
       });
     }
     const s = p.servicos.get(sid);
@@ -132,7 +132,11 @@ function montarRelatorio({ ciclo, uso, estimado, projetos, anterior, agora, incl
     if (linha.measurement === "CPU_USAGE") s.cpu += c;
     else if (linha.measurement === "MEMORY_USAGE_GB") { s.ram += c; s.ramGbMin += Number(linha.value) || 0; }
     else if (linha.measurement === "NETWORK_TX_GB") s.rede += c;
-    else s.disco += c;
+    else {
+      s.disco += c;
+      // So o volume conta para o teto do plano; backup e copia, fica de fora.
+      if (linha.measurement === "DISK_USAGE_GB") s.discoGbMin += Number(linha.value) || 0;
+    }
   }
 
   for (const e of estimado || []) projeto(e.projectId).estimado += custoDe(e.measurement, e.estimatedValue);
@@ -153,6 +157,7 @@ function montarRelatorio({ ciclo, uso, estimado, projetos, anterior, agora, incl
         custo: arred(s.custo),
         cpu: arred(s.cpu), ram: arred(s.ram), rede: arred(s.rede), disco: arred(s.disco),
         ramMediaMb: minutosDecorridos ? Math.round((s.ramGbMin / minutosDecorridos) * 1024) : null,
+        volumeGb: minutosDecorridos ? Math.round((s.discoGbMin / minutosDecorridos) * 100) / 100 : null,
       }))
       .sort((a, b) => b.custo - a.custo),
   })).sort((a, b) => b.estimado - a.estimado || b.atual - a.atual);
@@ -177,6 +182,90 @@ function montarRelatorio({ ciclo, uso, estimado, projetos, anterior, agora, incl
   };
 }
 
+// ---------------------------------------------------------------------------
+// Qual plano compensa
+// ---------------------------------------------------------------------------
+// Conferido na pagina "Plans" do Railway em 09/10/2026. Os precos por recurso
+// sao os mesmos nos dois planos; muda a assinatura, o uso incluido e os tetos.
+//   Hobby: US$ 5 (5 de uso incluido)  · volume ate 5 GB · 6 replicas/servico
+//   Pro:   US$ 20 (20 de uso incluido) · volume ate 1 TB · membros no workspace
+//
+// Consequencia que orienta a regra: a fatura e max(uso, incluido). Com o mesmo
+// uso, o Pro NUNCA sai mais barato — no maximo empata, quando o uso passa de
+// US$ 20. Entao o Pro so se justifica por limite (volume perto de 5 GB) ou por
+// recurso (colocar outra pessoa na conta), e nunca por economia.
+const PLANOS = {
+  HOBBY: { nome: "Hobby", incluido: 5, volumeGb: 5 },
+  PRO: { nome: "Pro", incluido: 20, volumeGb: 1000 },
+};
+const MARGEM_VOLUME = 0.8; // avisa com 80% do teto, antes de travar o banco
+
+const gb = (n) => Number(n).toFixed(1).replace(".", ",");
+
+function recomendarPlano(rel, plano) {
+  const atual = PLANOS[plano];
+  if (!rel || !atual) return { acao: "manter", titulo: "Plano atual", motivos: ["Plano não reconhecido: " + (plano || "?")] };
+
+  const servicos = rel.projetos.flatMap((p) => p.servicos.map((s) => ({ ...s, projeto: p.nome })));
+  const volumes = servicos.filter((s) => s.volumeGb != null).sort((a, b) => b.volumeGb - a.volumeGb);
+  const maior = volumes[0];
+  const usoMes = rel.estimado.uso;
+  // O ciclo anterior entra para nao mudar de plano por causa de um mes so.
+  const usoAnterior = rel.anterior ? rel.anterior.uso : null;
+  const fatura = (incl, u) => Math.max(u, incl);
+
+  if (plano === "HOBBY") {
+    if (maior && maior.volumeGb >= PLANOS.HOBBY.volumeGb * MARGEM_VOLUME) {
+      return {
+        acao: "subir", para: "PRO", titulo: "Hora de considerar o Pro",
+        motivos: [
+          `O banco de ${maior.projeto} já usa ${gb(maior.volumeGb)} GB dos 5 GB permitidos no Hobby. ` +
+          "Quando encher, o banco para de gravar.",
+        ],
+        diferenca: fatura(20, usoMes) - fatura(5, usoMes),
+      };
+    }
+    if (usoMes >= 20 && (usoAnterior == null || usoAnterior >= 20)) {
+      return {
+        acao: "subir", para: "PRO", titulo: "O Pro já sairia pelo mesmo preço",
+        motivos: [
+          `O uso projetado (${US(usoMes)}) passa dos US$ 20 que o Pro inclui, então a fatura seria igual.`,
+          "Com o Pro, dá para colocar outra pessoa da TI na conta e os limites de volume e réplicas sobem.",
+        ],
+        diferenca: 0,
+      };
+    }
+    return {
+      acao: "manter", titulo: "O Hobby continua sendo o certo",
+      motivos: [
+        `No Pro, a fatura deste mês seria ${US(fatura(20, usoMes))} em vez de ${US(fatura(5, usoMes))}, ` +
+        "sem nenhum ganho para o uso atual.",
+        maior ? `O maior banco usa ${gb(maior.volumeGb)} GB de 5 GB.` : "Nenhum banco perto do limite de 5 GB.",
+      ],
+      diferenca: fatura(20, usoMes) - fatura(5, usoMes),
+    };
+  }
+
+  // Esta no Pro.
+  const cabeNoHobby = !maior || maior.volumeGb < PLANOS.HOBBY.volumeGb * MARGEM_VOLUME;
+  const usoBaixo = usoMes < 20 && (usoAnterior == null || usoAnterior < 20);
+  if (cabeNoHobby && usoBaixo) {
+    const economia = fatura(20, usoMes) - fatura(5, usoMes);
+    return {
+      acao: "descer", para: "HOBBY", titulo: "Dá para voltar ao Hobby",
+      motivos: [
+        `O uso fica abaixo dos US$ 20 incluídos no Pro, então parte da assinatura está sendo paga sem uso.`,
+        "Antes de trocar: o Hobby não aceita outros membros no workspace.",
+      ],
+      economia,
+    };
+  }
+  return { acao: "manter", titulo: "O Pro continua fazendo sentido", motivos: [
+    cabeNoHobby ? `O uso (${US(usoMes)}) passa dos US$ 20 incluídos — no Hobby a fatura seria a mesma.`
+                : `O banco de ${maior.projeto} usa ${gb(maior.volumeGb)} GB — não cabe nos 5 GB do Hobby.`,
+  ] };
+}
+
 // Quais alertas cabem agora. `enviados` e a lista de tipos ja mandados NESTE
 // ciclo — cada tipo sai uma vez por ciclo, para o e-mail continuar sendo lido.
 //   projecao -> a fatura estimada do mes passou do limite (aviso cedo)
@@ -192,6 +281,9 @@ function alertasDevidos(rel, cfg, enviados = []) {
     else if (rel.estimado.fatura > limite && !ja.has("projecao") && !ja.has("gasto")) out.push("projecao");
   }
   if (cfg.avisar_plano && rel.atual.uso > rel.incluido && !ja.has("plano")) out.push("plano");
+  // Sugestao de troca de plano: sai sozinha, uma vez por ciclo, quando a regra
+  // de recomendarPlano pede mudanca. Nao depende de limite.
+  if (rel.recomendacao && rel.recomendacao.acao !== "manter" && !ja.has("mudar_plano")) out.push("mudar_plano");
   return out;
 }
 
@@ -273,6 +365,7 @@ async function consultar({ forcar = false } = {}) {
     incluido: plano === "HOBBY" ? 5 : plano === "PRO" ? 20 : INCLUIDO_PADRAO,
   });
   relatorio.plano = plano;
+  relatorio.recomendacao = recomendarPlano(relatorio, plano);
   relatorio.consultadoEm = agora.toISOString();
 
   cache = { quando: Date.now(), relatorio };
@@ -335,6 +428,7 @@ function htmlAlerta(tipo, rel, cfg) {
     gasto: "O gasto do Railway passou do limite",
     projecao: "A fatura do Railway deve passar do limite",
     plano: "O uso do Railway passou do incluído no plano",
+    mudar_plano: rel.recomendacao ? "Sugestão: " + rel.recomendacao.titulo : "Sugestão de plano",
   }[tipo];
   const topo = rel.projetos.slice(0, 5)
     .map((p) => `<tr><td style="padding:4px 0">${correio.esc(p.nome)}</td><td align="right">${US(p.estimado)}</td></tr>`)
@@ -345,11 +439,17 @@ function htmlAlerta(tipo, rel, cfg) {
     `Gasto até agora: <b>${US(rel.atual.uso)}</b> (a fatura mínima é ${US(rel.incluido)})<br>` +
     `Projeção até ${fim}: <b>${US(rel.estimado.fatura)}</b><br>` +
     `Limite definido: <b>${US(cfg.limite_usd)}</b></p>` +
+    (tipo === "mudar_plano" && rel.recomendacao
+      ? `<p style="margin:0 0 12px;font-size:14px;color:#344054;line-height:1.6">` +
+        rel.recomendacao.motivos.map(correio.esc).join("<br>") + `</p>`
+      : "") +
     `<p style="margin:12px 0 6px;font-size:13px;color:#667085">Projetos que mais pesam na projeção:</p>` +
     `<table width="100%" style="font-size:14px;color:#101828">${topo}</table>` +
     `<p style="margin:16px 0 0;font-size:13px;color:#667085">Este aviso sai uma vez por ciclo. ` +
     `O detalhe por serviço está em Admin Geral &rsaquo; Custos.</p>`;
-  return { assunto: titulo + " — " + US(tipo === "gasto" ? rel.atual.fatura : rel.estimado.fatura), html: correio.moldura(titulo, miolo) };
+  const assunto = tipo === "mudar_plano" ? titulo
+    : titulo + " — " + US(tipo === "gasto" ? rel.atual.fatura : rel.estimado.fatura);
+  return { assunto, html: correio.moldura(titulo, miolo) };
 }
 
 async function enviarAlerta(tipo, rel, cfg) {
@@ -406,6 +506,6 @@ module.exports = {
   configurado, consultar, verificar, agendar,
   lerConfig, salvarConfig, historico, alertasEnviados, enviarAlerta,
   // contas puras, para o teste
-  custoDe, faturaDe, montarRelatorio, alertasDevidos, htmlAlerta,
+  custoDe, faturaDe, montarRelatorio, alertasDevidos, htmlAlerta, recomendarPlano, PLANOS,
   PRECO_POR_UNIDADE, MINUTOS_MES,
 };
