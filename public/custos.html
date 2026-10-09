@@ -84,6 +84,19 @@
   .acoes { display: flex; gap: 10px; flex-wrap: wrap; }
   .enviados { font-size: 12.5px; color: var(--texto-fraco); margin-top: 12px; line-height: 1.6; }
 
+  .tendTopo { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+  .tend .selo { white-space: nowrap; }
+  .selo-medio { background: #fff3e3; color: #9a5200; }
+  .marcos { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 16px; }
+  .marco { border: 1px solid var(--borda); border-radius: 8px; padding: 12px 14px; font-size: 13.5px; line-height: 1.45; }
+  .marco b { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--texto-fraco); margin-bottom: 4px; }
+  .marco .q { font-size: 17px; font-weight: 700; display: block; margin-bottom: 2px; }
+  .marco.perto .q { color: var(--erro); }
+  .marco.longe .q { color: var(--ok); }
+  .volumes { margin-top: 16px; font-size: 14px; }
+  .volumes summary { cursor: pointer; color: var(--accent); font-weight: 500; }
+  .volumes table { margin-top: 8px; }
+
   .plano { border-left: 4px solid var(--ok); }
   .plano.mudar { border-left-color: var(--laranja); background: #FFFAF3; }
   .plano .rot { font-size: 12px; color: var(--texto-fraco); font-weight: 600;
@@ -147,6 +160,30 @@
         <span><i style="background:#f3c98b"></i>Projeção até o fim do ciclo</span>
         <span>O fim da barra é o limite</span>
       </div>
+    </div>
+
+    <div class="card bloco tend" id="blocoTend" style="display:none">
+      <div class="tendTopo">
+        <div>
+          <h3>Tendência e previsão</h3>
+          <p class="sub" id="tendResumo"></p>
+        </div>
+        <span class="selo" id="tendConf"></span>
+      </div>
+      <div class="grafico" id="tendGrafico"></div>
+      <div class="legenda" id="tendLegenda">
+        <span><i style="background:#26357A"></i>Ritmo mensal de cada semana</span>
+        <span><i style="background:#EC7807"></i>Tendência (com faixa de incerteza)</span>
+        <span><i style="background:#98a2b3"></i>Se nada mudar</span>
+        <span><i style="background:#b42318"></i>Seu limite</span>
+        <span><i style="background:#667085;opacity:.5"></i>US$ 20 (Pro empata)</span>
+      </div>
+      <div class="marcos" id="tendMarcos"></div>
+      <details class="volumes">
+        <summary>Bancos de dados — quanto falta para o limite de 5 GB do plano</summary>
+        <table><thead><tr><th>Banco</th><th class="n">Hoje</th><th class="n">Cresce por mês</th><th class="n">Chega em 80%</th></tr></thead>
+        <tbody id="tendVolumes"></tbody></table>
+      </details>
     </div>
   </div>
 
@@ -346,6 +383,116 @@ function desenhar() {
     : 'Nenhum aviso enviado neste ciclo.';
 
   desenharHistorico();
+  desenharTendencia();
+}
+
+function dataLonga(iso) {
+  return new Date(iso).toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' }).replace('.', '');
+}
+function prazo(semanas) {
+  if (semanas == null) return 'não chega';
+  if (semanas <= 0) return 'já passou';
+  if (semanas < 8) return 'em ~' + Math.max(1, Math.round(semanas)) + ' semana' + (Math.round(semanas) > 1 ? 's' : '');
+  var meses = semanas * 7 / 30;
+  if (meses < 24) return 'em ~' + Math.round(meses) + ' meses';
+  return 'em ~' + Math.round(meses / 12) + ' anos';
+}
+
+// Tendencia: passado em semanas (ritmo mensal de cada uma), hoje, e os
+// proximos 6 meses — a reta com a faixa, o cenario parado e as linhas de
+// limite e de US$ 20. Desenhado na largura real do cartao, como o outro.
+function desenharTendencia() {
+  var t = dados.tendencia, bloco = document.getElementById('blocoTend');
+  if (!t || !t.historico || !t.historico.length) { bloco.style.display = 'none'; return; }
+  bloco.style.display = '';
+  var lim = Number(dados.config.limite_usd) || 0;
+
+  var conf = { alta: ['selo-ok', 'confiança alta'], media: ['selo-medio', 'confiança média'], baixa: ['selo-off', 'confiança baixa'] }[t.confianca] || ['selo-off', ''];
+  var sel = document.getElementById('tendConf');
+  sel.className = 'selo ' + conf[0]; sel.textContent = conf[1];
+
+  var tendTxt = Math.abs(t.variacaoMensal) < 0.5 ? 'estável' :
+    (t.variacaoMensal > 0 ? 'subindo ~' + us(t.variacaoMensal) + ' por mês' : 'caindo ~' + us(-t.variacaoMensal) + ' por mês');
+  var resumo = 'Hoje o ritmo é de ' + us(t.ritmoMensal) + '/mês e a tendência das últimas ' + t.semanasNaReta +
+    ' semanas está ' + tendTxt + '.';
+  if (t.confianca === 'baixa') resumo += ' As semanas recentes (' + us(t.ritmoDasSemanas) + '/mês) destoam do mês atual — ' +
+    'algo mudou há pouco, então a inclinação ainda carrega o comportamento antigo. Vale reavaliar em 3 a 4 semanas.';
+  document.getElementById('tendResumo').textContent = resumo;
+
+  // ---- grafico
+  var alvo = document.getElementById('tendGrafico');
+  var W = Math.max(300, alvo.clientWidth || 900), H = 240, E = 44, D = 12, T = 14, B = 28;
+  var hoje = Date.now(), S = 7 * 864e5;
+  var t0 = new Date(t.historico[0].inicio).getTime();
+  var t1 = new Date(t.previsao[t.previsao.length - 1].quando).getTime();
+  var vals = t.historico.map(function (h) { return h.ritmoMensal; })
+    .concat(t.previsao.map(function (p) { return p.max; })).concat([lim, 20]);
+  var max = Math.max.apply(null, vals) * 1.08;
+  var x = function (ms) { return E + (W - E - D) * (ms - t0) / (t1 - t0); };
+  var y = function (v) { return T + (H - T - B) * (1 - Math.min(v, max) / max); };
+  var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Tendência de custo e previsão">';
+  var passo = max > 60 ? 20 : max > 30 ? 10 : 5;
+  for (var v = 0; v <= max; v += passo) {
+    svg += '<line x1="' + E + '" x2="' + (W - D) + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="#ece9e3"/>' +
+      '<text x="' + (E - 6) + '" y="' + (y(v) + 4) + '" text-anchor="end" font-size="11" fill="#98a2b3">' + v + '</text>';
+  }
+  // faixa de incerteza
+  var faixa = 'M' + x(hoje) + ' ' + y(t.ritmoMensal);
+  t.previsao.forEach(function (p) { faixa += ' L' + x(new Date(p.quando).getTime()) + ' ' + y(p.max); });
+  t.previsao.slice().reverse().forEach(function (p) { faixa += ' L' + x(new Date(p.quando).getTime()) + ' ' + y(p.min); });
+  svg += '<path d="' + faixa + ' Z" fill="#EC7807" opacity=".12"/>';
+  // linhas de referencia
+  svg += '<line x1="' + E + '" x2="' + (W - D) + '" y1="' + y(20) + '" y2="' + y(20) + '" stroke="#667085" stroke-opacity=".5" stroke-dasharray="2 4"/>' +
+    '<text x="' + (W - D) + '" y="' + (y(20) - 5) + '" text-anchor="end" font-size="11" fill="#667085">US$ 20 · Pro</text>';
+  if (lim) svg += '<line x1="' + E + '" x2="' + (W - D) + '" y1="' + y(lim) + '" y2="' + y(lim) + '" stroke="#b42318" stroke-dasharray="5 4"/>' +
+    '<text x="' + (E + 4) + '" y="' + (y(lim) - 5) + '" font-size="11" fill="#b42318">limite ' + us(lim) + '</text>';
+  // hoje
+  svg += '<line x1="' + x(hoje) + '" x2="' + x(hoje) + '" y1="' + T + '" y2="' + (H - B) + '" stroke="#d0cdc6"/>' +
+    '<text x="' + (x(hoje) + 4) + '" y="' + (T + 10) + '" font-size="11" fill="#98a2b3">hoje</text>';
+  // passado: barras do ritmo de cada semana
+  var larg = Math.max(3, (x(t0 + S) - x(t0)) * 0.7);
+  t.historico.forEach(function (h) {
+    var cx = x(new Date(h.inicio).getTime() + S / 2);
+    svg += '<rect x="' + (cx - larg / 2) + '" y="' + y(h.ritmoMensal) + '" width="' + larg + '" height="' + (H - B - y(h.ritmoMensal)) +
+      '" rx="2" fill="#26357A" opacity=".8"><title>Semana de ' + dataBR(h.inicio) + ': ' + us(h.custo) + ' (' + us(h.ritmoMensal) + '/mês)</title></rect>';
+  });
+  // futuro: cenario parado e tendencia
+  var fimX = x(t1);
+  svg += '<line x1="' + x(hoje) + '" x2="' + fimX + '" y1="' + y(t.ritmoMensal) + '" y2="' + y(t.ritmoMensal) + '" stroke="#98a2b3" stroke-width="2" stroke-dasharray="3 4"/>';
+  var linha = 'M' + x(hoje) + ' ' + y(t.ritmoMensal);
+  t.previsao.forEach(function (p) { linha += ' L' + x(new Date(p.quando).getTime()) + ' ' + y(p.valor); });
+  // Com confianca baixa a reta fica apagada: ela ainda e informacao, mas nao
+  // deve parecer certeza na tela de quem decide.
+  var fraca = t.confianca === 'baixa' ? ' opacity=".45"' : '';
+  svg += '<path d="' + linha + '" fill="none" stroke="#EC7807" stroke-width="2.5" stroke-dasharray="7 4"' + fraca + '/>';
+  t.previsao.forEach(function (p) {
+    svg += '<circle cx="' + x(new Date(p.quando).getTime()) + '" cy="' + y(p.valor) + '" r="3" fill="#EC7807"><title>' +
+      dataLonga(p.quando) + ': ' + us(p.valor) + ' (entre ' + us(p.min) + ' e ' + us(p.max) + ')</title></circle>';
+  });
+  svg += '<text x="' + E + '" y="' + (H - 8) + '" font-size="11" fill="#98a2b3">' + dataLonga(t.historico[0].inicio) + '</text>';
+  svg += '<text x="' + (W - D) + '" y="' + (H - 8) + '" text-anchor="end" font-size="11" fill="#98a2b3">' + dataLonga(t.previsao[t.previsao.length - 1].quando) + '</text>';
+  alvo.innerHTML = svg + '</svg>';
+
+  // ---- marcos
+  var nomes = { limite: 'Passa do seu limite', pro: 'Passa de US$ 20 (Pro empata)', volume: 'Um banco chega a 80% de 5 GB' };
+  var html = t.marcos.map(function (m) {
+    var cls = m.semanas == null ? 'longe' : m.semanas <= 8 ? 'perto' : '';
+    var quando = m.quando && m.semanas > 0 ? ' · ' + dataLonga(m.quando) : '';
+    var extra = m.tipo === 'volume' ? 'Primeiro a encher: ' + esc(m.projeto) + '.' :
+      m.tipo === 'limite' ? 'Limite de ' + us(m.alvo) + ' definido aqui.' : 'Acima disso, o Pro custa o mesmo e dá mais folga.';
+    if (m.tipo !== 'volume' && m.semanas > 0 && t.confianca === 'baixa') extra += ' Só se a tendência recente continuar.';
+    return '<div class="marco ' + cls + '"><b>' + nomes[m.tipo] + '</b><span class="q">' + prazo(m.semanas) + quando + '</span>' + extra + '</div>';
+  });
+  if (!t.marcos.some(function (m) { return m.tipo === 'volume'; })) {
+    html.push('<div class="marco longe"><b>' + nomes.volume + '</b><span class="q">não chega</span>Nenhum banco crescendo.</div>');
+  }
+  document.getElementById('tendMarcos').innerHTML = html.join('');
+
+  document.getElementById('tendVolumes').innerHTML = t.volumes.slice(0, 12).map(function (v) {
+    return '<tr><td>' + esc(v.projeto) + ' · ' + esc(v.servico) + '</td><td class="n">' + v.gbAtual.toFixed(2).replace('.', ',') + ' GB</td>' +
+      '<td class="n">' + (v.gbPorMes > 0 ? '+' : '') + (v.gbPorMes * 1000).toFixed(0) + ' MB</td>' +
+      '<td class="n">' + (v.dias80 == null ? 'não chega' : prazo(v.dias80 / 7) + ' · ' + dataLonga(v.quando80)) + '</td></tr>';
+  }).join('');
 }
 
 // Grafico de linhas em SVG puro: gasto acumulado (cheio) e projecao (tracejada)

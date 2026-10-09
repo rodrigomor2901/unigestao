@@ -502,10 +502,210 @@ function agendar() {
   setInterval(verificar, 6 * 60 * 60 * 1000).unref();
 }
 
+// ============================================================================
+// TENDENCIA E PREVISAO
+// ----------------------------------------------------------------------------
+// Pergunta: "no ritmo atual, ate quando esta estrutura aguenta, e quando vai
+// precisar de melhoria?". Tres coisas viram marco no tempo:
+//   - a fatura passar do limite definido no Admin Geral;
+//   - a fatura passar de US$ 20 (onde o Pro empata com o Hobby);
+//   - algum banco chegar a 80% dos 5 GB do Hobby.
+//
+// De onde vem cada serie (testado contra a fatura de setembro):
+//   - custo por SEMANA: `usage` com uma janela por semana. E exato — a mesma
+//     conta da fatura. A serie diaria de `metrics` NAO serve para RAM: o valor
+//     diario dela nao e a media do dia (setembro dava US$ 33,54 contra os
+//     19,36 da fatura). CPU e rede batiam; RAM, que e 80% da conta, nao.
+//   - tamanho de cada banco: `metrics` DISK_USAGE_GB diario. Ai serve: e um
+//     tamanho, nao um consumo, e o valor do dia e o tamanho do dia.
+//
+// Reta por Theil-Sen (mediana das inclinacoes entre pares de pontos), e nao
+// minimos quadrados: uma semana anormal — como a da fachada com 1,5 GB em
+// 04/10 — puxaria a reta inteira; na mediana, ela e voto vencido.
+// ============================================================================
+
+const SEMANA_MS = 7 * 24 * 60 * 60 * 1000;
+const SEMANAS_POR_MES = 30 / 7;
+
+function mediana(v) {
+  const a = [...v].sort((x, y) => x - y);
+  if (!a.length) return 0;
+  const m = Math.floor(a.length / 2);
+  return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+}
+
+// Reta robusta y = a + b*x. Devolve tambem a dispersao (MAD dos residuos),
+// que vira a faixa de incerteza do grafico.
+function theilSen(pontos) {
+  const p = pontos.filter((q) => Number.isFinite(q.x) && Number.isFinite(q.y));
+  if (p.length < 2) return { a: p.length ? p[0].y : 0, b: 0, mad: 0, n: p.length };
+  const inc = [];
+  for (let i = 0; i < p.length; i++) {
+    for (let j = i + 1; j < p.length; j++) if (p[j].x !== p[i].x) inc.push((p[j].y - p[i].y) / (p[j].x - p[i].x));
+  }
+  const b = mediana(inc);
+  const a = mediana(p.map((q) => q.y - b * q.x));
+  const mad = mediana(p.map((q) => Math.abs(q.y - (a + b * q.x))));
+  return { a, b, mad, n: p.length };
+}
+
+// Em quantas unidades de x a reta chega em `alvo`, a partir de `x0`.
+// null = nao chega (reta parada ou descendo) ou ja passou.
+function quandoChega(reta, x0, alvo) {
+  const agora = reta.a + reta.b * x0;
+  if (agora >= alvo) return 0;
+  if (reta.b <= 0) return null;
+  return (alvo - agora) / reta.b;
+}
+
+// semanas:  [{ inicio: ISO, custo }]   (semanas completas, mais antiga primeiro)
+// volumes:  [{ projeto, servico, serie: [{ dia: ms, gb }] }]
+// nivelAtual: a projecao do Railway para o ciclo corrente (relatorio.estimado.uso).
+// A reta das semanas da a INCLINACAO; o ponto de partida e o numero de hoje.
+// Sem isso, a reta partiria do passado: em 09/10/2026 ela comecava em US$ 29
+// (setembro, com a fachada vazando memoria) enquanto o mes corrente, ja com a
+// correcao, projetava US$ 10.
+function montarTendencia({ semanas, volumes, limite, plano, agora, nivelAtual, horizonteMeses = 6 }) {
+  const t0 = agora || Date.now();
+  // Semanas zeradas no comeco sao "conta ainda nao existia", nao gasto zero.
+  let lista = (semanas || []).slice();
+  while (lista.length && !(lista[0].custo > 0)) lista.shift();
+
+  // x em semanas a partir de hoje (negativo = passado); y em ritmo MENSAL.
+  const pts = lista.map((s) => ({
+    x: (new Date(s.inicio).getTime() + SEMANA_MS / 2 - t0) / SEMANA_MS,
+    y: s.custo * SEMANAS_POR_MES,
+  }));
+  // A reta usa as 8 semanas mais recentes: o que aconteceu em julho conta
+  // menos para o proximo semestre do que o que aconteceu no mes passado.
+  const ajuste = theilSen(pts.slice(-8));
+  const ancorado = Number.isFinite(nivelAtual) && nivelAtual > 0;
+  const reta = { ...ajuste, a: ancorado ? nivelAtual : ajuste.a };
+  const ritmoMensal = Math.max(0, reta.a);              // valor da reta hoje (x = 0)
+  const variacaoMensal = reta.b * SEMANAS_POR_MES;      // US$/mes, a cada mes
+
+  const previsao = [];
+  for (let m = 1; m <= horizonteMeses; m++) {
+    const x = m * SEMANAS_POR_MES;
+    const v = Math.max(0, reta.a + reta.b * x);
+    // A faixa abre com a distancia: e mais facil errar dezembro que novembro.
+    const faixa = reta.mad * (1 + m / 3);
+    previsao.push({ mes: m, quando: new Date(t0 + x * SEMANA_MS).toISOString(),
+                    valor: arred(v), min: arred(Math.max(0, v - faixa)), max: arred(v + faixa),
+                    // Cenario "nada muda": o ritmo de hoje, parado. E o piso da conversa.
+                    estavel: arred(ritmoMensal) });
+  }
+
+  const marcos = [];
+  const emData = (semanasAte) => new Date(t0 + semanasAte * SEMANA_MS).toISOString();
+  const lim = Number(limite) || 0;
+  if (lim > 0) {
+    const s = quandoChega(reta, 0, lim);
+    marcos.push({ tipo: "limite", alvo: lim, semanas: s, quando: s == null ? null : emData(s) });
+  }
+  if (plano !== "PRO") {
+    const s = quandoChega(reta, 0, 20);
+    marcos.push({ tipo: "pro", alvo: 20, semanas: s, quando: s == null ? null : emData(s) });
+  }
+
+  const DIA_MS = 24 * 60 * 60 * 1000;
+  const tetoVolume = (PLANOS[plano] || PLANOS.HOBBY).volumeGb;
+  const vol = (volumes || []).map((v) => {
+    const serie = v.serie.filter((q) => q.gb > 0);
+    const r = theilSen(serie.map((q) => ({ x: (q.dia - t0) / DIA_MS, y: q.gb })));
+    const atual = serie.length ? serie[serie.length - 1].gb : 0;
+    const dias80 = quandoChega({ a: atual, b: r.b }, 0, tetoVolume * MARGEM_VOLUME);
+    return {
+      projeto: v.projeto, servico: v.servico,
+      gbAtual: Math.round(atual * 100) / 100,
+      gbPorMes: Math.round(r.b * 30 * 1000) / 1000,
+      dias80: dias80 == null ? null : Math.round(dias80),
+      quando80: dias80 == null ? null : new Date(t0 + dias80 * DIA_MS).toISOString(),
+    };
+  }).sort((a, b) => (a.dias80 == null) - (b.dias80 == null) || (a.dias80 || 0) - (b.dias80 || 0) || b.gbAtual - a.gbAtual);
+
+  const primeiroVolume = vol.find((v) => v.dias80 != null);
+  if (primeiroVolume) {
+    marcos.push({ tipo: "volume", alvo: tetoVolume * MARGEM_VOLUME, semanas: primeiroVolume.dias80 / 7,
+                  quando: primeiroVolume.quando80, projeto: primeiroVolume.projeto });
+  }
+
+  // Quanto confiar na reta. Baixa quando ha pouca historia, ou quando o ritmo
+  // das ultimas semanas e muito diferente do mes corrente — sinal de que algo
+  // mudou (vazamento corrigido, servico novo) e a inclinacao ainda carrega o
+  // regime antigo. Nesses casos a tela pede para olhar de novo em semanas.
+  const desvioNivel = ancorado && ajuste.a > 0 ? Math.abs(ajuste.a - nivelAtual) / nivelAtual : 0;
+  const confianca = ajuste.n < 6 || desvioNivel > 0.3 ? "baixa"
+    : ajuste.n >= 8 && ajuste.mad <= 0.15 * Math.max(ritmoMensal, 1) ? "alta" : "media";
+
+  return {
+    confianca,
+    historico: lista.map((s) => ({ inicio: s.inicio, custo: arred(s.custo), ritmoMensal: arred(s.custo * SEMANAS_POR_MES) })),
+    ritmoMensal: arred(ritmoMensal),
+    ancorado,
+    ritmoDasSemanas: arred(Math.max(0, ajuste.a)),
+    variacaoMensal: arred(variacaoMensal),
+    incerteza: arred(reta.mad),
+    semanasNaReta: reta.n,
+    previsao, marcos, volumes: vol,
+  };
+}
+
+async function tendenciaDaApi() {
+  const w = workspaceId();
+  const agora = Date.now();
+  // Ultimas 16 semanas, alinhadas no fim em "agora - semana corrente": a
+  // semana em andamento fica de fora (incompleta puxaria a reta para baixo).
+  const fimUltima = agora - (agora % SEMANA_MS);
+  const janelas = [];
+  for (let i = 16; i >= 1; i--) janelas.push([fimUltima - i * SEMANA_MS, fimUltima - (i - 1) * SEMANA_MS]);
+
+  const semanas = [];
+  // De quatro em quatro: a API do Railway limita chamadas por hora.
+  for (let i = 0; i < janelas.length; i += 4) {
+    const lote = janelas.slice(i, i + 4);
+    const res = await Promise.all(lote.map(([s, e]) =>
+      gql(Q_TOTAIS, { w, m: MEDIDAS, s: new Date(s).toISOString(), e: new Date(e).toISOString() })));
+    res.forEach((r, k) => semanas.push({
+      inicio: new Date(lote[k][0]).toISOString(),
+      custo: r.workspaceUsageTotals.reduce((t, l) => t + custoDe(l.measurement, l.value), 0),
+    }));
+  }
+
+  const [m, p] = await Promise.all([
+    gql(Q_DISCO, { w, s: new Date(agora - 90 * 24 * 3600 * 1000).toISOString() }),
+    gql(Q_PROJETOS, { w }),
+  ]);
+  const nomeServico = new Map();
+  for (const e of p.projects.edges) for (const s of e.node.services.edges) nomeServico.set(s.node.id, { projeto: e.node.name, servico: s.node.name });
+  const volumes = m.metrics
+    .filter((x) => nomeServico.has(x.tags.serviceId))
+    .map((x) => ({ ...nomeServico.get(x.tags.serviceId), serie: x.values.map((v) => ({ dia: v.ts * 1000, gb: v.value })) }));
+  return { semanas, volumes };
+}
+
+const Q_DISCO = `query($w:String!,$s:DateTime!){
+  metrics(workspaceId:$w, measurements:[DISK_USAGE_GB], startDate:$s, sampleRateSeconds:86400, groupBy:[SERVICE_ID]){
+    measurement tags { serviceId } values { ts value } } }`;
+
+let cacheTendencia = null; // { quando, dados } — um objeto so
+const CACHE_TENDENCIA_MS = 6 * 60 * 60 * 1000;
+
+async function tendencia({ forcar = false, limite, plano, nivelAtual } = {}) {
+  if (!configurado()) return null;
+  if (forcar || !cacheTendencia || Date.now() - cacheTendencia.quando > CACHE_TENDENCIA_MS) {
+    cacheTendencia = { quando: Date.now(), dados: await tendenciaDaApi() };
+  }
+  // A conta e refeita sempre (barata); so a busca na API fica em cache —
+  // assim mudar o limite na tela muda o marco na hora.
+  return montarTendencia({ ...cacheTendencia.dados, limite, plano, nivelAtual, agora: Date.now() });
+}
+
 module.exports = {
-  configurado, consultar, verificar, agendar,
+  configurado, consultar, verificar, agendar, tendencia,
   lerConfig, salvarConfig, historico, alertasEnviados, enviarAlerta,
   // contas puras, para o teste
   custoDe, faturaDe, montarRelatorio, alertasDevidos, htmlAlerta, recomendarPlano, PLANOS,
+  theilSen, quandoChega, montarTendencia,
   PRECO_POR_UNIDADE, MINUTOS_MES,
 };

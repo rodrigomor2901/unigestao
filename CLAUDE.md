@@ -218,6 +218,12 @@ mais muda.
   por recurso são iguais no Hobby e no Pro — então o Pro **nunca** sai mais barato.
   Ele só é sugerido por limite (banco perto dos 5 GB do Hobby) ou quando o uso passa de
   US$ 20 por dois ciclos (aí custa o mesmo). No Pro com uso abaixo de 20, sugere voltar.
+- **Tendência (`montarTendencia`)**: custo por SEMANA via `workspaceUsageTotals` (exato,
+  bate com a fatura). Não usar `metrics` diário para RAM — o valor do dia não é a média e
+  setembro dava US$ 33,54 contra 19,36 da fatura. A reta (Theil-Sen, 8 semanas) dá só a
+  INCLINAÇÃO; o ponto de partida é a projeção do mês corrente, senão um mês anormal
+  (vazamento da fachada em set/2026) vira o futuro. `confianca: "baixa"` quando as semanas
+  e o mês atual discordam em mais de 30% — a tela apaga a reta e avisa.
 - **Foto diária em `custos_dia`**, gravada a cada 6 h no fuso de Brasília — é o que
   desenha a curva do mês, que a tela do Railway não guarda.
 

@@ -115,5 +115,43 @@ ok(JSON.stringify(c.alertasDevidos({ ...base, recomendacao: { acao: "descer" } }
 ok(c.alertasDevidos({ ...base, recomendacao: { acao: "descer" } }, { ...cfg, limite_usd: 50 }, ["mudar_plano"]).length === 0,
    "e nao repete no mesmo ciclo");
 
+// --- 6. Tendencia e previsao ------------------------------------------------------
+const reta = c.theilSen([{ x: 0, y: 1 }, { x: 1, y: 3 }, { x: 2, y: 5 }, { x: 3, y: 50 }, { x: 4, y: 9 }]);
+ok(Math.abs(reta.b - 2) < 0.01, "Theil-Sen ignora o ponto fora da curva (inclinacao 2, nao puxada pelo 50)");
+ok(c.quandoChega({ a: 10, b: 2 }, 0, 20) === 5, "reta em 10 subindo 2 chega a 20 em 5");
+ok(c.quandoChega({ a: 10, b: -1 }, 0, 20) === null, "reta descendo nunca chega");
+ok(c.quandoChega({ a: 25, b: 1 }, 0, 20) === 0, "ja passou = 0");
+
+const DIA = 86400e3, T0 = Date.parse("2026-10-09T03:00:00Z");
+const semanasReg = [0, 0, 2, 2, 2, 2, 2, 2, 2, 2].map((custo, i) => ({ inicio: new Date(T0 - (10 - i) * 7 * DIA).toISOString(), custo }));
+const est = c.montarTendencia({ semanas: semanasReg, volumes: [], limite: 10, plano: "HOBBY", agora: T0, nivelAtual: 8.6 });
+ok(est.historico.length === 8, "semanas zeradas do comeco (conta nova) ficam de fora");
+ok(Math.abs(est.variacaoMensal) < 0.01, "gasto estavel -> variacao mensal zero");
+ok(est.marcos.find((m) => m.tipo === "pro").quando === null, "estavel abaixo de 20 -> nunca chega no Pro");
+ok(est.confianca === "alta", "8 semanas iguais e nivel coerente -> confianca alta");
+
+const subindo = [1, 2, 3, 4, 5, 6, 7, 8].map((custo, i) => ({ inicio: new Date(T0 - (8 - i) * 7 * DIA).toISOString(), custo }));
+const sub = c.montarTendencia({ semanas: subindo, volumes: [], limite: 40, plano: "HOBBY", agora: T0, nivelAtual: 30 });
+ok(sub.ritmoMensal === 30, "a reta parte do mes corrente, nao do passado");
+ok(Math.abs(sub.variacaoMensal - 30 / 7 * 30 / 7) < 0.05, "inclinacao vem das semanas (US$ 1/semana = ~18,4/mes por mes)");
+const mLim = sub.marcos.find((m) => m.tipo === "limite");
+ok(mLim.semanas > 2 && mLim.semanas < 3, "de 30 para 40 a ~18/mes -> limite em pouco mais de 2 semanas");
+ok(sub.previsao.length === 6 && sub.previsao[0].estavel === 30, "previsao de 6 meses, com o cenario parado junto");
+
+const ruptura = c.montarTendencia({ semanas: subindo, volumes: [], limite: 40, plano: "HOBBY", agora: T0, nivelAtual: 10 });
+ok(ruptura.confianca === "baixa", "semanas dizendo 30 e mes corrente dizendo 10 -> confianca baixa");
+
+const vols = c.montarTendencia({
+  semanas: semanasReg, plano: "HOBBY", agora: T0, limite: 0, nivelAtual: 8.6,
+  volumes: [
+    { projeto: "A", servico: "Postgres", serie: Array.from({ length: 31 }, (_, i) => ({ dia: T0 - (30 - i) * DIA, gb: 1 + i * 0.1 })) },
+    { projeto: "B", servico: "Postgres", serie: Array.from({ length: 31 }, (_, i) => ({ dia: T0 - (30 - i) * DIA, gb: 0.25 })) },
+  ],
+});
+ok(vols.volumes[0].projeto === "A" && vols.volumes[0].dias80 === 0 + Math.round((4 - 4) / 0.1), "banco que cresce 0,1 GB/dia ja em 4 GB -> chega em 80% hoje");
+ok(vols.volumes[1].dias80 === null, "banco parado nunca enche");
+ok(vols.marcos.some((m) => m.tipo === "volume" && m.projeto === "A"), "o banco que enche primeiro vira marco");
+ok(!vols.marcos.some((m) => m.tipo === "limite"), "sem limite definido, sem marco de limite");
+
 console.log(falhas ? `\n${falhas} FALHA(S)` : "\nTudo certo");
 process.exit(falhas ? 1 : 0);

@@ -2569,7 +2569,17 @@ app.get("/api/admin/custos", exigeSuperAdmin, async (req, res, next) => {
     try {
       const relatorio = await custos.consultar({ forcar: req.query.atualizar === "1" });
       const enviados = relatorio.ciclo ? await custos.alertasEnviados(relatorio.ciclo.inicio) : [];
-      res.json({ ...base, relatorio, alertasEnviados: enviados });
+      // A previsao e um extra: se a API falhar so nela, o resto da tela continua.
+      let tendencia = null;
+      try {
+        tendencia = await custos.tendencia({
+          forcar: req.query.atualizar === "1", limite: config.limite_usd, plano: relatorio.plano,
+          nivelAtual: relatorio.estimado.uso,
+        });
+      } catch (e) {
+        console.warn("[custos] tendencia indisponivel:", e.message);
+      }
+      res.json({ ...base, relatorio, alertasEnviados: enviados, tendencia });
     } catch (e) {
       // Falha da API do Railway nao e erro do UniGestao: a tela mostra o motivo
       // e continua exibindo historico e configuracao.
