@@ -19,7 +19,8 @@ UniGestao/
 │   ├── schema.sql         # usuarios, usuario_modulos, sessoes, login_attempts, auditoria
 │   ├── auth.js            # PBKDF2, verificacao multi-algoritmo, TOTP, rate limit
 │   ├── chat.js            # COMUNICADOR: o que vale como mensagem, quem apaga, quem ve
-│   └── modulos.js         # REGISTRO dos modulos e dos papeis de cada um
+│   ├── modulos.js         # REGISTRO dos modulos e dos papeis de cada um
+│   └── custos-railway.js  # CUSTOS: painel /custos e alerta de fatura do Railway
 ├── public/                # login.html, inicio.html, admin.html, core.css
 │                          # chat.js + chat.css: o comunicador, servido tambem aos modulos
 ├── fachada/server.js      # FACHADA: unico servico publico, roteia e injeta o shim
@@ -198,6 +199,23 @@ ser desfeitas sem motivo:
 
 Cuidado com nomes: a *Agenda de Contatos* do portal (`core/perfil.js`,
 `tests/agenda.test.js`) não tem nada a ver com a *agenda de visitas*.
+
+### Custos do Railway (`core/custos-railway.js`, tela `/custos`)
+
+Nasceu da fatura de 07/10/2026 (US$ 24 onde se pagava ~US$ 6). Só o administrador
+geral vê. Precisa de `RAILWAY_API_TOKEN` (token de **workspace**) e
+`RAILWAY_WORKSPACE_ID` no serviço `core`; sem eles a tela explica o que falta e nada
+mais muda.
+
+- **A API do Railway devolve MINUTOS** (GB-minuto, vCPU-minuto), não meses. Os preços
+  em `PRECO_POR_UNIDADE` são por minuto e foram conferidos contra a fatura real em
+  `tests/custos-railway.test.js` — se a conta parar de bater com a fatura, é ali que falha.
+- **Backup é cobrado na linha do disco.** Os dois entram com o mesmo preço.
+- **Cada alerta sai uma vez por ciclo** (`custos_alerta`, chave `ciclo_inicio + tipo`).
+  A linha é inserida ANTES do envio: com duas instâncias do Core, só uma consegue
+  inserir e só ela manda o e-mail. Não trocar por controle em memória.
+- **Foto diária em `custos_dia`**, gravada a cada 6 h no fuso de Brasília — é o que
+  desenha a curva do mês, que a tela do Railway não guarda.
 
 ---
 

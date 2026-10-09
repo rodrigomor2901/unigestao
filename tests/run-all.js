@@ -21,6 +21,7 @@ const testes = [
   "rotas-dos-modulos.test.js",
   "aviso-email.test.js",
   "email-brevo.test.js",
+  "custos-railway.test.js",
   "importacao-partida.test.js",
   "agenda.test.js",
   "mural.test.js",

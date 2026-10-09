@@ -381,4 +381,6 @@ module.exports = {
   avisarContaNova, avisarModuloNovo, avisarSenhaNova, avisarRecuperarSenha,
   htmlContaNova, htmlModuloNovo, htmlSenhaNova, htmlRecuperarSenha,
   mascarar, URL_PORTAL, REMETENTE_ENDERECO,
+  // usados pelo alerta de custos (core/custos-railway.js), com a mesma moldura
+  moldura, esc,
 };

@@ -27,6 +27,7 @@ const checklists = require("./core/checklists");
 const chat = require("./core/chat");
 const sincroniaCrm = require("./core/sincronia-crm");
 const visitasPrevistas = require("./core/visitas-previstas");
+const custos = require("./core/custos-railway");
 
 const app = express();
 
@@ -98,6 +99,13 @@ app.get("/mural", (req, res) => {
 app.get("/admin", (req, res) => {
   if (!req.usuario) return res.redirect("/");
   res.sendFile(path.join(PUBLIC, "admin.html"));
+});
+
+// Custos do Railway — so o administrador geral. Quem nao e volta para o inicio
+// em vez de ver uma tela vazia: o numero e da conta da empresa, nao da pessoa.
+app.get("/custos", (req, res) => {
+  if (!req.usuario || !req.usuario.super_admin) return res.redirect("/");
+  res.sendFile(path.join(PUBLIC, "custos.html"));
 });
 
 // Painel de checklists. Duas portas: precisa estar logado E ter a marcacao.
@@ -2549,6 +2557,60 @@ app.post("/api/admin/usuarios/:id/2fa/resetar", exigeSuperAdmin, async (req, res
   }
 });
 
+// ---------------------------------------------------------------------------
+// Custos do Railway (core/custos-railway.js)
+// ---------------------------------------------------------------------------
+
+app.get("/api/admin/custos", exigeSuperAdmin, async (req, res, next) => {
+  try {
+    const [config, hist] = await Promise.all([custos.lerConfig(), custos.historico()]);
+    const base = { configurado: custos.configurado(), config, historico: hist, emailModo: correio.modo() };
+    if (!custos.configurado()) return res.json(base);
+    try {
+      const relatorio = await custos.consultar({ forcar: req.query.atualizar === "1" });
+      const enviados = relatorio.ciclo ? await custos.alertasEnviados(relatorio.ciclo.inicio) : [];
+      res.json({ ...base, relatorio, alertasEnviados: enviados });
+    } catch (e) {
+      // Falha da API do Railway nao e erro do UniGestao: a tela mostra o motivo
+      // e continua exibindo historico e configuracao.
+      res.json({ ...base, erroRailway: e.message });
+    }
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.post("/api/admin/custos/config", exigeSuperAdmin, async (req, res, next) => {
+  try {
+    const config = await custos.salvarConfig({
+      limite: req.body.limite, emails: req.body.emails,
+      ativo: req.body.ativo, avisarPlano: req.body.avisarPlano,
+    });
+    await auth.auditar(req, "custos_config", { detalhe: config });
+    res.json({ ok: true, config });
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ erro: e.message });
+    next(e);
+  }
+});
+
+// Manda AGORA um aviso de teste para os e-mails cadastrados, com os numeros de
+// hoje — para conferir que chega (e nao cai no spam) antes de precisar dele.
+app.post("/api/admin/custos/testar-alerta", exigeSuperAdmin, async (req, res, next) => {
+  try {
+    const config = await custos.lerConfig();
+    if (!config.emails.length) return res.status(400).json({ erro: "Cadastre ao menos um e-mail para receber o aviso." });
+    if (!correio.configurado()) return res.status(400).json({ erro: "O envio de e-mail não está configurado no Core." });
+    const relatorio = await custos.consultar();
+    const resultados = await custos.enviarAlerta("projecao", relatorio, config);
+    const falhas = resultados.filter((r) => !r.ok);
+    res.json({ ok: falhas.length === 0, enviados: resultados.length - falhas.length, erro: falhas[0] && falhas[0].erro });
+  } catch (e) {
+    if (e.naoConfigurado) return res.status(400).json({ erro: e.message });
+    next(e);
+  }
+});
+
 // Em que modo o envio de e-mail esta. A tela usa isso para avisar o
 // administrador quando o e-mail nao vai sair, e os testes usam como trava:
 // so mexem em cadastro depois de confirmar que estao em "rascunho".
@@ -2672,6 +2734,8 @@ async function bootstrap() {
     // enquanto um dos dois estava fora do ar (e quem foi cadastrado antes disto
     // existir). Espera um pouco para nao disputar com o proprio boot.
     sincroniaCrm.agendar(15000);
+    // Foto diaria do custo do Railway e alerta de limite (Admin Geral > Custos).
+    custos.agendar();
   } catch (e) {
     console.error("[core] falha ao iniciar:", e);
     process.exit(1);

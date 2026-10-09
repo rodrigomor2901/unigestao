@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UniGestão — Custos do Railway</title>
+<link rel="icon" href="/marca/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/core.css">
+<style>
+  .topo {
+    background: var(--accent); color: #fff; padding: 14px 24px;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  }
+  .topo h1 { font-size: 19px; }
+  .topo h1 span { color: var(--laranja); }
+  .topo h1 a { color: inherit; text-decoration: none; }
+  .topo h1 a:hover { opacity: .85; }
+  .topo a, .topo button {
+    color: #fff; background: none; border: 0; font: inherit; font-size: 14px;
+    cursor: pointer; text-decoration: underline; padding: 0;
+  }
+  .topo .quem { display: flex; align-items: center; gap: 14px; font-size: 14px; }
+
+  main { max-width: 1100px; margin: 0 auto; padding: 28px 24px 70px; }
+  .cabeca { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px;
+            margin-bottom: 20px; flex-wrap: wrap; }
+  .cabeca h2 { font-size: 21px; }
+  .cabeca p { margin: 3px 0 0; color: var(--texto-fraco); font-size: 14px; }
+  .estado { font-size: 13px; color: var(--texto-fraco); display: flex; align-items: center; gap: 10px; }
+
+  .numeros { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+             gap: 14px; margin-bottom: 18px; }
+  .num { padding: 16px 18px; }
+  .num .rot { font-size: 12px; color: var(--texto-fraco); font-weight: 600;
+              text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
+  .num .v { font-size: 28px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .num .pe { font-size: 12.5px; color: var(--texto-fraco); margin-top: 6px; }
+  .num.alto .v { color: var(--erro); }
+
+  /* Barra do limite: quanto do limite ja foi (cheio) e ate onde a projecao vai
+     (riscado). Uma linha so responde "estou dentro?" e "vou ficar dentro?". */
+  .limite { padding: 16px 18px; margin-bottom: 18px; }
+  .limite .topoL { display: flex; justify-content: space-between; font-size: 13.5px; margin-bottom: 10px; gap: 10px; flex-wrap: wrap; }
+  .trilho { position: relative; height: 14px; background: #efede8; border-radius: 999px; overflow: hidden; }
+  .trilho .proj { position: absolute; inset: 0 auto 0 0; border-radius: 999px;
+                  background: repeating-linear-gradient(135deg, #f3c98b 0 6px, #f8dcb3 6px 12px); }
+  .trilho .gasto { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: var(--accent); }
+  .trilho.estourou .gasto { background: var(--erro); }
+  .legenda { display: flex; gap: 16px; font-size: 12.5px; color: var(--texto-fraco); margin-top: 8px; flex-wrap: wrap; }
+  .legenda i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+
+  .duas { display: grid; grid-template-columns: 1fr 340px; gap: 18px; align-items: start; }
+  .duas > * { min-width: 0; }
+  .bloco { padding: 18px; margin-bottom: 18px; }
+  .bloco h3 { font-size: 16px; margin-bottom: 4px; }
+  .bloco .sub { font-size: 13px; color: var(--texto-fraco); margin: 0 0 14px; }
+
+  .grafico svg { width: 100%; height: auto; display: block; }
+  .grafico .vazio { font-size: 13.5px; color: var(--texto-fraco); padding: 30px 0; text-align: center; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 10px 10px; text-align: left; border-bottom: 1px solid var(--borda); font-size: 14px; }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--texto-fraco); font-weight: 600; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tr.proj { cursor: pointer; }
+  tr.proj:hover td { background: #faf9f6; }
+  tr.proj td:first-child::before { content: "▸"; display: inline-block; width: 16px; color: var(--texto-fraco); }
+  tr.proj.aberto td:first-child::before { content: "▾"; }
+  tr.serv td { font-size: 13px; color: #475467; background: #fbfaf8; }
+  tr.serv td:first-child { padding-left: 34px; }
+  .peso { display: inline-block; height: 6px; border-radius: 3px; background: var(--accent); opacity: .75; vertical-align: middle; margin-left: 8px; }
+  .ram-alta { color: var(--erro); font-weight: 600; }
+  tr.serv small.det { display: block; color: var(--texto-fraco); font-size: 12px; margin-top: 2px; }
+
+  .campo input[type=number] { width: 100%; padding: 10px 12px; border: 1px solid var(--borda);
+    border-radius: var(--radius-sm); font: inherit; }
+  textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--borda); border-radius: var(--radius-sm);
+             font: inherit; resize: vertical; }
+  .check { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; margin-bottom: 12px; }
+  .check input { width: 17px; height: 17px; accent-color: var(--accent); margin-top: 2px; }
+  .check small { display: block; color: var(--texto-fraco); font-size: 12.5px; }
+  .acoes { display: flex; gap: 10px; flex-wrap: wrap; }
+  .enviados { font-size: 12.5px; color: var(--texto-fraco); margin-top: 12px; line-height: 1.6; }
+
+  .passos { font-size: 14px; line-height: 1.7; padding-left: 20px; margin: 8px 0 0; }
+  code { background: #f2f1ee; padding: 1px 6px; border-radius: 4px; font-size: 13px; }
+
+  @media (max-width: 860px) { .duas { grid-template-columns: 1fr; } }
+  @media (max-width: 560px) {
+    main { padding: 20px 14px 60px; }
+    .esconde-cel { display: none; }
+    .num .v { font-size: 22px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topo">
+  <h1><a href="/" title="Ir para a tela inicial"><img src="/marca/simbolo-claro.svg" alt=""
+         width="28" height="28" style="vertical-align:-7px;margin-right:8px"
+         >Uni<span>Gestão</span></a> · Custos do Railway</h1>
+  <div class="quem">
+    <a href="/admin">Admin Geral</a>
+    <a href="/">Início</a>
+    <button id="btnSair">Sair</button>
+  </div>
+</header>
+
+<main>
+  <div class="cabeca">
+    <div>
+      <h2>Quanto os sistemas estão custando</h2>
+      <p id="ciclo">Ciclo de cobrança atual do Railway, por projeto e por serviço.</p>
+    </div>
+    <div class="estado">
+      <span id="consultado"></span>
+      <button class="btn btn-sec btn-sm" id="btnAtualizar">Atualizar agora</button>
+    </div>
+  </div>
+
+  <div id="alerta"></div>
+
+  <div id="painel" style="display:none">
+    <div class="numeros">
+      <div class="card num" id="nGasto"><div class="rot">Gasto até agora</div><div class="v">—</div><div class="pe"></div></div>
+      <div class="card num" id="nProj"><div class="rot">Projeção do mês</div><div class="v">—</div><div class="pe"></div></div>
+      <div class="card num" id="nAnt"><div class="rot">Mês passado</div><div class="v">—</div><div class="pe"></div></div>
+      <div class="card num" id="nRam"><div class="rot">Maior peso</div><div class="v">—</div><div class="pe"></div></div>
+    </div>
+
+    <div class="card limite">
+      <div class="topoL"><b id="limTitulo">Limite de alerta</b><span id="limTexto"></span></div>
+      <div class="trilho" id="trilho"><div class="proj" id="barProj"></div><div class="gasto" id="barGasto"></div></div>
+      <div class="legenda">
+        <span><i style="background:var(--accent)"></i>Gasto até agora</span>
+        <span><i style="background:#f3c98b"></i>Projeção até o fim do ciclo</span>
+        <span>O fim da barra é o limite</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="duas">
+    <div>
+      <div class="card bloco" id="blocoProjetos" style="display:none">
+        <h3>Por projeto</h3>
+        <p class="sub">Clique num projeto para ver os serviços. "RAM média" alta num serviço que quase não trabalha é o primeiro suspeito.</p>
+        <table>
+          <thead><tr><th>Projeto</th><th class="n">Até agora</th><th class="n">Projeção</th></tr></thead>
+          <tbody id="corpo"></tbody>
+        </table>
+      </div>
+
+      <div class="card bloco">
+        <h3>Evolução no ciclo</h3>
+        <p class="sub">Uma foto por dia, gravada pelo próprio UniGestão a cada 6 horas.</p>
+        <div class="grafico" id="grafico"><div class="vazio">Ainda sem fotos — a primeira sai alguns minutos depois do deploy.</div></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card bloco">
+        <h3>Alerta por e-mail</h3>
+        <p class="sub">Cada aviso sai uma vez por ciclo: quando a projeção passar do limite, e de novo se o gasto real passar.</p>
+        <div id="cfgAlerta"></div>
+        <label class="campo"><span>Limite da fatura (US$)</span>
+          <input type="number" id="fLimite" min="0" step="0.5" value="10"></label>
+        <label class="campo"><span>Quem recebe (um e-mail por linha)</span>
+          <textarea id="fEmails" rows="3" placeholder="rodrigo.moraes@uniseter.com"></textarea></label>
+        <label class="check"><input type="checkbox" id="fAtivo" checked>
+          <span>Alertas ligados</span></label>
+        <label class="check"><input type="checkbox" id="fPlano">
+          <span>Avisar também quando passar do incluído no plano
+            <small>US$ 5 no Hobby. Útil para saber quando começou a pagar além da assinatura.</small></span></label>
+        <div class="acoes">
+          <button class="btn" id="btnSalvar">Salvar</button>
+          <button class="btn btn-sec" id="btnTestar">Enviar teste</button>
+        </div>
+        <div class="enviados" id="enviados"></div>
+      </div>
+
+      <div class="card bloco" id="blocoMedidas" style="display:none">
+        <h3>No que o dinheiro vai</h3>
+        <p class="sub">Soma de todos os projetos no ciclo.</p>
+        <table><tbody id="medidas"></tbody></table>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+var dados = null;
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+function us(n) { return 'US$ ' + Number(n || 0).toFixed(2).replace('.', ','); }
+function dataBR(iso) { return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }); }
+function avisar(tipo, msg) {
+  document.getElementById('alerta').innerHTML = msg ? '<div class="aviso aviso-' + tipo + '">' + msg + '</div>' : '';
+}
+function preencher(id, v, pe, alto) {
+  var el = document.getElementById(id);
+  el.querySelector('.v').textContent = v;
+  el.querySelector('.pe').textContent = pe || '';
+  el.classList.toggle('alto', !!alto);
+}
+
+async function carregar(forcar) {
+  var btn = document.getElementById('btnAtualizar');
+  btn.disabled = true;
+  try {
+    var r = await fetch('/api/admin/custos' + (forcar ? '?atualizar=1' : ''));
+    if (r.status === 401 || r.status === 403) { location.href = '/'; return; }
+    dados = await r.json();
+    desenhar();
+  } catch (e) {
+    avisar('erro', 'Não foi possível carregar: ' + esc(e.message));
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function desenhar() {
+  var cfg = dados.config;
+  document.getElementById('fLimite').value = cfg.limite_usd;
+  document.getElementById('fEmails').value = (cfg.emails || []).join('\n');
+  document.getElementById('fAtivo').checked = cfg.ativo;
+  document.getElementById('fPlano').checked = cfg.avisar_plano;
+  document.getElementById('cfgAlerta').innerHTML = dados.emailModo === 'envio' ? '' :
+    '<div class="aviso aviso-info">O envio de e-mail do Core está em modo "' + esc(dados.emailModo) +
+    '": os avisos não saem de verdade.</div>';
+
+  if (!dados.configurado) {
+    avisar('info', '<b>Falta conectar ao Railway.</b> No serviço <b>core</b>, em Variables, crie:' +
+      '<ol class="passos"><li><code>RAILWAY_API_TOKEN</code> — um token de workspace criado em ' +
+      'railway.com/account/tokens</li><li><code>RAILWAY_WORKSPACE_ID</code> — o ID do workspace</li></ol>' +
+      'Depois do deploy, esta tela mostra os números.');
+    desenharHistorico();
+    return;
+  }
+  if (dados.erroRailway) {
+    avisar('erro', esc(dados.erroRailway));
+    desenharHistorico();
+    return;
+  }
+  avisar('', '');
+
+  var rel = dados.relatorio;
+  document.getElementById('painel').style.display = '';
+  document.getElementById('blocoProjetos').style.display = '';
+  document.getElementById('blocoMedidas').style.display = '';
+  document.getElementById('ciclo').textContent =
+    'Ciclo de ' + dataBR(rel.ciclo.inicio) + ' a ' + dataBR(rel.ciclo.fim) +
+    ' · plano ' + (rel.plano || '').toLowerCase() + ' com ' + us(rel.incluido) + ' de uso incluído.';
+  document.getElementById('consultado').textContent = 'Consultado às ' +
+    new Date(rel.consultadoEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+  var lim = Number(cfg.limite_usd) || 0;
+  // O gasto mostra o USO de verdade; a fatura minima do plano vai no rodape.
+  // Mostrar "US$ 5,00" no primeiro dia escondia que quase nada foi usado.
+  preencher('nGasto', us(rel.atual.uso), 'a fatura mínima é ' + us(rel.incluido) + ' (plano)', lim && rel.atual.fatura > lim);
+  preencher('nProj', us(rel.estimado.fatura), 'se o ritmo continuar', lim && rel.estimado.fatura > lim);
+  if (rel.anterior) {
+    var dif = rel.estimado.fatura - rel.anterior.fatura;
+    preencher('nAnt', us(rel.anterior.fatura),
+      (dif <= 0 ? 'este mês deve sair ' + us(-dif) + ' mais barato' : 'este mês deve sair ' + us(dif) + ' mais caro'));
+  } else {
+    preencher('nAnt', '—', 'sem dado do ciclo anterior');
+  }
+  var topo = rel.projetos[0];
+  preencher('nRam', topo ? topo.nome : '—', topo ? us(topo.estimado) + ' projetados' : '');
+  document.querySelector('#nRam .v').style.fontSize = '20px';
+
+  // Barra: escala pelo maior entre limite e projecao, para o riscado nunca sumir.
+  var escala = Math.max(lim, rel.estimado.fatura, 0.01);
+  document.getElementById('barGasto').style.width = Math.min(100, rel.atual.uso / escala * 100) + '%';
+  document.getElementById('barProj').style.width = Math.min(100, rel.estimado.fatura / escala * 100) + '%';
+  // Vermelho so quando o gasto REAL passou; projecao acima ja aparece no riscado.
+  document.getElementById('trilho').classList.toggle('estourou', lim > 0 && rel.atual.fatura > lim);
+  document.getElementById('limTexto').textContent = lim ? (us(rel.estimado.fatura) + ' projetados de ' + us(lim)) : 'sem limite definido';
+
+  var maior = Math.max.apply(null, rel.projetos.map(function (p) { return p.estimado; }).concat([0.01]));
+  var html = '';
+  rel.projetos.forEach(function (p, i) {
+    html += '<tr class="proj" data-i="' + i + '"><td>' + esc(p.nome) +
+      '<span class="peso esconde-cel" style="width:' + Math.round(p.estimado / maior * 80) + 'px"></span></td>' +
+      '<td class="n">' + us(p.atual) + '</td><td class="n"><b>' + us(p.estimado) + '</b></td></tr>';
+    p.servicos.forEach(function (s) {
+      var ram = s.ramMediaMb == null ? '' : (s.ramMediaMb + ' MB de RAM média');
+      html += '<tr class="serv" data-de="' + i + '" style="display:none"><td>' + esc(s.nome) +
+        (ram ? ' · <span class="' + (s.ramMediaMb >= 400 ? 'ram-alta' : '') + '">' + ram + '</span>' : '') +
+        '<small class="det">RAM ' + us(s.ram) + ' · CPU ' + us(s.cpu) + ' · rede ' + us(s.rede) + ' · disco ' + us(s.disco) + '</small>' +
+        '</td><td class="n">' + us(s.custo) + '</td><td></td></tr>';
+    });
+  });
+  document.getElementById('corpo').innerHTML = html;
+
+  var m = rel.porMedida, tot = (m.ram + m.cpu + m.rede + m.disco) || 1;
+  document.getElementById('medidas').innerHTML = [
+    ['Memória (RAM)', m.ram], ['Processador (CPU)', m.cpu], ['Rede (saída)', m.rede], ['Disco e backup', m.disco],
+  ].map(function (x) {
+    return '<tr><td>' + x[0] + '</td><td class="n">' + us(x[1]) + '</td><td class="n" style="color:var(--texto-fraco)">' +
+      Math.round(x[1] / tot * 100) + '%</td></tr>';
+  }).join('');
+
+  var env = dados.alertasEnviados || [];
+  document.getElementById('enviados').innerHTML = env.length
+    ? 'Neste ciclo já saiu: ' + env.map(function (a) {
+        return ({ projecao: 'projeção acima do limite', gasto: 'gasto acima do limite', plano: 'passou do plano' })[a.tipo] +
+          ' (' + new Date(a.enviado_em).toLocaleDateString('pt-BR') + ')';
+      }).join(', ')
+    : 'Nenhum aviso enviado neste ciclo.';
+
+  desenharHistorico();
+}
+
+// Grafico de linhas em SVG puro: gasto acumulado (cheio) e projecao (tracejada)
+// por dia, com a linha do limite. Sem biblioteca — e uma tela so do admin.
+function desenharHistorico() {
+  var h = (dados.historico || []);
+  if (dados.relatorio && dados.relatorio.ciclo) {
+    // Dia de inicio no fuso de Brasilia, que e o fuso em que as fotos sao gravadas.
+    var ini = new Date(dados.relatorio.ciclo.inicio).toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+    h = h.filter(function (x) { return x.dia >= ini; });
+  }
+  var alvo = document.getElementById('grafico');
+  if (h.length < 2) {
+    alvo.innerHTML = '<div class="vazio">' + (h.length ? 'Uma foto gravada até agora — a linha aparece a partir da segunda.' :
+      'Ainda sem fotos — a primeira sai alguns minutos depois do deploy.') + '</div>';
+    return;
+  }
+  // Desenha na largura real do cartao: com viewBox fixo e preserveAspectRatio
+  // "none", o texto dos eixos ficava esticado no celular.
+  var W = Math.max(280, alvo.clientWidth || 640), H = 190, E = 40, D = 10, T = 12, B = 26;
+  var lim = Number(dados.config.limite_usd) || 0;
+  var max = Math.max(lim, 5, Math.max.apply(null, h.map(function (x) { return Math.max(x.atual, x.estimado); }))) * 1.1;
+  var x = function (i) { return E + (W - E - D) * (i / (h.length - 1)); };
+  var y = function (v) { return T + (H - T - B) * (1 - v / max); };
+  var linha = function (k) { return h.map(function (p, i) { return (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(p[k]).toFixed(1); }).join(' '); };
+  var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Evolução do custo no ciclo">';
+  [0, 0.5, 1].forEach(function (f) {
+    var v = max * f;
+    svg += '<line x1="' + E + '" x2="' + (W - D) + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="#ece9e3"/>' +
+      '<text x="' + (E - 6) + '" y="' + (y(v) + 4) + '" text-anchor="end" font-size="11" fill="#98a2b3">' + Math.round(v) + '</text>';
+  });
+  if (lim) svg += '<line x1="' + E + '" x2="' + (W - D) + '" y1="' + y(lim) + '" y2="' + y(lim) + '" stroke="#b42318" stroke-dasharray="4 4"/>' +
+    '<text x="' + (W - D) + '" y="' + (y(lim) - 5) + '" text-anchor="end" font-size="11" fill="#b42318">limite</text>';
+  svg += '<path d="' + linha('estimado') + '" fill="none" stroke="#EC7807" stroke-width="2" stroke-dasharray="6 4"/>';
+  svg += '<path d="' + linha('atual') + '" fill="none" stroke="#26357A" stroke-width="2.5"/>';
+  svg += '<text x="' + E + '" y="' + (H - 6) + '" font-size="11" fill="#98a2b3">' + dataBR(h[0].dia + 'T12:00:00') + '</text>';
+  svg += '<text x="' + (W - D) + '" y="' + (H - 6) + '" text-anchor="end" font-size="11" fill="#98a2b3">' + dataBR(h[h.length - 1].dia + 'T12:00:00') + '</text>';
+  alvo.innerHTML = svg + '</svg><div class="legenda"><span><i style="background:#26357A"></i>Gasto acumulado (uso)</span>' +
+    '<span><i style="background:#EC7807"></i>Projeção do mês</span></div>';
+}
+
+document.getElementById('corpo').addEventListener('click', function (ev) {
+  var tr = ev.target.closest('tr.proj');
+  if (!tr) return;
+  var aberto = tr.classList.toggle('aberto');
+  document.querySelectorAll('tr.serv[data-de="' + tr.dataset.i + '"]').forEach(function (s) { s.style.display = aberto ? '' : 'none'; });
+});
+
+document.getElementById('btnSalvar').addEventListener('click', async function () {
+  var r = await fetch('/api/admin/custos/config', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      limite: document.getElementById('fLimite').value,
+      emails: document.getElementById('fEmails').value,
+      ativo: document.getElementById('fAtivo').checked,
+      avisarPlano: document.getElementById('fPlano').checked,
+    }),
+  });
+  var j = await r.json();
+  if (!r.ok) return avisar('erro', esc(j.erro || 'Não foi possível salvar'));
+  dados.config = j.config;
+  desenhar();
+  avisar('ok', 'Alerta salvo.');
+});
+
+document.getElementById('btnTestar').addEventListener('click', async function () {
+  var r = await fetch('/api/admin/custos/testar-alerta', { method: 'POST' });
+  var j = await r.json();
+  if (!r.ok || !j.ok) return avisar('erro', esc(j.erro || 'O teste não saiu'));
+  avisar('ok', 'Aviso de teste enviado para ' + j.enviados + ' e-mail(s). Confira também a caixa de spam.');
+});
+
+document.getElementById('btnAtualizar').addEventListener('click', function () { carregar(true); });
+document.getElementById('btnSair').addEventListener('click', async function () {
+  await fetch('/api/logout', { method: 'POST' });
+  location.href = '/';
+});
+
+carregar(false);
+</script>
+</body>
+</html>

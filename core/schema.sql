@@ -556,3 +556,37 @@ CREATE TABLE IF NOT EXISTS agenda_ponto (
   dia_semana SMALLINT  NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_agenda_ponto_envio ON agenda_ponto (envio_id);
+
+-- ============================================================================
+-- CUSTOS DO RAILWAY (core/custos-railway.js) — Admin Geral > Custos
+-- ============================================================================
+-- Uma linha so: o limite e para quem vai o aviso. Sem linha, vale o padrao do
+-- codigo (US$ 10, ninguem avisado).
+CREATE TABLE IF NOT EXISTS custos_config (
+  id            SMALLINT     PRIMARY KEY CHECK (id = 1),
+  limite_usd    NUMERIC(10,2) NOT NULL DEFAULT 10,
+  emails        TEXT[]       NOT NULL DEFAULT '{}',
+  ativo         BOOLEAN      NOT NULL DEFAULT TRUE,
+  avisar_plano  BOOLEAN      NOT NULL DEFAULT FALSE,
+  atualizado_em TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+-- Uma foto por dia do gasto e da projecao — e o que permite ver a curva do
+-- mes, que a tela do Railway nao guarda.
+CREATE TABLE IF NOT EXISTS custos_dia (
+  dia          DATE         PRIMARY KEY,
+  uso_atual    NUMERIC(10,2) NOT NULL,
+  uso_estimado NUMERIC(10,2) NOT NULL,
+  detalhe      JSONB,
+  gravado_em   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+-- Cada tipo de alerta sai UMA vez por ciclo de cobranca. A chave unica e a
+-- trava: com duas instancias do Core, so uma consegue inserir e so ela envia.
+CREATE TABLE IF NOT EXISTS custos_alerta (
+  ciclo_inicio TIMESTAMPTZ  NOT NULL,
+  tipo         TEXT         NOT NULL,
+  valor        NUMERIC(10,2),
+  enviado_em   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (ciclo_inicio, tipo)
+);
